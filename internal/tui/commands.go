@@ -1,0 +1,510 @@
+package tui
+
+import (
+	"strings"
+
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+
+	"github.com/axispx/zeta/internal/ai"
+	"github.com/axispx/zeta/internal/config"
+	"github.com/axispx/zeta/internal/search"
+	"github.com/axispx/zeta/internal/session"
+	"github.com/axispx/zeta/internal/styles"
+)
+
+type command struct {
+	name string
+	desc string
+}
+
+var commands = []command{
+	{"/clear", "start a new session"},
+	{"/resume", "open a previous session"},
+	{"/model", "switch model"},
+}
+
+// listSel is shared selection state for overlays.
+type listSel struct {
+	selected int
+}
+
+func (l *listSel) clear() { l.selected = 0 }
+
+func (l *listSel) clamp(n int) {
+	if n <= 0 {
+		l.selected = 0
+		return
+	}
+	if l.selected >= n {
+		l.selected = n - 1
+	}
+	if l.selected < 0 {
+		l.selected = 0
+	}
+}
+
+// move adjusts selection for a list of length n. Returns whether key was a nav key.
+func (l *listSel) move(n int, key string) bool {
+	switch key {
+	case "up", "ctrl+p":
+		if l.selected > 0 {
+			l.selected--
+		}
+		return true
+	case "down", "ctrl+n":
+		if n > 0 && l.selected < n-1 {
+			l.selected++
+		}
+		return true
+	}
+	return false
+}
+
+type overlayMode int
+
+const (
+	overlayOff overlayMode = iota
+	overlayCommands
+	overlayModels
+)
+
+const modelOverlayMaxRows = 5
+
+// filterOverlay is the inline list above the input (slash commands or model picker).
+type filterOverlay struct {
+	mode overlayMode
+	listSel
+	cmds   []command            // overlayCommands
+	models []config.ModelChoice // overlayModels catalog
+}
+
+func (o *filterOverlay) clear() {
+	o.mode = overlayOff
+	o.cmds = nil
+	o.models = nil
+	o.listSel.clear()
+}
+
+func (o *filterOverlay) showing() bool {
+	switch o.mode {
+	case overlayCommands:
+		return len(o.cmds) > 0
+	case overlayModels:
+		return true
+	default:
+		return false
+	}
+}
+
+func modelChoiceHaystack(c config.ModelChoice) string {
+	return c.Name + " " + c.ID()
+}
+
+func (o *filterOverlay) visibleModels(query string) []config.ModelChoice {
+	return search.Filter(query, o.models, modelChoiceHaystack)
+}
+
+func commandHaystack(c command) string { return c.name + " " + c.desc }
+
+func matchCommands(prefix string) []command {
+	if !strings.HasPrefix(prefix, "/") {
+		return nil
+	}
+	return search.Filter(strings.TrimPrefix(prefix, "/"), commands, commandHaystack)
+}
+
+func lookupCommand(name string) (command, bool) {
+	name = strings.TrimSpace(name)
+	for _, c := range commands {
+		if c.name == name {
+			return c, true
+		}
+	}
+	return command{}, false
+}
+
+func isSlashToken(s string) bool {
+	s = strings.TrimSpace(s)
+	if !strings.HasPrefix(s, "/") {
+		return false
+	}
+	return !strings.ContainsAny(s, " \t\n")
+}
+
+func (m *Model) resetInput() {
+	m.textarea.Reset()
+	m.textarea.SetHeight(inputMinHeight)
+}
+
+func (m *Model) applyClient() {
+	p := m.cfg.ActiveProvider()
+	id := m.cfg.ActiveModelID()
+	if p == nil || id == "" {
+		m.client = nil
+		return
+	}
+	m.client = ai.New(*p, id)
+}
+
+func (m *Model) syncOverlay() {
+	if m.picker.active {
+		m.overlay.clear()
+		return
+	}
+	if m.overlay.mode == overlayModels {
+		m.overlay.clamp(len(m.overlay.visibleModels(m.textarea.Value())))
+		return
+	}
+	val := m.textarea.Value()
+	if !strings.HasPrefix(val, "/") || strings.ContainsAny(val, " \t\n") {
+		m.overlay.clear()
+		return
+	}
+	items := matchCommands(val)
+	if len(items) == 0 {
+		m.overlay.clear()
+		return
+	}
+	m.overlay.mode = overlayCommands
+	m.overlay.cmds = items
+	m.overlay.models = nil
+	m.overlay.clamp(len(items))
+}
+
+func (m *Model) dismissOverlay() {
+	m.overlay.clear()
+	m.resetInput()
+}
+
+func (m *Model) runCommand(name string) {
+	m.finishStream()
+	m.resetInput()
+	m.overlay.clear()
+
+	switch name {
+	case "/clear":
+		m.startNewSession()
+	case "/resume":
+		m.openPicker()
+	case "/model":
+		m.openModelOverlay()
+	}
+}
+
+func (m *Model) applySession(sess *session.Session, recs []session.Record, err error) {
+	if err != nil {
+		m.messages = []Message{{Role: RoleError, Text: "session: " + err.Error()}}
+		m.sess = nil
+	} else {
+		m.sess = sess
+		m.messages = messagesFromRecords(recs)
+	}
+	m.titlePending = false
+	m.refreshTranscript()
+}
+
+func (m *Model) startNewSession() {
+	sess, err := session.New(m.ws.Abs)
+	m.applySession(sess, nil, err)
+}
+
+func (m *Model) openModelOverlay() {
+	entries := m.cfg.ModelChoices()
+	if len(entries) == 0 {
+		m.messages = append(m.messages, Message{Role: RoleSystem, Text: "no models configured"})
+		m.refreshTranscript()
+		return
+	}
+	m.overlay.clear()
+	m.overlay.mode = overlayModels
+	m.overlay.models = entries
+	m.resetInput()
+	active := m.cfg.Model
+	for i, e := range entries {
+		if e.ID() == active {
+			m.overlay.selected = i
+			break
+		}
+	}
+}
+
+func (m *Model) selectModel() {
+	if m.overlay.mode != overlayModels {
+		return
+	}
+	visible := m.overlay.visibleModels(m.textarea.Value())
+	if len(visible) == 0 {
+		return
+	}
+	choice := visible[m.overlay.selected]
+
+	prevCfg := m.cfg
+	prevClient := m.client
+
+	m.cfg.SetModel(choice.ID())
+	if err := m.cfg.Save(); err != nil {
+		m.cfg = prevCfg
+		m.client = prevClient
+		m.dismissOverlay()
+		m.messages = append(m.messages, Message{Role: RoleError, Text: "config save: " + err.Error()})
+		m.refreshTranscript()
+		return
+	}
+	m.applyClient()
+	m.dismissOverlay()
+	m.refreshTranscript()
+}
+
+func (m *Model) handleOverlayKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
+	key := msg.String()
+	switch m.overlay.mode {
+	case overlayModels:
+		n := len(m.overlay.visibleModels(m.textarea.Value()))
+		if m.overlay.move(n, key) {
+			return nil, true
+		}
+		switch key {
+		case "enter":
+			m.selectModel()
+			return nil, true
+		case "esc":
+			m.dismissOverlay()
+			return nil, true
+		}
+		return nil, false
+	case overlayCommands:
+		if !m.overlay.showing() {
+			return nil, false
+		}
+		if m.overlay.move(len(m.overlay.cmds), key) {
+			return nil, true
+		}
+		if key == "tab" {
+			m.textarea.SetValue(m.overlay.cmds[m.overlay.selected].name)
+			return nil, true
+		}
+		return nil, false
+	default:
+		return nil, false
+	}
+}
+
+// consumeCommandOverlayKey handles nav/tab for the slash-command overlay.
+func (m *Model) consumeCommandOverlayKey(msg tea.KeyPressMsg) bool {
+	if m.overlay.mode != overlayCommands {
+		return false
+	}
+	_, ok := m.handleOverlayKey(msg)
+	return ok
+}
+
+// submitInput handles plain Enter: selected palette command, exact slash command, or chat.
+func (m *Model) submitInput() tea.Cmd {
+	if m.stream != nil {
+		return nil
+	}
+	if m.overlay.mode == overlayCommands && m.overlay.showing() {
+		m.runCommand(m.overlay.cmds[m.overlay.selected].name)
+		return nil
+	}
+	text := strings.TrimSpace(m.textarea.Value())
+	if text == "" {
+		return nil
+	}
+	if isSlashToken(text) {
+		if _, ok := lookupCommand(text); ok {
+			m.runCommand(text)
+			return nil
+		}
+		m.resetInput()
+		m.overlay.clear()
+		m.messages = append(m.messages, Message{Role: RoleError, Text: "unknown command: " + text})
+		m.refreshTranscript()
+		return nil
+	}
+	return m.submit(text)
+}
+
+func clipBottomLines(s string, n int) string {
+	if n <= 0 || s == "" {
+		return s
+	}
+	lines := strings.Split(s, "\n")
+	if len(lines) <= n {
+		return ""
+	}
+	return strings.Join(lines[:len(lines)-n], "\n")
+}
+
+// windowAround returns a [start,end) window of size listH centered on selected.
+func windowAround(selected, n, listH int) (start, end int) {
+	if n <= listH {
+		return 0, n
+	}
+	start = selected - listH/2
+	if start < 0 {
+		start = 0
+	}
+	end = start + listH
+	if end > n {
+		end = n
+		start = end - listH
+		if start < 0 {
+			start = 0
+		}
+	}
+	return start, end
+}
+
+func paletteNameWidth(items []command) int {
+	max := 0
+	for _, c := range items {
+		if w := lipgloss.Width(c.name); w > max {
+			max = w
+		}
+	}
+	return max
+}
+
+func formatPaletteRow(nameW int, c command, selected bool) string {
+	prefix := strings.Repeat(" ", inputPromptWidth)
+	if selected {
+		prefix = inputPrompt
+	}
+	nameCol := lipgloss.NewStyle().Width(inputPromptWidth + nameW).Render(prefix + c.name)
+	return nameCol + "  " + c.desc
+}
+
+func (m Model) renderOverlay(width int) string {
+	switch m.overlay.mode {
+	case overlayCommands:
+		return m.renderCommandOverlay(width)
+	case overlayModels:
+		return m.renderModelOverlay(width)
+	default:
+		return ""
+	}
+}
+
+func (m Model) renderCommandOverlay(width int) string {
+	if !m.overlay.showing() {
+		return ""
+	}
+	nameW := paletteNameWidth(m.overlay.cmds)
+	var b strings.Builder
+	for i, c := range m.overlay.cmds {
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		row := formatPaletteRow(nameW, c, i == m.overlay.selected)
+		if width > 0 {
+			row = lipgloss.NewStyle().Width(width).Render(row)
+		}
+		if i == m.overlay.selected {
+			b.WriteString(styles.OverlayRowActive.Render(row))
+		} else {
+			b.WriteString(styles.OverlayRow.Render(row))
+		}
+	}
+	return lipgloss.NewStyle().Margin(0, styles.InputMarginH).Render(b.String())
+}
+
+// formatHintRow renders "prefix+label … hint" within innerW.
+func formatHintRow(prefix, label, hint string, innerW int, labelStyle, hintStyle lipgloss.Style) string {
+	hintR := hintStyle.Render(hint)
+	hintW := lipgloss.Width(hintR)
+	maxLeft := innerW - hintW - 1
+	if maxLeft < 1 {
+		maxLeft = 1
+	}
+	avail := maxLeft - lipgloss.Width(prefix)
+	if avail < 1 {
+		avail = 1
+	}
+	if lipgloss.Width(label) > avail {
+		label = truncateRight(label, avail)
+	}
+	leftR := labelStyle.Render(prefix + label)
+	pad := innerW - lipgloss.Width(leftR) - hintW
+	if pad < 1 {
+		pad = 1
+	}
+	return leftR + strings.Repeat(" ", pad) + hintR
+}
+
+type modelRowAccent int
+
+const (
+	modelAccentNone modelRowAccent = iota
+	modelAccentSelected
+	modelAccentCurrent
+)
+
+func modelLabelAccent(selected, current bool) modelRowAccent {
+	switch {
+	case current:
+		return modelAccentCurrent // selected+current keeps active color
+	case selected:
+		return modelAccentSelected
+	default:
+		return modelAccentNone
+	}
+}
+
+func formatModelRow(label, hint string, innerW int, selected, current bool) string {
+	prefix := strings.Repeat(" ", inputPromptWidth)
+	if selected {
+		prefix = inputPrompt
+	}
+	labelStyle := styles.OverlayRow
+	switch modelLabelAccent(selected, current) {
+	case modelAccentSelected:
+		labelStyle = styles.ModelRowSelected
+	case modelAccentCurrent:
+		labelStyle = styles.ModelRowCurrent
+	}
+	hintStyle := styles.OverlayHint
+	if current {
+		hintStyle = styles.ModelHintCurrent
+	}
+	return formatHintRow(prefix, label, hint, innerW, labelStyle, hintStyle)
+}
+
+func (m Model) renderModelOverlay(width int) string {
+	visible := m.overlay.visibleModels(m.textarea.Value())
+	if m.overlay.mode != overlayModels || len(visible) == 0 {
+		return ""
+	}
+
+	innerW := width - 2*styles.InputMarginH
+	if innerW < 1 {
+		innerW = 1
+	}
+
+	listH := modelOverlayMaxRows
+	if len(visible) < listH {
+		listH = len(visible)
+	}
+	start, end := windowAround(m.overlay.selected, len(visible), listH)
+
+	active := m.cfg.Model
+	var b strings.Builder
+	for i, e := range visible[start:end] {
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		idx := start + i
+		hint := ""
+		if e.ID() == active {
+			hint = "active"
+		}
+		row := formatModelRow(e.Name, hint, innerW, idx == m.overlay.selected, e.ID() == active)
+		if width > 0 {
+			row = lipgloss.NewStyle().Width(width).Render(row)
+		}
+		b.WriteString(row)
+	}
+
+	return lipgloss.NewStyle().Margin(0, styles.InputMarginH).Render(b.String())
+}
