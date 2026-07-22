@@ -51,6 +51,23 @@ func TestSystemExcludesMode(t *testing.T) {
 	}
 }
 
+func TestSystemIncludesAgentsMD(t *testing.T) {
+	s := System(workspace.Context{AgentsMD: "Use tabs."})
+	if !strings.Contains(s, "# Project instructions") {
+		t.Fatal("System() missing project instructions heading")
+	}
+	if !strings.Contains(s, "Use tabs.") {
+		t.Fatal("System() missing AGENTS.md body")
+	}
+}
+
+func TestSystemOmitsAgentsMDWhenEmpty(t *testing.T) {
+	s := System(workspace.Context{})
+	if strings.Contains(s, "# Project instructions") {
+		t.Fatal("System() should omit project instructions when AGENTS.md is empty")
+	}
+}
+
 func TestModeInstructions(t *testing.T) {
 	for _, mode := range []Mode{ModeBuild, ModeAsk, ModePlan} {
 		s := mode.Instructions()

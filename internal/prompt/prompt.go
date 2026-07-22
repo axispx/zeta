@@ -27,5 +27,11 @@ func System(ws workspace.Context) string {
 	if ws.Branch != "" {
 		b.WriteString(fmt.Sprintf("- Git branch: %s\n", ws.Branch))
 	}
+	if ws.AgentsMD != "" {
+		b.WriteString("\n# Project instructions\n\n")
+		b.WriteString("Follow these project-specific instructions from AGENTS.md:\n\n")
+		b.WriteString(ws.AgentsMD)
+		b.WriteString("\n")
+	}
 	return b.String()
 }

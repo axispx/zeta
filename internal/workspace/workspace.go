@@ -13,18 +13,22 @@ type Context struct {
 	// Cwd is a display path (home replaced with ~).
 	Cwd    string
 	Branch string
+	// AgentsMD is the nearest AGENTS.md contents (cwd → git root, or → / if no git).
+	AgentsMD string
 }
 
-// Load reads cwd and git branch from the current process directory.
+// Load reads cwd, git branch, and AGENTS.md from the current process directory.
 func Load() Context {
 	abs, err := os.Getwd()
 	if err != nil {
 		abs = ""
 	}
+	branch, agents := inspect(abs)
 	return Context{
-		Abs:    abs,
-		Cwd:    displayCwd(),
-		Branch: gitBranch("."),
+		Abs:      abs,
+		Cwd:      displayCwd(),
+		Branch:   branch,
+		AgentsMD: agents,
 	}
 }
 
@@ -54,21 +58,28 @@ func displayCwd() string {
 	return wd
 }
 
-// gitBranch returns the current branch for dir, or "" if not in a git repo.
-// Reads .git/HEAD (no subprocess) and walks parents for worktrees.
-func gitBranch(dir string) string {
+// inspect walks upward once from dir: nearest AGENTS.md, branch at git root.
+// Stops at the git root when in a repo; otherwise walks to the filesystem root.
+func inspect(dir string) (branch, agents string) {
+	if dir == "" {
+		return "", ""
+	}
 	abs, err := filepath.Abs(dir)
-	if err != nil {
-		return ""
+	if err != nil || abs == "" {
+		return "", ""
 	}
 	for {
-		headPath, ok := gitHeadPath(abs)
-		if ok {
-			return parseGitHead(headPath)
+		if agents == "" {
+			if body, ok := readAgentsFile(filepath.Join(abs, agentsFileName)); ok {
+				agents = body
+			}
+		}
+		if headPath, ok := gitHeadPath(abs); ok {
+			return parseGitHead(headPath), agents
 		}
 		parent := filepath.Dir(abs)
 		if parent == abs {
-			return ""
+			return "", agents
 		}
 		abs = parent
 	}
