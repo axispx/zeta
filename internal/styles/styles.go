@@ -1,58 +1,54 @@
 package styles
 
 import (
+	"image/color"
+
 	"charm.land/lipgloss/v2"
-	"charm.land/lipgloss/v2/compat"
 )
 
-// Monochrome palette — terminal default fg/bg only.
+// 16-color ANSI indexes — actual hues come from the terminal colorscheme.
 const (
-	FgANSI  = "15" // white
-	DimANSI = "8"  // bright black / gray
+	DimANSI    = "8"  // bright black / gray
+	GreenANSI  = "10" // bright green
+	YellowANSI = "11" // bright yellow
+	BlueANSI   = "12" // bright blue
+	CyanANSI   = "14" // bright cyan
+
+	// Panel lift from terminal bg (Charm Lighten/Darken).
+	// Input is subtler; user bubbles are more elevated.
+	inputPanelLift  = 0.08
+	promptPanelLift = 0.14
 )
 
 var (
-	Fg       = lipgloss.Color(FgANSI)
-	Dim      = lipgloss.Color(DimANSI)
-	BgInput  = compat.AdaptiveColor{Light: lipgloss.Color("#f0f0f0"), Dark: lipgloss.Color("#333333")} // input panel
-	BgPrompt = compat.AdaptiveColor{Light: lipgloss.Color("#e2e4e8"), Dark: lipgloss.Color("#3d3b40")} // cool blue-gray (from swatch)
+	Dim    = lipgloss.Color(DimANSI)
+	Green  = lipgloss.Color(GreenANSI)
+	Yellow = lipgloss.Color(YellowANSI)
+	Blue   = lipgloss.Color(BlueANSI)
+	Cyan   = lipgloss.Color(CyanANSI)
 
-	Banner = lipgloss.NewStyle().
-		Foreground(Fg).
-		Bold(true)
+	// Prose styles omit Foreground so the terminal default fg applies.
+	Banner = lipgloss.NewStyle().Bold(true).Foreground(Blue)
 
-	// UserMsg: prompt shown as a tinted block in the transcript (no role label).
-	UserMsg = lipgloss.NewStyle().
-		Foreground(Fg).
-		Background(BgPrompt).
-		Padding(1, 1)
-
-	AgentMsg = lipgloss.NewStyle().
-			Foreground(Fg)
+	AgentMsg = lipgloss.NewStyle()
 
 	SystemMsg = lipgloss.NewStyle().
 			Foreground(Dim).
 			Italic(true)
 
 	ErrorMsg = lipgloss.NewStyle().
-			Foreground(Fg).
 			Bold(true).
 			Underline(true)
 
 	ToolMsg = lipgloss.NewStyle().
 		Foreground(Dim)
 
-	// InputBox: Cursor-style filled panel (no border) + horizontal pad.
-	InputBox = lipgloss.NewStyle().
-			Background(BgInput).
-			Padding(1, 1)
-
 	Prompt = lipgloss.NewStyle().
-		Foreground(Fg).
 		Bold(true)
 
 	Placeholder = lipgloss.NewStyle().
-			Foreground(Dim)
+			Italic(true).
+			Faint(true)
 
 	// Transcript horizontal padding must match ContentInset used in layout.
 	Transcript = lipgloss.NewStyle().
@@ -62,29 +58,68 @@ var (
 			Foreground(Dim)
 
 	ScrollThumb = lipgloss.NewStyle().
-			Foreground(Fg)
+			Bold(true)
 
 	// Footer mode accents (Build / Ask / Plan). Mapping from mode → style lives in tui.
-	StyleModeBuild = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("12")) // blue
-	StyleModeAsk   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("10")) // green
-	StyleModePlan  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("11")) // yellow
+	StyleModeBuild = lipgloss.NewStyle().Bold(true).Foreground(Blue)
+	StyleModeAsk   = lipgloss.NewStyle().Bold(true).Foreground(Green)
+	StyleModePlan  = lipgloss.NewStyle().Bold(true).Foreground(Yellow)
 
-	// Overlay list rows (command palette, session picker).
-	OverlayRow       = lipgloss.NewStyle().Foreground(Dim)
-	OverlayRowActive = lipgloss.NewStyle().Foreground(Fg).Background(BgPrompt).Bold(true)
-	OverlayHint      = lipgloss.NewStyle().Foreground(Dim).Italic(true)
+	// Overlay / accent-list rows (command palette, model overlay, session picker).
+	OverlayRow         = lipgloss.NewStyle().Foreground(Dim)
+	OverlayHint        = lipgloss.NewStyle().Foreground(Dim).Italic(true)
+	AccentRowSelected  = lipgloss.NewStyle().Foreground(Green)  // keyboard selection
+	AccentRowCurrent   = lipgloss.NewStyle().Foreground(Yellow) // configured / open item
+	AccentHintSelected = lipgloss.NewStyle().Foreground(Green).Italic(true)
+	AccentHintCurrent  = lipgloss.NewStyle().Foreground(Yellow).Italic(true)
+	OverlayHeader      = lipgloss.NewStyle().Bold(true)
 	// OverlayHintBar is the pinned footer in full-screen pickers (border top, flush bottom).
 	OverlayHintBar = lipgloss.NewStyle().
 			Foreground(Dim).
 			Italic(true).
 			Border(lipgloss.NormalBorder(), true, false, false, false).
 			BorderForeground(Dim)
-
-	// Model picker row accents (Cursor model-list palette).
-	ModelRowSelected = lipgloss.NewStyle().Foreground(lipgloss.Color("#52A078")) // keyboard selection
-	ModelRowCurrent  = lipgloss.NewStyle().Foreground(lipgloss.Color("#B5BD6B")) // configured model
-	ModelHintCurrent = lipgloss.NewStyle().Foreground(lipgloss.Color("#B5BD6B")).Italic(true)
 )
+
+// PanelFromTerminal returns a shade of termBg for panels: lighter on dark
+// terminals, darker on light ones.
+func PanelFromTerminal(termBg color.Color, dark bool, lift float64) color.Color {
+	if dark {
+		return lipgloss.Lighten(termBg, lift)
+	}
+	return lipgloss.Darken(termBg, lift)
+}
+
+// Chrome holds terminal-derived panel colors. Zero value is safe before
+// BackgroundColorMsg (padding-only panels, untinted banner).
+type Chrome struct {
+	Input  color.Color
+	Prompt color.Color
+}
+
+// NewChrome derives panel fills from the live terminal background.
+func NewChrome(termBg color.Color, dark bool) Chrome {
+	return Chrome{
+		Input:  PanelFromTerminal(termBg, dark, inputPanelLift),
+		Prompt: PanelFromTerminal(termBg, dark, promptPanelLift),
+	}
+}
+
+func (c Chrome) InputBox() lipgloss.Style {
+	s := lipgloss.NewStyle().Padding(1, 1)
+	if c.Input != nil {
+		s = s.Background(c.Input)
+	}
+	return s
+}
+
+func (c Chrome) UserMsg() lipgloss.Style {
+	s := lipgloss.NewStyle().Padding(1, 1)
+	if c.Prompt != nil {
+		s = s.Background(c.Prompt)
+	}
+	return s
+}
 
 // BannerArt is the ZETA shadow block logo.
 const BannerArt = `

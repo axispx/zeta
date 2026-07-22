@@ -83,39 +83,42 @@ func TestListSelMove(t *testing.T) {
 	}
 }
 
-func TestModelLabelAccent(t *testing.T) {
-	if got := modelLabelAccent(true, true); got != modelAccentCurrent {
-		t.Fatalf("selected+current keeps active color: %v", got)
+func TestFormatAccentRow(t *testing.T) {
+	selected := formatAccentRow("GPT-4", "", 40, true, false)
+	if !strings.Contains(selected, "→") {
+		t.Fatalf("expected arrow for selected row: %q", selected)
 	}
-	if got := modelLabelAccent(true, false); got != modelAccentSelected {
-		t.Fatalf("selected: %v", got)
-	}
-	if got := modelLabelAccent(false, true); got != modelAccentCurrent {
-		t.Fatalf("current: %v", got)
-	}
-	if got := modelLabelAccent(false, false); got != modelAccentNone {
-		t.Fatalf("none: %v", got)
-	}
-}
-
-func TestFormatModelRowSelected(t *testing.T) {
-	row := formatModelRow("GPT-4", "", 40, true, false)
-	if !strings.Contains(row, "→") {
-		t.Fatalf("expected arrow for selected row: %q", row)
-	}
-}
-
-func TestFormatPickerRow(t *testing.T) {
-	row := formatPickerRow("refactor auth", "2h ago", 40, false)
+	row := formatAccentRow("refactor auth", "2h ago", 40, false, false)
 	if !strings.Contains(row, "refactor auth") {
 		t.Fatalf("label not left: %q", row)
 	}
 	if !strings.Contains(row, "2h ago") {
 		t.Fatalf("time not right: %q", row)
 	}
-	long := formatPickerRow(strings.Repeat("x", 50), "just now", 30, true)
+	current := formatAccentRow("refactor auth", "2h ago", 40, false, true)
+	if strings.Contains(current, "→") {
+		t.Fatalf("current-only should not have arrow: %q", current)
+	}
+	if current == row {
+		t.Fatalf("current accent should differ from plain: %q", current)
+	}
+	if current == selected {
+		t.Fatalf("current accent should differ from selected: %q vs %q", current, selected)
+	}
+	both := formatAccentRow("refactor auth", "2h ago", 40, true, true)
+	if !strings.Contains(both, "→") {
+		t.Fatalf("selected+current keeps arrow: %q", both)
+	}
+	if both == selected {
+		t.Fatalf("selected+current should keep current accent: %q", both)
+	}
+	long := formatAccentRow(strings.Repeat("x", 50), "just now", 30, true, false)
 	if lipgloss.Width(long) > 30 {
 		t.Fatalf("row too wide: %d", lipgloss.Width(long))
+	}
+	header := formatPickerHeader(40)
+	if !strings.Contains(header, "NAME") || !strings.Contains(header, "UPDATED") {
+		t.Fatalf("header missing columns: %q", header)
 	}
 }
 

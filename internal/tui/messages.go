@@ -29,18 +29,18 @@ type Message struct {
 }
 
 // render formats the message for the transcript.
-func (m *Message) render(width int, topMargin int) string {
-	body := m.renderBody(width)
+func (m *Message) render(width int, topMargin int, userMsg lipgloss.Style) string {
+	body := m.renderBody(width, userMsg)
 	if topMargin > 0 {
 		return lipgloss.NewStyle().MarginTop(topMargin).Render(body)
 	}
 	return body
 }
 
-func (m *Message) renderBody(width int) string {
+func (m *Message) renderBody(width int, userMsg lipgloss.Style) string {
 	switch m.Role {
 	case RoleUser:
-		s := styles.UserMsg
+		s := userMsg
 		if width > 0 {
 			s = s.Width(width)
 		}

@@ -69,12 +69,9 @@ func (m *Model) handlePickerKey(msg tea.KeyPressMsg) tea.Cmd {
 	return nil
 }
 
-func formatPickerRow(label, rel string, innerW int, selected bool) string {
-	labelStyle := styles.OverlayRow
-	if selected {
-		labelStyle = styles.OverlayRowActive
-	}
-	return formatHintRow("", label, rel, innerW, labelStyle, styles.OverlayHint)
+func formatPickerHeader(innerW int) string {
+	prefix := strings.Repeat(" ", inputPromptWidth)
+	return formatHintRow(prefix, "NAME", "UPDATED", innerW, styles.OverlayHeader, styles.OverlayHeader)
 }
 
 func (m Model) renderPicker(width, height int) string {
@@ -92,25 +89,32 @@ func (m Model) renderPicker(width, height int) string {
 		Padding(0, styles.ContentInset).
 		Render("↑/↓ select · enter open · esc cancel")
 	hintH := lipgloss.Height(hintBar)
-	listH := height - hintH
+	header := formatPickerHeader(innerW)
+	headerH := lipgloss.Height(header)
+	listH := height - hintH - headerH
 	if listH < 1 {
 		listH = 1
 	}
 
+	currentID := ""
+	if m.sess != nil {
+		currentID = m.sess.ID
+	}
+
 	start, end := windowAround(m.picker.selected, len(m.picker.entries), listH)
 	var b strings.Builder
+	b.WriteString(header)
 	for i, e := range m.picker.entries[start:end] {
-		if i > 0 {
-			b.WriteByte('\n')
-		}
+		b.WriteByte('\n')
 		label := e.Name
 		if label == "" {
 			label = e.ID
 		}
-		b.WriteString(formatPickerRow(label, formatRelativeTime(e.Updated), innerW, start+i == m.picker.selected))
+		sel := start+i == m.picker.selected
+		b.WriteString(formatAccentRow(label, formatRelativeTime(e.Updated), innerW, sel, e.ID == currentID))
 	}
 
-	listBody := lipgloss.Place(width, listH, lipgloss.Left, lipgloss.Top, styles.Transcript.Render(b.String()))
+	listBody := lipgloss.Place(width, listH+headerH, lipgloss.Left, lipgloss.Top, styles.Transcript.Render(b.String()))
 	return lipgloss.JoinVertical(lipgloss.Left, listBody, hintBar)
 }
 

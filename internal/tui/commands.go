@@ -370,11 +370,13 @@ func paletteNameWidth(items []command) int {
 
 func formatPaletteRow(nameW int, c command, selected bool) string {
 	prefix := strings.Repeat(" ", inputPromptWidth)
+	labelStyle, hintStyle := styles.OverlayRow, styles.OverlayHint
 	if selected {
 		prefix = inputPrompt
+		labelStyle, hintStyle = styles.AccentRowSelected, styles.AccentHintSelected
 	}
-	nameCol := lipgloss.NewStyle().Width(inputPromptWidth + nameW).Render(prefix + c.name)
-	return nameCol + "  " + c.desc
+	nameCol := labelStyle.Width(inputPromptWidth + nameW).Render(prefix + c.name)
+	return nameCol + "  " + hintStyle.Render(c.desc)
 }
 
 func (m Model) renderOverlay(width int) string {
@@ -402,11 +404,7 @@ func (m Model) renderCommandOverlay(width int) string {
 		if width > 0 {
 			row = lipgloss.NewStyle().Width(width).Render(row)
 		}
-		if i == m.overlay.selected {
-			b.WriteString(styles.OverlayRowActive.Render(row))
-		} else {
-			b.WriteString(styles.OverlayRow.Render(row))
-		}
+		b.WriteString(row)
 	}
 	return lipgloss.NewStyle().Margin(0, styles.InputMarginH).Render(b.String())
 }
@@ -434,40 +432,19 @@ func formatHintRow(prefix, label, hint string, innerW int, labelStyle, hintStyle
 	return leftR + strings.Repeat(" ", pad) + hintR
 }
 
-type modelRowAccent int
-
-const (
-	modelAccentNone modelRowAccent = iota
-	modelAccentSelected
-	modelAccentCurrent
-)
-
-func modelLabelAccent(selected, current bool) modelRowAccent {
-	switch {
-	case current:
-		return modelAccentCurrent // selected+current keeps active color
-	case selected:
-		return modelAccentSelected
-	default:
-		return modelAccentNone
-	}
-}
-
-func formatModelRow(label, hint string, innerW int, selected, current bool) string {
+// formatAccentRow renders a selected/current accent list row ("→ label … hint").
+// current wins color over selected; selected still gets the arrow.
+func formatAccentRow(label, hint string, innerW int, selected, current bool) string {
 	prefix := strings.Repeat(" ", inputPromptWidth)
 	if selected {
 		prefix = inputPrompt
 	}
-	labelStyle := styles.OverlayRow
-	switch modelLabelAccent(selected, current) {
-	case modelAccentSelected:
-		labelStyle = styles.ModelRowSelected
-	case modelAccentCurrent:
-		labelStyle = styles.ModelRowCurrent
-	}
-	hintStyle := styles.OverlayHint
-	if current {
-		hintStyle = styles.ModelHintCurrent
+	labelStyle, hintStyle := styles.OverlayRow, styles.OverlayHint
+	switch {
+	case current:
+		labelStyle, hintStyle = styles.AccentRowCurrent, styles.AccentHintCurrent
+	case selected:
+		labelStyle, hintStyle = styles.AccentRowSelected, styles.AccentHintSelected
 	}
 	return formatHintRow(prefix, label, hint, innerW, labelStyle, hintStyle)
 }
@@ -500,7 +477,7 @@ func (m Model) renderModelOverlay(width int) string {
 		if e.ID() == active {
 			hint = "active"
 		}
-		row := formatModelRow(e.Name, hint, innerW, idx == m.overlay.selected, e.ID() == active)
+		row := formatAccentRow(e.Name, hint, innerW, idx == m.overlay.selected, e.ID() == active)
 		if width > 0 {
 			row = lipgloss.NewStyle().Width(width).Render(row)
 		}

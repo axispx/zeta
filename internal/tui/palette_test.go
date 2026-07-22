@@ -33,4 +33,7 @@ func TestFormatPaletteRow(t *testing.T) {
 	if i1 <= 0 || i1 != i2 {
 		t.Fatalf("desc columns misaligned: %d vs %d\n%q\n%q", i1, i2, r1, r2)
 	}
+	if row == r1 {
+		t.Fatalf("selected accent should differ from plain: %q", row)
+	}
 }

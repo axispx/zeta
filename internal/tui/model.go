@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"image/color"
 	"strings"
 
 	"charm.land/bubbles/v2/key"
@@ -51,6 +52,7 @@ type Model struct {
 	mode          prompt.Mode
 	overlay       filterOverlay
 	picker        pickerState
+	chrome        styles.Chrome // terminal-derived panels; zero until BackgroundColorMsg
 }
 
 // New creates the initial TUI model.
@@ -82,19 +84,6 @@ func New(cfg config.Config) Model {
 		key.WithHelp("shift+enter", "newline"),
 	)
 
-	ts := textarea.DefaultStyles(true)
-	inputBase := lipgloss.NewStyle().Foreground(styles.Fg).Background(styles.BgInput)
-	ts.Focused.Base = inputBase
-	ts.Focused.CursorLine = lipgloss.NewStyle()
-	ts.Focused.Placeholder = styles.Placeholder.Background(styles.BgInput)
-	ts.Focused.Prompt = styles.Prompt.Background(styles.BgInput)
-	ts.Blurred.Base = inputBase
-	ts.Blurred.CursorLine = lipgloss.NewStyle()
-	ts.Blurred.Placeholder = styles.Placeholder.Background(styles.BgInput)
-	ts.Blurred.Prompt = styles.Prompt.Foreground(styles.Dim).Background(styles.BgInput)
-	ts.Cursor.Color = styles.Fg
-	ts.Cursor.Blink = false
-	ta.SetStyles(ts)
 	ta.Focus()
 
 	vp := viewport.New()
@@ -107,6 +96,7 @@ func New(cfg config.Config) Model {
 		textarea: ta,
 		ws:       ws,
 	}
+	applyTextareaStyles(&m.textarea, nil)
 	m.applyClient()
 	if sess, err := session.New(ws.Abs); err != nil {
 		m.messages = []Message{{Role: RoleError, Text: "session: " + err.Error()}}
@@ -116,8 +106,38 @@ func New(cfg config.Config) Model {
 	return m
 }
 
+func (m *Model) applyPanels(termBg color.Color, dark bool) {
+	m.chrome = styles.NewChrome(termBg, dark)
+	applyTextareaStyles(&m.textarea, m.chrome.Input)
+}
+
+// applyTextareaStyles sets textarea chrome; bg nil skips panel fill (pre-BackgroundColorMsg).
+func applyTextareaStyles(ta *textarea.Model, bg color.Color) {
+	ts := textarea.DefaultStyles(true)
+	base := lipgloss.NewStyle()
+	prompt := styles.Prompt
+	ph := styles.Placeholder
+	if bg != nil {
+		base = base.Background(bg)
+		prompt = prompt.Background(bg)
+		ph = ph.Background(bg)
+	}
+	ts.Focused.Base = base
+	ts.Focused.Text = base
+	ts.Focused.CursorLine = base
+	ts.Focused.Placeholder = ph
+	ts.Focused.Prompt = prompt
+	ts.Blurred.Base = base
+	ts.Blurred.Text = base
+	ts.Blurred.CursorLine = base
+	ts.Blurred.Placeholder = ph
+	ts.Blurred.Prompt = prompt.Faint(true)
+	ts.Cursor.Blink = false
+	ta.SetStyles(ts)
+}
+
 func (m Model) Init() tea.Cmd {
-	return textarea.Blink
+	return tea.Batch(textarea.Blink, tea.RequestBackgroundColor)
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -127,6 +147,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	)
 
 	switch msg := msg.(type) {
+	case tea.BackgroundColorMsg:
+		m.applyPanels(msg, msg.IsDark())
+		m.refreshTranscript()
+		return m, nil
+
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
@@ -514,7 +539,7 @@ func (m *Model) setTranscriptContent() {
 			b.WriteString(body)
 			continue
 		}
-		b.WriteString(msg.render(m.contentW, top))
+		b.WriteString(msg.render(m.contentW, top, m.chrome.UserMsg()))
 	}
 	m.viewport.SetContent(b.String())
 	m.viewport.GotoBottom()
@@ -548,7 +573,7 @@ func (m Model) View() tea.View {
 	if inputH < inputMinHeight {
 		inputH = inputMinHeight
 	}
-	input := styles.InputBox.Width(inputW).Height(inputH + styles.InputPadV).Render(m.textarea.View())
+	input := m.chrome.InputBox().Width(inputW).Height(inputH + styles.InputPadV).Render(m.textarea.View())
 	input = lipgloss.NewStyle().
 		Margin(0, styles.InputMarginH, styles.InputMarginB, styles.InputMarginH).
 		Render(input)

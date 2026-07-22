@@ -11,40 +11,48 @@ import (
 	"github.com/axispx/zeta/internal/styles"
 )
 
-// agentMDStyle is ASCIIStyleConfig with zero margins (Transcript already insets)
-// and monochrome styling aligned to styles.FgANSI / styles.DimANSI.
+// agentMDStyle is ASCIIStyleConfig with zero margins (Transcript already insets).
+// Prose uses the terminal default fg; accents use the 16-color palette so themes apply.
 func agentMDStyle() ansi.StyleConfig {
-	fg := styles.FgANSI
 	dim := styles.DimANSI
+	blue := styles.BlueANSI
+	cyan := styles.CyanANSI
+	green := styles.GreenANSI
+
 	s := glamstyles.ASCIIStyleConfig
 	s.Document.Margin = uintPtr(0)
 	s.Document.BlockPrefix = ""
 	s.Document.BlockSuffix = ""
-	s.Document.StylePrimitive.Color = &fg
+	s.Document.StylePrimitive.Color = nil // terminal default fg
 	s.CodeBlock.Margin = uintPtr(0)
 	s.CodeBlock.Theme = "native"
+	s.CodeBlock.StylePrimitive.Color = nil
 	s.List.LevelIndent = 2
+
 	s.Heading = ansi.StyleBlock{
 		StylePrimitive: ansi.StylePrimitive{
 			BlockSuffix: "\n",
-			Color:       &fg,
+			Color:       &blue,
 			Bold:        boolPtr(true),
 		},
 	}
-	s.H5 = ansi.StyleBlock{
-		StylePrimitive: ansi.StylePrimitive{
-			Prefix: "##### ",
-			Color:  &dim,
-			Bold:   boolPtr(false),
-		},
+	// No hash prefixes — title weight comes from color+bold alone.
+	s.H1 = ansi.StyleBlock{}
+	s.H2 = ansi.StyleBlock{}
+	s.H3 = ansi.StyleBlock{}
+	s.H4 = ansi.StyleBlock{}
+	s.H5 = ansi.StyleBlock{}
+	s.H6 = ansi.StyleBlock{}
+
+	// Codex-style hyphen bullets; OpenCode-style bracket checkboxes.
+	s.Item = ansi.StylePrimitive{BlockPrefix: "- ", Color: &blue}
+	s.Enumeration = ansi.StylePrimitive{BlockPrefix: ". ", Color: &blue}
+	s.Task = ansi.StyleTask{
+		StylePrimitive: ansi.StylePrimitive{Color: &green},
+		Ticked:         "[✓] ",
+		Unticked:       "[ ] ",
 	}
-	s.H6 = ansi.StyleBlock{
-		StylePrimitive: ansi.StylePrimitive{
-			Prefix: "###### ",
-			Color:  &dim,
-			Bold:   boolPtr(false),
-		},
-	}
+
 	s.BlockQuote = ansi.StyleBlock{
 		Indent:      uintPtr(1),
 		IndentToken: stringPtr("│ "),
@@ -55,27 +63,23 @@ func agentMDStyle() ansi.StyleConfig {
 	}
 	s.Strikethrough = ansi.StylePrimitive{CrossedOut: boolPtr(true)}
 	s.Emph = ansi.StylePrimitive{Italic: boolPtr(true)}
-	s.Strong = ansi.StylePrimitive{Bold: boolPtr(true)}
+	s.Strong = ansi.StylePrimitive{Bold: boolPtr(true)} // bold only — terminal brightens via theme
 	s.HorizontalRule = ansi.StylePrimitive{
 		Color:  &dim,
 		Format: "\n────────\n",
 	}
-	s.Link = ansi.StylePrimitive{Color: &dim, Underline: boolPtr(true)}
+	s.Link = ansi.StylePrimitive{Color: &blue, Underline: boolPtr(true)}
 	s.LinkText = ansi.StylePrimitive{Bold: boolPtr(true)}
-	s.Image = ansi.StylePrimitive{Color: &dim, Underline: boolPtr(true)}
+	s.Image = ansi.StylePrimitive{Color: &blue, Underline: boolPtr(true)}
 	s.ImageText = ansi.StylePrimitive{Color: &dim, Format: "Image: {{.text}} →"}
-	// Inline code: dim fg only — no bg chip (keeps agent transcript monochrome).
 	s.Code = ansi.StyleBlock{
-		StylePrimitive: ansi.StylePrimitive{
-			Color: &dim,
-		},
+		StylePrimitive: ansi.StylePrimitive{Color: &cyan},
 	}
 	s.Table = ansi.StyleTable{
 		CenterSeparator: stringPtr("┼"),
 		ColumnSeparator: stringPtr("│"),
 		RowSeparator:    stringPtr("─"),
 	}
-	s.Task = ansi.StyleTask{Ticked: "[✓] ", Unticked: "[ ] "}
 	return s
 }
 

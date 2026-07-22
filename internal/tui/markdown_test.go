@@ -4,6 +4,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"charm.land/lipgloss/v2"
 )
 
 var ansiRE = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
@@ -17,6 +19,9 @@ func TestRenderMarkdownHeadingsBoldCode(t *testing.T) {
 	out := stripANSI(renderMarkdown(in, 60))
 	if !strings.Contains(out, "Title") {
 		t.Fatalf("missing heading text: %q", out)
+	}
+	if strings.Contains(out, "# Title") || strings.HasPrefix(strings.TrimSpace(out), "#") {
+		t.Fatalf("heading should not show hashes: %q", out)
 	}
 	if !strings.Contains(out, "bold") {
 		t.Fatalf("missing bold text: %q", out)
@@ -35,6 +40,9 @@ func TestRenderMarkdownHeadingsBoldCode(t *testing.T) {
 func TestRenderMarkdownListAndTable(t *testing.T) {
 	in := "- one\n- two\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n"
 	out := stripANSI(renderMarkdown(in, 60))
+	if !strings.Contains(out, "- ") {
+		t.Fatalf("missing bullet marker: %q", out)
+	}
 	if !strings.Contains(out, "one") || !strings.Contains(out, "two") {
 		t.Fatalf("missing list items: %q", out)
 	}
@@ -43,6 +51,20 @@ func TestRenderMarkdownListAndTable(t *testing.T) {
 	}
 	if !strings.Contains(out, "1") || !strings.Contains(out, "2") {
 		t.Fatalf("missing table cells: %q", out)
+	}
+}
+
+func TestRenderMarkdownTasksAndOrdered(t *testing.T) {
+	in := "- [x] done\n- [ ] todo\n\n1. first\n2. second\n"
+	out := stripANSI(renderMarkdown(in, 60))
+	if !strings.Contains(out, "[✓]") {
+		t.Fatalf("missing ticked checkbox: %q", out)
+	}
+	if !strings.Contains(out, "[ ]") {
+		t.Fatalf("missing unticked checkbox: %q", out)
+	}
+	if !strings.Contains(out, "1.") || !strings.Contains(out, "2.") {
+		t.Fatalf("missing ordered markers: %q", out)
 	}
 }
 
@@ -96,7 +118,7 @@ func TestMessageRenderStreamingPlain(t *testing.T) {
 	}
 
 	closed := &Message{Role: RoleAgent, Text: "```go\nfunc main() {}\n```"}
-	rendered := stripANSI(closed.render(40, 0))
+	rendered := stripANSI(closed.render(40, 0, lipgloss.NewStyle()))
 	if strings.Contains(rendered, "```go") {
 		t.Fatalf("finalized fenced block should not show fence markers: %q", rendered)
 	}
@@ -107,12 +129,21 @@ func TestMessageRenderStreamingPlain(t *testing.T) {
 
 func TestPlainAgentMatchesMarkdownWrap(t *testing.T) {
 	// Plain prose: lipgloss Width and glamour WordWrap should agree at margin 0.
+	// Ignore lipgloss trailing pad — only break positions matter.
 	in := strings.Repeat("word ", 30)
-	plain := stripANSI(plainAgent(in, 40))
-	md := stripANSI(renderMarkdown(in, 40))
+	plain := trimRightLines(stripANSI(plainAgent(in, 40)))
+	md := trimRightLines(stripANSI(renderMarkdown(in, 40)))
 	if plain != md {
 		t.Fatalf("wrap mismatch:\nplain=%q\nmd=%q", plain, md)
 	}
+}
+
+func trimRightLines(s string) string {
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
+		lines[i] = strings.TrimRight(line, " ")
+	}
+	return strings.Join(lines, "\n")
 }
 
 func TestRenderMarkdownCodeBlockUsesANSI(t *testing.T) {
