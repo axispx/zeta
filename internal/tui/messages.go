@@ -20,36 +20,54 @@ const (
 type Message struct {
 	Role Role
 	Text string
+
+	// Cached markdown render for RoleAgent (invalidated when Text/width change).
+	md       string
+	mdWidth  int
+	mdSource string
 }
 
-func (m Message) render(width int, topMargin int) string {
-	var body string
+// render formats the message for the transcript.
+func (m *Message) render(width int, topMargin int) string {
+	body := m.renderBody(width)
+	if topMargin > 0 {
+		return lipgloss.NewStyle().MarginTop(topMargin).Render(body)
+	}
+	return body
+}
+
+func (m *Message) renderBody(width int) string {
 	switch m.Role {
 	case RoleUser:
 		s := styles.UserMsg
 		if width > 0 {
 			s = s.Width(width)
 		}
-		body = s.Render(m.Text)
+		return s.Render(m.Text)
 	case RoleAgent:
-		s := styles.AgentMsg
-		if width > 0 {
-			s = s.Width(width)
-		}
-		body = s.Render(m.Text)
+		return m.agentMarkdown(width)
 	case RoleError:
-		body = styles.ErrorMsg.Render(m.Text)
+		body := styles.ErrorMsg.Render(m.Text)
 		if width > 0 {
 			body = lipgloss.NewStyle().Width(width).Render(body)
 		}
+		return body
 	default:
-		body = styles.SystemMsg.Render(m.Text)
+		body := styles.SystemMsg.Render(m.Text)
 		if width > 0 {
 			body = lipgloss.NewStyle().Width(width).Render(body)
 		}
+		return body
 	}
-	if topMargin > 0 {
-		return lipgloss.NewStyle().MarginTop(topMargin).Render(body)
+}
+
+func (m *Message) agentMarkdown(width int) string {
+	if m.md != "" && m.mdWidth == width && m.mdSource == m.Text {
+		return m.md
 	}
-	return body
+	out := renderMarkdown(m.Text, width)
+	m.md = out
+	m.mdWidth = width
+	m.mdSource = m.Text
+	return out
 }

@@ -416,13 +416,24 @@ func (m *Model) refreshTranscript() {
 
 func (m *Model) setTranscriptContent() {
 	var b strings.Builder
-	for i, msg := range m.messages {
+	last := len(m.messages) - 1
+	for i := range m.messages {
 		if i > 0 {
 			b.WriteString("\n\n")
 		}
 		top := 0
 		if i == 0 {
 			top = 1
+		}
+		msg := &m.messages[i]
+		// Live stream stays plain (avoids half-open fence flicker); Model owns that policy.
+		if m.stream != nil && i == last && msg.Role == RoleAgent {
+			body := plainAgent(msg.Text, m.contentW)
+			if top > 0 {
+				body = lipgloss.NewStyle().MarginTop(top).Render(body)
+			}
+			b.WriteString(body)
+			continue
 		}
 		b.WriteString(msg.render(m.contentW, top))
 	}

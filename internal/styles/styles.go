@@ -6,9 +6,14 @@ import (
 )
 
 // Monochrome palette — terminal default fg/bg only.
+const (
+	FgANSI  = "15" // white
+	DimANSI = "8"  // bright black / gray
+)
+
 var (
-	Fg       = lipgloss.Color("15")                                                                    // white
-	Dim      = lipgloss.Color("8")                                                                     // bright black / gray
+	Fg       = lipgloss.Color(FgANSI)
+	Dim      = lipgloss.Color(DimANSI)
 	BgInput  = compat.AdaptiveColor{Light: lipgloss.Color("#f0f0f0"), Dark: lipgloss.Color("#333333")} // input panel
 	BgPrompt = compat.AdaptiveColor{Light: lipgloss.Color("#e2e4e8"), Dark: lipgloss.Color("#3d3b40")} // cool blue-gray (from swatch)
 
