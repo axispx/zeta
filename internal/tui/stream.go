@@ -20,7 +20,10 @@ type turnSession struct {
 }
 
 type turnDeltaMsg struct{ text string }
-type turnAssistantMsg struct{ message ai.Message }
+type turnAssistantMsg struct {
+	message ai.Message
+	usage   ai.Usage
+}
 type turnToolMsg struct {
 	label   string
 	message ai.Message
@@ -57,7 +60,7 @@ func waitTurnEvent(ch <-chan agent.Event) tea.Cmd {
 		case agent.KindDelta:
 			return turnDeltaMsg{text: evt.Text}
 		case agent.KindAssistant:
-			return turnAssistantMsg{message: evt.Message}
+			return turnAssistantMsg{message: evt.Message, usage: evt.Usage}
 		case agent.KindTool:
 			return turnToolMsg{label: evt.Text, message: evt.Message}
 		case agent.KindDone:

@@ -201,6 +201,7 @@ func (m *Model) applySession(sess *session.Session, recs []session.Record, err e
 		m.sess = sess
 		m.messages, m.history = loadSession(recs)
 	}
+	m.contextTokens = 0
 	m.titlePending = false
 	m.refreshTranscript()
 }
@@ -252,6 +253,7 @@ func (m *Model) selectModel() {
 		m.refreshTranscript()
 		return
 	}
+	m.contextTokens = 0
 	m.applyClient()
 	m.dismissOverlay()
 	m.refreshTranscript()
@@ -368,15 +370,15 @@ func paletteNameWidth(items []command) int {
 	return max
 }
 
-func formatPaletteRow(nameW int, c command, selected bool) string {
+func formatPaletteRow(nameW int, c command, selected bool, ink styles.OverlayInk) string {
 	prefix := strings.Repeat(" ", inputPromptWidth)
-	labelStyle, hintStyle := styles.OverlayRow, styles.OverlayHint
+	labelStyle, hintStyle := ink.Row, ink.Hint
 	if selected {
 		prefix = inputPrompt
-		labelStyle, hintStyle = styles.AccentRowSelected, styles.AccentHintSelected
+		labelStyle, hintStyle = ink.Selected, ink.SelectedHint
 	}
 	nameCol := labelStyle.Width(inputPromptWidth + nameW).Render(prefix + c.name)
-	return nameCol + "  " + hintStyle.Render(c.desc)
+	return nameCol + ink.Gap.Render("  ") + hintStyle.Render(c.desc)
 }
 
 func (m Model) renderOverlay(width int) string {
@@ -394,23 +396,25 @@ func (m Model) renderCommandOverlay(width int) string {
 	if !m.overlay.showing() {
 		return ""
 	}
+	innerW, contentW := overlayWidths(width)
+	ink := m.chrome.OverlayInk()
 	nameW := paletteNameWidth(m.overlay.cmds)
 	var b strings.Builder
 	for i, c := range m.overlay.cmds {
 		if i > 0 {
 			b.WriteByte('\n')
 		}
-		row := formatPaletteRow(nameW, c, i == m.overlay.selected)
-		if width > 0 {
-			row = lipgloss.NewStyle().Width(width).Render(row)
+		row := formatPaletteRow(nameW, c, i == m.overlay.selected, ink)
+		if contentW > 0 {
+			row = ink.Gap.Width(contentW).Render(row)
 		}
 		b.WriteString(row)
 	}
-	return lipgloss.NewStyle().Margin(0, styles.InputMarginH).Render(b.String())
+	return m.paintOverlay(b.String(), innerW)
 }
 
 // formatHintRow renders "prefix+label … hint" within innerW.
-func formatHintRow(prefix, label, hint string, innerW int, labelStyle, hintStyle lipgloss.Style) string {
+func formatHintRow(prefix, label, hint string, innerW int, labelStyle, hintStyle, gap lipgloss.Style) string {
 	hintR := hintStyle.Render(hint)
 	hintW := lipgloss.Width(hintR)
 	maxLeft := innerW - hintW - 1
@@ -429,24 +433,24 @@ func formatHintRow(prefix, label, hint string, innerW int, labelStyle, hintStyle
 	if pad < 1 {
 		pad = 1
 	}
-	return leftR + strings.Repeat(" ", pad) + hintR
+	return leftR + gap.Render(strings.Repeat(" ", pad)) + hintR
 }
 
 // formatAccentRow renders a selected/current accent list row ("→ label … hint").
 // current wins color over selected; selected still gets the arrow.
-func formatAccentRow(label, hint string, innerW int, selected, current bool) string {
+func formatAccentRow(label, hint string, innerW int, selected, current bool, ink styles.OverlayInk) string {
 	prefix := strings.Repeat(" ", inputPromptWidth)
 	if selected {
 		prefix = inputPrompt
 	}
-	labelStyle, hintStyle := styles.OverlayRow, styles.OverlayHint
+	labelStyle, hintStyle := ink.Row, ink.Hint
 	switch {
 	case current:
-		labelStyle, hintStyle = styles.AccentRowCurrent, styles.AccentHintCurrent
+		labelStyle, hintStyle = ink.Current, ink.CurrentHint
 	case selected:
-		labelStyle, hintStyle = styles.AccentRowSelected, styles.AccentHintSelected
+		labelStyle, hintStyle = ink.Selected, ink.SelectedHint
 	}
-	return formatHintRow(prefix, label, hint, innerW, labelStyle, hintStyle)
+	return formatHintRow(prefix, label, hint, innerW, labelStyle, hintStyle, ink.Gap)
 }
 
 func (m Model) renderModelOverlay(width int) string {
@@ -455,10 +459,8 @@ func (m Model) renderModelOverlay(width int) string {
 		return ""
 	}
 
-	innerW := width - 2*styles.InputMarginH
-	if innerW < 1 {
-		innerW = 1
-	}
+	innerW, contentW := overlayWidths(width)
+	ink := m.chrome.OverlayInk()
 
 	listH := modelOverlayMaxRows
 	if len(visible) < listH {
@@ -477,12 +479,28 @@ func (m Model) renderModelOverlay(width int) string {
 		if e.ID() == active {
 			hint = "active"
 		}
-		row := formatAccentRow(e.Name, hint, innerW, idx == m.overlay.selected, e.ID() == active)
-		if width > 0 {
-			row = lipgloss.NewStyle().Width(width).Render(row)
-		}
-		b.WriteString(row)
+		b.WriteString(formatAccentRow(e.Name, hint, contentW, idx == m.overlay.selected, e.ID() == active, ink))
 	}
 
-	return lipgloss.NewStyle().Margin(0, styles.InputMarginH).Render(b.String())
+	return m.paintOverlay(b.String(), innerW)
+}
+
+// overlayWidths returns panel total width and content width (excludes right pad).
+func overlayWidths(termW int) (innerW, contentW int) {
+	innerW = termW - 2*styles.InputMarginH
+	if innerW < 1 {
+		innerW = 1
+	}
+	contentW = innerW - styles.OverlayPadRight
+	if contentW < 1 {
+		contentW = 1
+	}
+	return innerW, contentW
+}
+
+// paintOverlay fills the list with panel chrome so it doesn't blend into the transcript.
+func (m Model) paintOverlay(body string, innerW int) string {
+	return lipgloss.NewStyle().
+		Margin(0, styles.InputMarginH).
+		Render(m.chrome.OverlayPanel().Width(innerW).Render(body))
 }

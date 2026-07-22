@@ -39,10 +39,14 @@ func TestChromeZeroValueSafe(t *testing.T) {
 	var c Chrome
 	_ = c.InputBox()
 	_ = c.UserMsg()
+	_ = c.OverlayPanel()
+	_ = c.OverlayInk()
 }
 
 func TestChromeDerivedStyles(t *testing.T) {
 	c := NewChrome(color.RGBA{R: 0x20, G: 0x20, B: 0x20, A: 0xff}, true)
 	_ = c.InputBox()
 	_ = c.UserMsg()
+	_ = c.OverlayPanel()
+	_ = c.OverlayInk()
 }

@@ -18,6 +18,9 @@ const (
 	// Input is subtler; user bubbles are more elevated.
 	inputPanelLift  = 0.08
 	promptPanelLift = 0.14
+
+	// OverlayPadRight matches OverlayPanel's right padding (lipgloss Width includes it).
+	OverlayPadRight = 1
 )
 
 var (
@@ -40,8 +43,8 @@ var (
 			Bold(true).
 			Underline(true)
 
-	ToolMsg = lipgloss.NewStyle().
-		Foreground(Dim)
+	// ToolMsg uses default terminal fg (tool call names read as normal text).
+	ToolMsg = lipgloss.NewStyle()
 
 	Prompt = lipgloss.NewStyle().
 		Bold(true)
@@ -66,7 +69,8 @@ var (
 	StyleModePlan  = lipgloss.NewStyle().Bold(true).Foreground(Yellow)
 
 	// Overlay / accent-list rows (command palette, model overlay, session picker).
-	OverlayRow         = lipgloss.NewStyle().Foreground(Dim)
+	// OverlayRow uses default terminal fg (same as input text).
+	OverlayRow         = lipgloss.NewStyle()
 	OverlayHint        = lipgloss.NewStyle().Foreground(Dim).Italic(true)
 	AccentRowSelected  = lipgloss.NewStyle().Foreground(Green)  // keyboard selection
 	AccentRowCurrent   = lipgloss.NewStyle().Foreground(Yellow) // configured / open item
@@ -119,6 +123,60 @@ func (c Chrome) UserMsg() lipgloss.Style {
 		s = s.Background(c.Prompt)
 	}
 	return s
+}
+
+// OverlayPanel is the fill behind command/model lists above the input.
+func (c Chrome) OverlayPanel() lipgloss.Style {
+	s := lipgloss.NewStyle().Padding(1, OverlayPadRight, 0, 0)
+	if c.Input != nil {
+		s = s.Background(c.Input)
+	}
+	return s
+}
+
+// OverlayInk is accent-list row styling. Gap carries panel fill so pad cells
+// don't punch through to the terminal background.
+type OverlayInk struct {
+	Row, Hint                         lipgloss.Style
+	Selected, SelectedHint            lipgloss.Style
+	Current, CurrentHint              lipgloss.Style
+	Header                            lipgloss.Style
+	Gap                               lipgloss.Style
+}
+
+// OverlayInk returns row styles with the input-panel fill baked in.
+func (c Chrome) OverlayInk() OverlayInk {
+	return OverlayInk{
+		Row:          c.withPanelBG(OverlayRow),
+		Hint:         c.withPanelBG(OverlayHint),
+		Selected:     c.withPanelBG(AccentRowSelected),
+		SelectedHint: c.withPanelBG(AccentHintSelected),
+		Current:      c.withPanelBG(AccentRowCurrent),
+		CurrentHint:  c.withPanelBG(AccentHintCurrent),
+		Header:       c.withPanelBG(OverlayHeader),
+		Gap:          c.withPanelBG(lipgloss.NewStyle()),
+	}
+}
+
+// PlainOverlayInk is accent-row styling without panel fill (full-screen pickers).
+func PlainOverlayInk() OverlayInk {
+	return OverlayInk{
+		Row:          OverlayRow,
+		Hint:         OverlayHint,
+		Selected:     AccentRowSelected,
+		SelectedHint: AccentHintSelected,
+		Current:      AccentRowCurrent,
+		CurrentHint:  AccentHintCurrent,
+		Header:       OverlayHeader,
+		Gap:          lipgloss.NewStyle(),
+	}
+}
+
+func (c Chrome) withPanelBG(s lipgloss.Style) lipgloss.Style {
+	if c.Input == nil {
+		return s
+	}
+	return s.Background(c.Input)
 }
 
 // BannerArt is the ZETA shadow block logo.

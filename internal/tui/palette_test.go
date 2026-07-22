@@ -3,6 +3,8 @@ package tui
 import (
 	"strings"
 	"testing"
+
+	"github.com/axispx/zeta/internal/styles"
 )
 
 func TestClipBottomLines(t *testing.T) {
@@ -17,8 +19,9 @@ func TestClipBottomLines(t *testing.T) {
 func TestFormatPaletteRow(t *testing.T) {
 	items := []command{{"/clear", "start a new session"}, {"/resume", "open a previous session"}}
 	nameW := paletteNameWidth(items)
+	ink := styles.PlainOverlayInk()
 
-	row := formatPaletteRow(nameW, items[0], true)
+	row := formatPaletteRow(nameW, items[0], true, ink)
 	if !strings.Contains(row, "→") || !strings.Contains(row, "/clear") {
 		t.Fatalf("selected row = %q", row)
 	}
@@ -26,8 +29,8 @@ func TestFormatPaletteRow(t *testing.T) {
 		t.Fatalf("missing desc: %q", row)
 	}
 
-	r1 := formatPaletteRow(nameW, items[0], false)
-	r2 := formatPaletteRow(nameW, items[1], false)
+	r1 := formatPaletteRow(nameW, items[0], false, ink)
+	r2 := formatPaletteRow(nameW, items[1], false, ink)
 	i1 := strings.Index(r1, "start")
 	i2 := strings.Index(r2, "open")
 	if i1 <= 0 || i1 != i2 {

@@ -9,6 +9,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/axispx/zeta/internal/config"
+	"github.com/axispx/zeta/internal/styles"
 )
 
 func TestIsSlashToken(t *testing.T) {
@@ -84,18 +85,19 @@ func TestListSelMove(t *testing.T) {
 }
 
 func TestFormatAccentRow(t *testing.T) {
-	selected := formatAccentRow("GPT-4", "", 40, true, false)
+	ink := styles.PlainOverlayInk()
+	selected := formatAccentRow("GPT-4", "", 40, true, false, ink)
 	if !strings.Contains(selected, "→") {
 		t.Fatalf("expected arrow for selected row: %q", selected)
 	}
-	row := formatAccentRow("refactor auth", "2h ago", 40, false, false)
+	row := formatAccentRow("refactor auth", "2h ago", 40, false, false, ink)
 	if !strings.Contains(row, "refactor auth") {
 		t.Fatalf("label not left: %q", row)
 	}
 	if !strings.Contains(row, "2h ago") {
 		t.Fatalf("time not right: %q", row)
 	}
-	current := formatAccentRow("refactor auth", "2h ago", 40, false, true)
+	current := formatAccentRow("refactor auth", "2h ago", 40, false, true, ink)
 	if strings.Contains(current, "→") {
 		t.Fatalf("current-only should not have arrow: %q", current)
 	}
@@ -105,14 +107,14 @@ func TestFormatAccentRow(t *testing.T) {
 	if current == selected {
 		t.Fatalf("current accent should differ from selected: %q vs %q", current, selected)
 	}
-	both := formatAccentRow("refactor auth", "2h ago", 40, true, true)
+	both := formatAccentRow("refactor auth", "2h ago", 40, true, true, ink)
 	if !strings.Contains(both, "→") {
 		t.Fatalf("selected+current keeps arrow: %q", both)
 	}
 	if both == selected {
 		t.Fatalf("selected+current should keep current accent: %q", both)
 	}
-	long := formatAccentRow(strings.Repeat("x", 50), "just now", 30, true, false)
+	long := formatAccentRow(strings.Repeat("x", 50), "just now", 30, true, false, ink)
 	if lipgloss.Width(long) > 30 {
 		t.Fatalf("row too wide: %d", lipgloss.Width(long))
 	}
@@ -208,7 +210,8 @@ func TestRenderModelOverlayMaxRows(t *testing.T) {
 	}
 	out := m.renderModelOverlay(80)
 	lines := strings.Split(out, "\n")
-	if len(lines) > modelOverlayMaxRows {
-		t.Fatalf("got %d lines, want <= %d", len(lines), modelOverlayMaxRows)
+	// OverlayPanel adds 1 row of top padding.
+	if len(lines) > modelOverlayMaxRows+1 {
+		t.Fatalf("got %d lines, want <= %d", len(lines), modelOverlayMaxRows+1)
 	}
 }

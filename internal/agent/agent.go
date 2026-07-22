@@ -31,6 +31,7 @@ type Event struct {
 	Kind    EventKind
 	Text    string     // delta text or tool UI label
 	Message ai.Message // set for KindAssistant / KindTool
+	Usage   ai.Usage   // set for KindAssistant when the provider reports usage
 	Err     error
 }
 
@@ -72,12 +73,12 @@ func (c Config) run(ctx context.Context, history []ai.Message, out chan<- Event)
 			return
 		}
 
-		asst, ok := c.streamOnce(ctx, history, defs, out)
+		asst, usage, ok := c.streamOnce(ctx, history, defs, out)
 		if !ok {
 			return
 		}
 		history = append(history, asst)
-		out <- Event{Kind: KindAssistant, Message: asst}
+		out <- Event{Kind: KindAssistant, Message: asst, Usage: usage}
 
 		if len(asst.ToolCalls) == 0 {
 			out <- Event{Kind: KindDone}
@@ -96,9 +97,10 @@ func (c Config) run(ctx context.Context, history []ai.Message, out chan<- Event)
 	}
 }
 
-func (c Config) streamOnce(ctx context.Context, history []ai.Message, defs []ai.Tool, out chan<- Event) (ai.Message, bool) {
+func (c Config) streamOnce(ctx context.Context, history []ai.Message, defs []ai.Tool, out chan<- Event) (ai.Message, ai.Usage, bool) {
 	ch := c.Client.Stream(ctx, history, defs)
 	var asst ai.Message
+	var usage ai.Usage
 	for evt := range ch {
 		switch evt.Type {
 		case ai.EventDelta:
@@ -107,43 +109,43 @@ func (c Config) streamOnce(ctx context.Context, history []ai.Message, defs []ai.
 			}
 		case ai.EventDone:
 			asst = evt.Message
+			usage = evt.Usage
 			if asst.Role == "" {
 				asst.Role = ai.RoleAssistant
 			}
 		case ai.EventErr:
 			if ctx.Err() != nil {
 				out <- Event{Kind: KindDone}
-				return ai.Message{}, false
+				return ai.Message{}, ai.Usage{}, false
 			}
 			out <- Event{Kind: KindErr, Err: evt.Err}
-			return ai.Message{}, false
+			return ai.Message{}, ai.Usage{}, false
 		}
 	}
 	// Cancelled with empty accumulator.
 	if asst.Role == "" && asst.Text == "" && len(asst.ToolCalls) == 0 {
 		out <- Event{Kind: KindDone}
-		return ai.Message{}, false
+		return ai.Message{}, ai.Usage{}, false
 	}
 	if asst.Role == "" {
 		asst.Role = ai.RoleAssistant
 	}
-	return asst, true
+	return asst, usage, true
 }
 
 func (c Config) execTool(ctx context.Context, call ai.ToolCall) (label string, result ai.Message) {
 	args := json.RawMessage(call.Arguments)
 	var out string
+	if t, ok := tools.ByName(c.Tools, call.Name); ok {
+		label = t.Summary(args)
+	} else if t, ok := tools.ByName(tools.All(), call.Name); ok {
+		label = t.Summary(args)
+	} else {
+		label = call.Name
+	}
 	if !json.Valid(args) {
 		out = "error: invalid JSON arguments"
-		label = call.Name
 	} else {
-		if t, ok := tools.ByName(c.Tools, call.Name); ok {
-			label = t.Summary(args)
-		} else if t, ok := tools.ByName(tools.All(), call.Name); ok {
-			label = t.Summary(args)
-		} else {
-			label = call.Name
-		}
 		out = tools.Run(ctx, c.Tools, c.Root, call.Name, args)
 	}
 	return label, ai.Message{

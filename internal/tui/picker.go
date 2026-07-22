@@ -70,8 +70,9 @@ func (m *Model) handlePickerKey(msg tea.KeyPressMsg) tea.Cmd {
 }
 
 func formatPickerHeader(innerW int) string {
+	ink := styles.PlainOverlayInk()
 	prefix := strings.Repeat(" ", inputPromptWidth)
-	return formatHintRow(prefix, "NAME", "UPDATED", innerW, styles.OverlayHeader, styles.OverlayHeader)
+	return formatHintRow(prefix, "NAME", "UPDATED", innerW, ink.Header, ink.Header, ink.Gap)
 }
 
 func (m Model) renderPicker(width, height int) string {
@@ -102,6 +103,7 @@ func (m Model) renderPicker(width, height int) string {
 	}
 
 	start, end := windowAround(m.picker.selected, len(m.picker.entries), listH)
+	ink := styles.PlainOverlayInk()
 	var b strings.Builder
 	b.WriteString(header)
 	for i, e := range m.picker.entries[start:end] {
@@ -111,7 +113,7 @@ func (m Model) renderPicker(width, height int) string {
 			label = e.ID
 		}
 		sel := start+i == m.picker.selected
-		b.WriteString(formatAccentRow(label, formatRelativeTime(e.Updated), innerW, sel, e.ID == currentID))
+		b.WriteString(formatAccentRow(label, formatRelativeTime(e.Updated), innerW, sel, e.ID == currentID, ink))
 	}
 
 	listBody := lipgloss.Place(width, listH+headerH, lipgloss.Left, lipgloss.Top, styles.Transcript.Render(b.String()))

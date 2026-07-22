@@ -17,8 +17,8 @@ func sampleConfig() Config {
 				BaseURL: "https://api.deepseek.com/v1",
 				APIKey:  "sk-test",
 				Models: map[string]ModelDef{
-					"deepseek-v4-flash": {Name: "V4 Flash"},
-					"deepseek-chat":     {Name: "Chat"},
+					"deepseek-v4-flash": {Name: "V4 Flash", ContextWindow: 128000},
+					"deepseek-chat":     {Name: "Chat", ContextWindow: 64000},
 				},
 			},
 			{
@@ -27,7 +27,7 @@ func sampleConfig() Config {
 				BaseURL: "https://api.x.ai/v1",
 				APIKey:  "xai-key",
 				Models: map[string]ModelDef{
-					"grok-3": {Name: "Grok 3"},
+					"grok-3": {Name: "Grok 3", ContextWindow: 131072},
 				},
 			},
 		},
@@ -110,6 +110,23 @@ func TestValidateRequiresModels(t *testing.T) {
 	cfg.Providers[0].Models = nil
 	if err := cfg.Validate(); err == nil {
 		t.Fatal("expected error for empty models")
+	}
+}
+
+func TestValidateRequiresContextWindow(t *testing.T) {
+	cfg := sampleConfig()
+	m := cfg.Providers[0].Models["deepseek-v4-flash"]
+	m.ContextWindow = 0
+	cfg.Providers[0].Models["deepseek-v4-flash"] = m
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected error for missing context_window")
+	}
+}
+
+func TestContextWindow(t *testing.T) {
+	cfg := sampleConfig()
+	if got := cfg.ContextWindow(); got != 128000 {
+		t.Fatalf("ContextWindow = %d, want 128000", got)
 	}
 }
 

@@ -28,7 +28,8 @@ type Provider struct {
 
 // ModelDef is one model entry under a provider. The map key is the model id.
 type ModelDef struct {
-	Name string `json:"name,omitempty"` // display label; defaults to map key
+	Name          string `json:"name,omitempty"` // display label; defaults to map key
+	ContextWindow int    `json:"context_window"` // required; tokens the model can hold
 }
 
 // DisplayName returns the model's display label.
@@ -186,9 +187,12 @@ func validateProvider(p *Provider) error {
 	if len(p.Models) == 0 {
 		return fmt.Errorf("provider %q: models required", p.ID)
 	}
-	for id := range p.Models {
+	for id, m := range p.Models {
 		if strings.TrimSpace(id) == "" {
 			return fmt.Errorf("provider %q: empty model id", p.ID)
+		}
+		if m.ContextWindow <= 0 {
+			return fmt.Errorf("provider %q: model %q: context_window required", p.ID, id)
 		}
 	}
 	return nil
@@ -266,6 +270,20 @@ func (c Config) ModelName() string {
 		return "no config"
 	}
 	return c.Model
+}
+
+// ContextWindow returns the active model's context window in tokens, or 0.
+func (c Config) ContextWindow() int {
+	p := c.ActiveProvider()
+	id := c.ActiveModelID()
+	if p == nil || id == "" {
+		return 0
+	}
+	m, ok := p.Models[id]
+	if !ok {
+		return 0
+	}
+	return m.ContextWindow
 }
 
 // SetModel sets the active model as provider_id/model_id.

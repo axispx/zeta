@@ -60,8 +60,8 @@ Path: `$ZETA_HOME/config.json` (default `~/.zeta/config.json`).
       "base_url": "https://api.deepseek.com/v1",
       "api_key": "sk-...",
       "models": {
-        "deepseek-v4-flash": { "name": "V4 Flash" },
-        "deepseek-chat": { "name": "Chat" }
+        "deepseek-v4-flash": { "name": "V4 Flash", "context_window": 1000000 },
+        "deepseek-v4-pro": { "name": "V4 Pro", "context_window": 1000000 }
       }
     },
     {
@@ -70,8 +70,8 @@ Path: `$ZETA_HOME/config.json` (default `~/.zeta/config.json`).
       "base_url": "https://api.x.ai/v1",
       "api_key": "...",
       "models": {
-        "grok-3": { "name": "Grok 3" },
-        "grok-3-mini": { "name": "Grok 3 Mini" }
+        "grok-3": { "name": "Grok 3", "context_window": 131072 },
+        "grok-3-mini": { "name": "Grok 3 Mini", "context_window": 131072 }
       }
     }
   ]
@@ -79,4 +79,5 @@ Path: `$ZETA_HOME/config.json` (default `~/.zeta/config.json`).
 ```
 
 - **`model`** — active model as `provider_id/model_id`
-- Each provider: **`id`**, **`name`** (display, optional), **`api_key`**, **`base_url`**, **`models`** (map of id → `{ "name": "..." }`)
+- Each provider: **`id`**, **`name`** (display, optional), **`api_key`**, **`base_url`**, **`models`** (map of id → `{ "name": "...", "context_window": N }`)
+- **`context_window`** — required; max tokens for that model (used for the footer context %). DeepSeek V4 is 1M; see [pricing](https://api-docs.deepseek.com/quick_start/pricing/).

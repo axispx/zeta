@@ -48,6 +48,7 @@ type Model struct {
 	quitting      bool
 	turn          *turnSession
 	history       []ai.Message // durable API transcript (user/assistant/tool); no system/developer
+	contextTokens int64        // last response's context footprint (prompt+completion)
 	titlePending  bool
 	mode          prompt.Mode
 	overlay       filterOverlay
@@ -181,7 +182,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, waitTurnEvent(m.turn.ch)
 
 	case turnAssistantMsg:
-		return m, m.handleTurnAssistant(msg.message)
+		return m, m.handleTurnAssistant(msg)
 
 	case turnToolMsg:
 		return m, m.handleTurnTool(msg)
@@ -271,13 +272,16 @@ func (m *Model) submit(text string) tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
-func (m *Model) handleTurnAssistant(asst ai.Message) tea.Cmd {
+func (m *Model) handleTurnAssistant(msg turnAssistantMsg) tea.Cmd {
 	if m.turn == nil {
 		return nil
 	}
 	m.turn.streaming = false
-	m.history = append(m.history, asst)
-	m.persist(recordFromAPI(asst, ""))
+	m.history = append(m.history, msg.message)
+	if n := msg.usage.ContextTokens(); n > 0 {
+		m.contextTokens = n
+	}
+	m.persist(recordFromAPI(msg.message, ""))
 	return waitTurnEvent(m.turn.ch)
 }
 
@@ -520,26 +524,35 @@ func (m *Model) refreshTranscript() {
 
 func (m *Model) setTranscriptContent() {
 	var b strings.Builder
-	last := len(m.messages) - 1
-	for i := range m.messages {
-		if i > 0 {
+	streaming := m.turn != nil && m.turn.streaming
+	userMsg := m.chrome.UserMsg()
+	first := true
+	for i := 0; i < len(m.messages); {
+		if !first {
 			b.WriteString("\n\n")
 		}
 		top := 0
-		if i == 0 {
+		if first {
 			top = 1
+			first = false
+		}
+		if run := toolRunAt(m.messages, i); run != nil {
+			b.WriteString(renderToolGroup(run, m.contentW, top))
+			i += len(run)
+			continue
 		}
 		msg := &m.messages[i]
 		// Live stream stays plain (avoids half-open fence flicker); Model owns that policy.
-		if m.turn != nil && m.turn.streaming && i == last && msg.Role == RoleAgent {
+		if streaming && i == len(m.messages)-1 && msg.Role == RoleAgent {
 			body := plainAgent(msg.Text, m.contentW)
 			if top > 0 {
 				body = lipgloss.NewStyle().MarginTop(top).Render(body)
 			}
 			b.WriteString(body)
-			continue
+		} else {
+			b.WriteString(msg.render(m.contentW, top, userMsg))
 		}
-		b.WriteString(msg.render(m.contentW, top, m.chrome.UserMsg()))
+		i++
 	}
 	m.viewport.SetContent(b.String())
 	m.viewport.GotoBottom()
@@ -583,21 +596,27 @@ func (m Model) View() tea.View {
 	}
 	footer := lipgloss.NewStyle().
 		Margin(0, styles.InputMarginH).
-		Render(inputFooter(footerW, m.ws, m.cfg, m.mode))
+		Render(inputFooter(footerW, m.ws, m.cfg, m.mode, m.contextTokens))
 
-	palette := m.renderOverlay(m.width)
-	if palette != "" {
-		ph := lipgloss.Height(palette)
-		main = clipBottomLines(main, ph)
-	}
-	parts := []string{main}
-	if palette != "" {
-		parts = append(parts, palette)
-	}
-	parts = append(parts, "", input, footer)
+	return m.programView(stackMainChrome(main, m.renderOverlay(m.width), input, footer))
+}
 
-	content := lipgloss.JoinVertical(lipgloss.Left, parts...)
-	return m.programView(content)
+// stackMainChrome places transcript, optional overlay, input, and footer.
+// Overlay replaces GapBeforeInput; main is clipped so input stays put.
+func stackMainChrome(main, overlay, input, footer string) string {
+	if overlay == "" {
+		return lipgloss.JoinVertical(lipgloss.Left, main, "", input, footer)
+	}
+	clip := lipgloss.Height(overlay) - styles.GapBeforeInput
+	if clip < 0 {
+		clip = 0
+	}
+	return lipgloss.JoinVertical(lipgloss.Left,
+		clipBottomLines(main, clip),
+		overlay,
+		input,
+		footer,
+	)
 }
 
 func (m Model) programView(content string) tea.View {

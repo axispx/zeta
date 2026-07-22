@@ -59,7 +59,24 @@ type Event struct {
 	Type    EventType
 	Text    string
 	Message Message // set on EventDone: assembled assistant message (content + tool calls)
+	Usage   Usage   // set on EventDone when the provider reports usage
 	Err     error
+}
+
+// Usage is token counts from a completion.
+type Usage struct {
+	PromptTokens     int64
+	CompletionTokens int64
+	TotalTokens      int64
+}
+
+// ContextTokens is how many tokens this response occupies toward the context
+// window: TotalTokens when set, otherwise PromptTokens + CompletionTokens.
+func (u Usage) ContextTokens() int64 {
+	if u.TotalTokens > 0 {
+		return u.TotalTokens
+	}
+	return u.PromptTokens + u.CompletionTokens
 }
 
 // Client calls OpenAI-compatible chat completion APIs.
@@ -101,6 +118,9 @@ func (c *Client) stream(ctx context.Context, msgs []Message, tools []Tool, out c
 	params := openai.ChatCompletionNewParams{
 		Model:    c.model,
 		Messages: apiMsgs,
+		StreamOptions: openai.ChatCompletionStreamOptionsParam{
+			IncludeUsage: openai.Bool(true),
+		},
 	}
 	if len(tools) > 0 {
 		params.Tools = toAPITools(tools)
@@ -129,7 +149,7 @@ func (c *Client) stream(ctx context.Context, msgs []Message, tools []Tool, out c
 		return
 	}
 
-	out <- Event{Type: EventDone, Message: assistantFromAcc(acc)}
+	out <- Event{Type: EventDone, Message: assistantFromAcc(acc), Usage: usageFromAcc(acc)}
 }
 
 func assistantFromAcc(acc openai.ChatCompletionAccumulator) Message {
@@ -156,6 +176,14 @@ func assistantFromAcc(acc openai.ChatCompletionAccumulator) Message {
 		})
 	}
 	return out
+}
+
+func usageFromAcc(acc openai.ChatCompletionAccumulator) Usage {
+	return Usage{
+		PromptTokens:     acc.Usage.PromptTokens,
+		CompletionTokens: acc.Usage.CompletionTokens,
+		TotalTokens:      acc.Usage.TotalTokens,
+	}
 }
 
 func toAPITools(tools []Tool) []openai.ChatCompletionToolUnionParam {
