@@ -45,7 +45,8 @@ type Model struct {
 	showScrollbar bool
 	ready         bool
 	quitting      bool
-	stream        *streamSession
+	turn          *turnSession
+	history       []ai.Message // durable API transcript (user/assistant/tool); no system/developer
 	titlePending  bool
 	mode          prompt.Mode
 	overlay       filterOverlay
@@ -140,10 +141,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case streamDeltaMsg:
-		if m.stream == nil {
+	case turnDeltaMsg:
+		if m.turn == nil {
 			return m, nil
 		}
+		m.turn.streaming = true
 		n := len(m.messages)
 		if n > 0 && m.messages[n-1].Role == RoleAgent {
 			m.messages[n-1].Text += msg.text
@@ -151,21 +153,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.messages = append(m.messages, Message{Role: RoleAgent, Text: msg.text})
 		}
 		m.refreshTranscript()
-		return m, waitStreamEvent(m.stream.ch)
+		return m, waitTurnEvent(m.turn.ch)
 
-	case streamDoneMsg:
-		m.finishStream()
+	case turnAssistantMsg:
+		return m, m.handleTurnAssistant(msg.message)
+
+	case turnToolMsg:
+		return m, m.handleTurnTool(msg)
+
+	case turnDoneMsg:
+		m.finishTurn()
 		m.refreshTranscript()
 		return m, nil
 
-	case streamErrMsg:
-		m.handleStreamErr(msg.err)
+	case turnErrMsg:
+		m.handleTurnErr(msg.err)
 		return m, nil
 
 	case tea.KeyPressMsg:
 		switch {
 		case msg.String() == "ctrl+c":
-			m.finishStream()
+			m.finishTurn()
 			m.quitting = true
 			return m, tea.Quit
 		case m.picker.active:
@@ -179,8 +187,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.dismissOverlay()
 				return m, nil
 			}
-			if m.stream != nil {
-				m.finishStream()
+			if m.turn != nil {
+				m.finishTurn()
 				m.refreshTranscript()
 				return m, nil
 			}
@@ -189,7 +197,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case m.consumeCommandOverlayKey(msg):
 			return m, nil
 		case msg.String() == "shift+tab":
-			if m.stream == nil {
+			if m.turn == nil {
 				m.mode = m.mode.Next()
 			}
 			return m, nil
@@ -215,26 +223,49 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *Model) submit(text string) tea.Cmd {
 	user := Message{Role: RoleUser, Text: text}
 	m.messages = append(m.messages, user)
-	m.persist(user)
+	m.history = append(m.history, ai.Message{Role: ai.RoleUser, Text: text})
+	m.persist(session.Record{Role: session.RoleUser, Text: text})
 	m.resetInput()
 	m.refreshTranscript()
 
 	if m.client == nil {
 		errMsg := Message{Role: RoleError, Text: "no provider configured — set up ~/.zeta/config.json"}
 		m.messages = append(m.messages, errMsg)
-		m.persist(errMsg)
+		m.persist(session.Record{Role: session.RoleError, Text: errMsg.Text})
 		m.refreshTranscript()
 		return nil
 	}
 
 	var cmds []tea.Cmd
-	var streamCmd tea.Cmd
-	m.stream, streamCmd = startStream(m.client, m.ws, m.mode, m.messages)
-	cmds = append(cmds, streamCmd)
+	var turnCmd tea.Cmd
+	m.turn, turnCmd = startTurn(m.client, m.ws, m.mode, m.history)
+	cmds = append(cmds, turnCmd)
 	if titleCmd := m.ensureTitle(text); titleCmd != nil {
 		cmds = append(cmds, titleCmd)
 	}
 	return tea.Batch(cmds...)
+}
+
+func (m *Model) handleTurnAssistant(asst ai.Message) tea.Cmd {
+	if m.turn == nil {
+		return nil
+	}
+	m.turn.streaming = false
+	m.history = append(m.history, asst)
+	m.persist(recordFromAPI(asst, ""))
+	return waitTurnEvent(m.turn.ch)
+}
+
+func (m *Model) handleTurnTool(msg turnToolMsg) tea.Cmd {
+	if m.turn == nil {
+		return nil
+	}
+	m.turn.streaming = false
+	m.history = append(m.history, msg.message)
+	m.messages = append(m.messages, Message{Role: RoleTool, Text: msg.label})
+	m.persist(recordFromAPI(msg.message, msg.label))
+	m.refreshTranscript()
+	return waitTurnEvent(m.turn.ch)
 }
 
 // ensureTitle requests an AI title once for an untitled session.
@@ -264,50 +295,31 @@ func firstUserPrompt(msgs []Message) string {
 	return ""
 }
 
-func (m *Model) finishStream() {
-	if m.stream == nil {
+func (m *Model) finishTurn() {
+	if m.turn == nil {
 		return
 	}
-	m.persistLastAgent()
-	m.clearStream()
+	m.turn.cancel()
+	m.turn = nil
+	m.history = trimIncomplete(m.history)
 }
 
-func (m *Model) handleStreamErr(err error) {
-	m.finishStream()
+func (m *Model) handleTurnErr(err error) {
+	if m.turn == nil {
+		return
+	}
+	m.finishTurn()
 	errMsg := Message{Role: RoleError, Text: err.Error()}
 	m.messages = append(m.messages, errMsg)
-	m.persist(errMsg)
+	m.persist(session.Record{Role: session.RoleError, Text: errMsg.Text})
 	m.refreshTranscript()
 }
 
-func (m *Model) clearStream() {
-	if m.stream != nil {
-		m.stream.cancel()
-		m.stream = nil
-	}
-}
-
-func (m *Model) persistLastAgent() {
-	n := len(m.messages)
-	if n == 0 || m.messages[n-1].Role != RoleAgent {
-		return
-	}
-	text := m.messages[n-1].Text
-	if text == "" {
-		return
-	}
-	m.persist(Message{Role: RoleAgent, Text: text})
-}
-
-func (m *Model) persist(msg Message) {
+func (m *Model) persist(rec session.Record) {
 	if m.sess == nil {
 		return
 	}
-	role, ok := toSessionRole(msg.Role)
-	if !ok {
-		return
-	}
-	if err := m.sess.Append(role, msg.Text); err != nil {
+	if err := m.sess.Append(rec); err != nil {
 		m.messages = append(m.messages, Message{
 			Role: RoleError,
 			Text: "session save failed: " + err.Error(),
@@ -315,42 +327,109 @@ func (m *Model) persist(msg Message) {
 	}
 }
 
-func toSessionRole(r Role) (string, bool) {
-	switch r {
-	case RoleUser:
-		return session.RoleUser, true
-	case RoleAgent:
-		return session.RoleAgent, true
-	case RoleError:
-		return session.RoleError, true
-	default:
-		return "", false
-	}
-}
-
-func messagesFromRecords(recs []session.Record) []Message {
-	out := make([]Message, 0, len(recs))
-	for _, r := range recs {
-		role, ok := fromSessionRole(r.Role)
-		if !ok {
-			continue
+func recordFromAPI(m ai.Message, toolLabel string) session.Record {
+	switch m.Role {
+	case ai.RoleUser:
+		return session.Record{Role: session.RoleUser, Text: m.Text}
+	case ai.RoleAssistant:
+		rec := session.Record{Role: session.RoleAgent, Text: m.Text}
+		for _, tc := range m.ToolCalls {
+			rec.ToolCalls = append(rec.ToolCalls, session.ToolCall{
+				ID:        tc.ID,
+				Name:      tc.Name,
+				Arguments: tc.Arguments,
+			})
 		}
-		out = append(out, Message{Role: role, Text: r.Text})
+		return rec
+	case ai.RoleTool:
+		return session.Record{
+			Role:       session.RoleTool,
+			Text:       m.Text,
+			ToolCallID: m.ToolCallID,
+			Label:      toolLabel,
+		}
+	default:
+		return session.Record{Role: session.RoleError, Text: m.Text}
 	}
-	return out
 }
 
-func fromSessionRole(r string) (Role, bool) {
-	switch r {
-	case session.RoleUser:
-		return RoleUser, true
-	case session.RoleAgent:
-		return RoleAgent, true
-	case session.RoleError:
-		return RoleError, true
-	default:
-		return 0, false
+func loadSession(recs []session.Record) (ui []Message, history []ai.Message) {
+	ui = make([]Message, 0, len(recs))
+	history = make([]ai.Message, 0, len(recs))
+	for _, r := range recs {
+		switch r.Role {
+		case session.RoleUser:
+			ui = append(ui, Message{Role: RoleUser, Text: r.Text})
+			history = append(history, ai.Message{Role: ai.RoleUser, Text: r.Text})
+		case session.RoleAgent:
+			if r.Text != "" {
+				ui = append(ui, Message{Role: RoleAgent, Text: r.Text})
+			}
+			asst := ai.Message{Role: ai.RoleAssistant, Text: r.Text}
+			for _, tc := range r.ToolCalls {
+				asst.ToolCalls = append(asst.ToolCalls, ai.ToolCall{
+					ID:        tc.ID,
+					Name:      tc.Name,
+					Arguments: tc.Arguments,
+				})
+			}
+			// Skip empty assistant rows with no tool calls (nothing to send).
+			if asst.Text != "" || len(asst.ToolCalls) > 0 {
+				history = append(history, asst)
+			}
+		case session.RoleTool:
+			label := r.Label
+			if label == "" {
+				label = "tool"
+			}
+			ui = append(ui, Message{Role: RoleTool, Text: label})
+			history = append(history, ai.Message{
+				Role:       ai.RoleTool,
+				Text:       r.Text,
+				ToolCallID: r.ToolCallID,
+			})
+		case session.RoleError:
+			ui = append(ui, Message{Role: RoleError, Text: r.Text})
+		}
 	}
+	return ui, trimIncomplete(history)
+}
+
+// trimIncomplete drops a trailing partial tool round so the API transcript
+// never ends with assistant tool_calls lacking results (e.g. cancelled mid-turn).
+func trimIncomplete(h []ai.Message) []ai.Message {
+	pending := 0
+	roundStart := -1
+	for i, m := range h {
+		switch m.Role {
+		case ai.RoleUser:
+			pending = 0
+			roundStart = -1
+		case ai.RoleAssistant:
+			if pending > 0 {
+				return h[:roundStart]
+			}
+			if n := len(m.ToolCalls); n > 0 {
+				pending = n
+				roundStart = i
+			}
+		case ai.RoleTool:
+			if pending == 0 {
+				if roundStart >= 0 {
+					return h[:roundStart]
+				}
+				return h[:i]
+			}
+			pending--
+			if pending == 0 {
+				roundStart = -1
+			}
+		}
+	}
+	if pending > 0 && roundStart >= 0 {
+		return h[:roundStart]
+	}
+	return h
 }
 
 // layout sizes chrome regions. m.showScrollbar reserves one column for the transcript scrollbar.
@@ -427,7 +506,7 @@ func (m *Model) setTranscriptContent() {
 		}
 		msg := &m.messages[i]
 		// Live stream stays plain (avoids half-open fence flicker); Model owns that policy.
-		if m.stream != nil && i == last && msg.Role == RoleAgent {
+		if m.turn != nil && m.turn.streaming && i == last && msg.Role == RoleAgent {
 			body := plainAgent(msg.Text, m.contentW)
 			if top > 0 {
 				body = lipgloss.NewStyle().MarginTop(top).Render(body)

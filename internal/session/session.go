@@ -18,6 +18,7 @@ const (
 	RoleUser  = "user"
 	RoleAgent = "agent"
 	RoleError = "error"
+	RoleTool  = "tool"
 )
 
 const (
@@ -25,21 +26,34 @@ const (
 	typeMessage = "message"
 )
 
+// ToolCall is an assistant-requested function call persisted with an agent turn.
+type ToolCall struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
+}
+
 // Record is a chat turn loaded from the transcript (message events only).
 type Record struct {
-	Role string `json:"role"`
-	Text string `json:"text"`
-	TS   string `json:"ts"`
+	Role       string     `json:"role"`
+	Text       string     `json:"text"`
+	TS         string     `json:"ts"`
+	ToolCallID string     `json:"tool_call_id,omitempty"`
+	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
+	Label      string     `json:"label,omitempty"` // UI label for tool rows
 }
 
 // event is one JSONL line: session header or a message.
 type event struct {
-	Type    string `json:"type"`
-	ID      string `json:"id,omitempty"`
-	Created string `json:"created,omitempty"`
-	Role    string `json:"role,omitempty"`
-	Text    string `json:"text,omitempty"`
-	TS      string `json:"ts,omitempty"`
+	Type       string     `json:"type"`
+	ID         string     `json:"id,omitempty"`
+	Created    string     `json:"created,omitempty"`
+	Role       string     `json:"role,omitempty"`
+	Text       string     `json:"text,omitempty"`
+	TS         string     `json:"ts,omitempty"`
+	ToolCallID string     `json:"tool_call_id,omitempty"`
+	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
+	Label      string     `json:"label,omitempty"`
 }
 
 // Session is an append-only JSONL transcript for one chat.
@@ -101,18 +115,24 @@ func create(abs, dir string) *Session {
 
 // Append writes one message event to the session file.
 // The first Append creates the JSONL (session header + message) and index entry.
-func (s *Session) Append(role, text string) error {
+func (s *Session) Append(rec Record) error {
 	if s == nil {
 		return nil
 	}
 	if err := s.ensureFile(); err != nil {
 		return err
 	}
+	if rec.TS == "" {
+		rec.TS = time.Now().UTC().Format(time.RFC3339Nano)
+	}
 	if err := s.writeEvent(event{
-		Type: typeMessage,
-		Role: role,
-		Text: text,
-		TS:   time.Now().UTC().Format(time.RFC3339Nano),
+		Type:       typeMessage,
+		Role:       rec.Role,
+		Text:       rec.Text,
+		TS:         rec.TS,
+		ToolCallID: rec.ToolCallID,
+		ToolCalls:  rec.ToolCalls,
+		Label:      rec.Label,
 	}); err != nil {
 		return err
 	}
@@ -190,7 +210,14 @@ func load(abs, path string) (*Session, []Record, error) {
 				s.Created = evt.Created
 			}
 		case typeMessage:
-			out = append(out, Record{Role: evt.Role, Text: evt.Text, TS: evt.TS})
+			out = append(out, Record{
+				Role:       evt.Role,
+				Text:       evt.Text,
+				TS:         evt.TS,
+				ToolCallID: evt.ToolCallID,
+				ToolCalls:  evt.ToolCalls,
+				Label:      evt.Label,
+			})
 		default:
 			return nil, nil, fmt.Errorf("session %s:%d: unknown event type %q", filepath.Base(path), lineNo, evt.Type)
 		}

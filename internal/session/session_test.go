@@ -45,13 +45,13 @@ func TestOpenAppendResume(t *testing.T) {
 		t.Fatalf("empty session should not be indexed: %#v", entries)
 	}
 
-	if err := s.Append(RoleUser, "fix the auth middleware timeout"); err != nil {
+	if err := s.Append(Record{Role: RoleUser, Text: "fix the auth middleware timeout"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.SetName("Auth Middleware Fix"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Append(RoleAgent, "hello"); err != nil {
+	if err := s.Append(Record{Role: RoleAgent, Text: "hello"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -145,7 +145,7 @@ func TestNewNotPersistedUntilAppend(t *testing.T) {
 		t.Fatalf("SetName should not index empty session: %#v", entries)
 	}
 
-	if err := s.Append(RoleUser, "hi"); err != nil {
+	if err := s.Append(Record{Role: RoleUser, Text: "hi"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(s.Path); err != nil {
@@ -169,7 +169,7 @@ func TestListOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s1.Append(RoleUser, "one"); err != nil {
+	if err := s1.Append(Record{Role: RoleUser, Text: "one"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := s1.SetName("First"); err != nil {
@@ -180,7 +180,7 @@ func TestListOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s2.Append(RoleUser, "two"); err != nil {
+	if err := s2.Append(Record{Role: RoleUser, Text: "two"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := s2.SetName("Second"); err != nil {
@@ -208,7 +208,7 @@ func TestOpenID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s1.Append(RoleUser, "one"); err != nil {
+	if err := s1.Append(Record{Role: RoleUser, Text: "one"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := s1.SetName("First"); err != nil {
@@ -219,7 +219,7 @@ func TestOpenID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s2.Append(RoleUser, "two"); err != nil {
+	if err := s2.Append(Record{Role: RoleUser, Text: "two"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := s2.SetName("Second"); err != nil {

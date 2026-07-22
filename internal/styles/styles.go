@@ -39,6 +39,9 @@ var (
 			Bold(true).
 			Underline(true)
 
+	ToolMsg = lipgloss.NewStyle().
+		Foreground(Dim)
+
 	// InputBox: Cursor-style filled panel (no border) + horizontal pad.
 	InputBox = lipgloss.NewStyle().
 			Background(BgInput).

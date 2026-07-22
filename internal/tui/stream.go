@@ -5,58 +5,78 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/axispx/zeta/internal/agent"
 	"github.com/axispx/zeta/internal/ai"
 	"github.com/axispx/zeta/internal/prompt"
+	"github.com/axispx/zeta/internal/tools"
 	"github.com/axispx/zeta/internal/workspace"
 )
 
-type streamSession struct {
-	cancel context.CancelFunc
-	ch     <-chan ai.Event
+// turnSession is one in-flight agent turn (stream + tool loop).
+type turnSession struct {
+	cancel    context.CancelFunc
+	ch        <-chan agent.Event
+	streaming bool // receiving assistant deltas (plain render)
 }
 
-type streamDeltaMsg struct{ text string }
-type streamDoneMsg struct{}
-type streamErrMsg struct{ err error }
+type turnDeltaMsg struct{ text string }
+type turnAssistantMsg struct{ message ai.Message }
+type turnToolMsg struct {
+	label   string
+	message ai.Message
+}
+type turnDoneMsg struct{}
+type turnErrMsg struct{ err error }
 
-func toAIMessages(ws workspace.Context, mode prompt.Mode, msgs []Message) []ai.Message {
-	out := make([]ai.Message, 0, len(msgs)+2)
+func toolsForMode(mode prompt.Mode) []tools.Tool {
+	switch mode {
+	case prompt.ModeAsk, prompt.ModePlan:
+		return tools.ReadOnly(tools.All())
+	default:
+		return tools.All()
+	}
+}
+
+// requestMsgs prepends system + mode instructions to the durable history.
+func requestMsgs(ws workspace.Context, mode prompt.Mode, history []ai.Message) []ai.Message {
+	out := make([]ai.Message, 0, len(history)+2)
 	out = append(out,
 		ai.Message{Role: ai.RoleSystem, Text: prompt.System(ws)},
 		ai.Message{Role: ai.RoleDeveloper, Text: mode.Instructions()},
 	)
-	for _, m := range msgs {
-		switch m.Role {
-		case RoleUser:
-			out = append(out, ai.Message{Role: ai.RoleUser, Text: m.Text})
-		case RoleAgent:
-			out = append(out, ai.Message{Role: ai.RoleAssistant, Text: m.Text})
-		}
-	}
-	return out
+	return append(out, history...)
 }
 
-func waitStreamEvent(ch <-chan ai.Event) tea.Cmd {
+func waitTurnEvent(ch <-chan agent.Event) tea.Cmd {
 	return func() tea.Msg {
 		evt, ok := <-ch
 		if !ok {
-			return streamDoneMsg{}
+			return turnDoneMsg{}
 		}
-		switch evt.Type {
-		case ai.EventDelta:
-			return streamDeltaMsg{text: evt.Text}
-		case ai.EventDone:
-			return streamDoneMsg{}
-		case ai.EventErr:
-			return streamErrMsg{err: evt.Err}
+		switch evt.Kind {
+		case agent.KindDelta:
+			return turnDeltaMsg{text: evt.Text}
+		case agent.KindAssistant:
+			return turnAssistantMsg{message: evt.Message}
+		case agent.KindTool:
+			return turnToolMsg{label: evt.Text, message: evt.Message}
+		case agent.KindDone:
+			return turnDoneMsg{}
+		case agent.KindErr:
+			return turnErrMsg{err: evt.Err}
 		default:
-			return streamDoneMsg{}
+			return turnDoneMsg{}
 		}
 	}
 }
 
-func startStream(client *ai.Client, ws workspace.Context, mode prompt.Mode, msgs []Message) (*streamSession, tea.Cmd) {
+func startTurn(client *ai.Client, ws workspace.Context, mode prompt.Mode, history []ai.Message) (*turnSession, tea.Cmd) {
 	ctx, cancel := context.WithCancel(context.Background())
-	ch := client.Stream(ctx, toAIMessages(ws, mode, msgs))
-	return &streamSession{cancel: cancel, ch: ch}, waitStreamEvent(ch)
+	cfg := agent.Config{
+		Client: client,
+		Tools:  toolsForMode(mode),
+		Root:   ws.Abs,
+	}
+	ch := cfg.Run(ctx, requestMsgs(ws, mode, history))
+	return &turnSession{cancel: cancel, ch: ch, streaming: true}, waitTurnEvent(ch)
 }

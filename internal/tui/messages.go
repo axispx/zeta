@@ -14,6 +14,7 @@ const (
 	RoleUser
 	RoleAgent
 	RoleError
+	RoleTool
 )
 
 // Message is one turn in the chat transcript.
@@ -46,6 +47,12 @@ func (m *Message) renderBody(width int) string {
 		return s.Render(m.Text)
 	case RoleAgent:
 		return m.agentMarkdown(width)
+	case RoleTool:
+		body := styles.ToolMsg.Render(m.Text)
+		if width > 0 {
+			body = lipgloss.NewStyle().Width(width).Render(body)
+		}
+		return body
 	case RoleError:
 		body := styles.ErrorMsg.Render(m.Text)
 		if width > 0 {

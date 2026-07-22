@@ -178,7 +178,7 @@ func (m *Model) dismissOverlay() {
 }
 
 func (m *Model) runCommand(name string) {
-	m.finishStream()
+	m.finishTurn()
 	m.resetInput()
 	m.overlay.clear()
 
@@ -196,9 +196,10 @@ func (m *Model) applySession(sess *session.Session, recs []session.Record, err e
 	if err != nil {
 		m.messages = []Message{{Role: RoleError, Text: "session: " + err.Error()}}
 		m.sess = nil
+		m.history = nil
 	} else {
 		m.sess = sess
-		m.messages = messagesFromRecords(recs)
+		m.messages, m.history = loadSession(recs)
 	}
 	m.titlePending = false
 	m.refreshTranscript()
@@ -301,7 +302,7 @@ func (m *Model) consumeCommandOverlayKey(msg tea.KeyPressMsg) bool {
 
 // submitInput handles plain Enter: selected palette command, exact slash command, or chat.
 func (m *Model) submitInput() tea.Cmd {
-	if m.stream != nil {
+	if m.turn != nil {
 		return nil
 	}
 	if m.overlay.mode == overlayCommands && m.overlay.showing() {

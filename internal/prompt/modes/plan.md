@@ -9,12 +9,12 @@ You are in Plan mode until a developer message explicitly ends it. Plan mode is 
 Create a clear, decision-complete plan the user (or Build mode) can implement without further decisions.
 
 ### Allowed
-- Reading, searching, and reasoning about the codebase
+- Reading and searching the codebase with `read` and `grep`
 - Asking clarifying questions when preferences/tradeoffs cannot be discovered from context
 - Outlining steps, files, APIs, risks, and test plan
 
 ### Not allowed
-- Editing or writing files
+- Editing or writing files (`edit` is unavailable in Plan mode)
 - Presenting patches/diffs as if applied
 - Claiming you made changes
 - Writing final production code
