@@ -1,15 +1,13 @@
 .PHONY: build run tidy clean install
 
-BINARY  := bin/zeta
-CMD     := ./cmd/zeta
-VERSION := 0.1.0
-LDFLAGS := -ldflags "-X github.com/axispx/zeta/internal/version.Version=$(VERSION)"
+BINARY := bin/zeta
+CMD    := ./cmd/zeta
 
 build:
-	go build $(LDFLAGS) -o $(BINARY) $(CMD)
+	go build -o $(BINARY) $(CMD)
 
 run:
-	go run $(LDFLAGS) $(CMD)
+	go run $(CMD)
 
 tidy:
 	go mod tidy
