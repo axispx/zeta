@@ -80,6 +80,10 @@ var (
 	AccentHintSelected = lipgloss.NewStyle().Foreground(Green).Italic(true)
 	AccentHintCurrent  = lipgloss.NewStyle().Foreground(Yellow).Italic(true)
 	OverlayHeader      = lipgloss.NewStyle().Bold(true)
+	// Kbd is keyboard-shortcut chrome (inline-code look).
+	Kbd = lipgloss.NewStyle().Foreground(Cyan)
+	// HintText is the label beside a kbd in footer hints.
+	HintText = lipgloss.NewStyle().Foreground(White)
 	// OverlayHintBar is the pinned footer in full-screen pickers (border top, flush bottom).
 	OverlayHintBar = lipgloss.NewStyle().
 			Foreground(Dim).
@@ -145,6 +149,7 @@ type OverlayInk struct {
 	Current, CurrentHint   lipgloss.Style
 	Header                 lipgloss.Style
 	Gap                    lipgloss.Style
+	Kbd, HintText          lipgloss.Style
 }
 
 // OverlayInk returns row styles with the input-panel fill baked in.
@@ -158,6 +163,8 @@ func (c Chrome) OverlayInk() OverlayInk {
 		CurrentHint:  c.withPanelBG(AccentHintCurrent),
 		Header:       c.withPanelBG(OverlayHeader),
 		Gap:          c.withPanelBG(lipgloss.NewStyle()),
+		Kbd:          c.withPanelBG(Kbd),
+		HintText:     c.withPanelBG(HintText),
 	}
 }
 
@@ -172,7 +179,15 @@ func PlainOverlayInk() OverlayInk {
 		CurrentHint:  AccentHintCurrent,
 		Header:       OverlayHeader,
 		Gap:          lipgloss.NewStyle(),
+		Kbd:          Kbd,
+		HintText:     HintText,
 	}
+}
+
+// HintKbd renders "label key" using HintText + Kbd (panel fill baked in).
+func (ink OverlayInk) HintKbd(label, key string) string {
+	// Keep the separating space inside a styled span so it inherits panel BG.
+	return ink.HintText.Render(label+" ") + ink.Kbd.Render(key)
 }
 
 func (c Chrome) withPanelBG(s lipgloss.Style) lipgloss.Style {

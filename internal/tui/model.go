@@ -53,6 +53,7 @@ type Model struct {
 	mode          prompt.Mode
 	overlay       filterOverlay
 	picker        pickerState
+	config        configDialog
 	chrome        styles.Chrome // terminal-derived panels; zero until BackgroundColorMsg
 }
 
@@ -164,6 +165,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.FocusMsg:
+		if m.config.active {
+			return m, nil
+		}
 		return m, m.textarea.Focus()
 
 	case tea.BlurMsg:
@@ -225,6 +229,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.finishTurn()
 			m.quitting = true
 			return m, tea.Quit
+		case m.config.active:
+			cmd, _ := m.config.Update(msg)
+			return m, cmd
 		case m.picker.active:
 			return m, m.handlePickerKey(msg)
 		case m.overlay.mode == overlayModels:
@@ -253,6 +260,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case msg.Code == tea.KeyEnter && msg.Mod == 0:
 			return m, m.submitInput()
 		}
+	}
+
+	if m.config.active {
+		if cmd, handled := m.config.Update(msg); handled {
+			return m, cmd
+		}
+		// Unhandled (e.g. already consumed above): keep modal closed to outer chrome.
+		return m, nil
 	}
 
 	prevH := m.textarea.Height()
@@ -639,6 +654,16 @@ func (m Model) View() tea.View {
 			h = 1
 		}
 		return m.programView(m.renderPicker(w, h))
+	}
+	if m.config.active {
+		w, h := m.width, m.height
+		if w < 1 {
+			w = 1
+		}
+		if h < 1 {
+			h = 1
+		}
+		return m.programView(m.config.View(m.chrome, w, w, h))
 	}
 
 	main := m.mainView()

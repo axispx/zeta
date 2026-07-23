@@ -39,6 +39,9 @@ func TestLookupCommand(t *testing.T) {
 	if _, ok := lookupCommand("/model"); !ok {
 		t.Fatal("expected /model")
 	}
+	if _, ok := lookupCommand("/config"); !ok {
+		t.Fatal("expected /config")
+	}
 	if _, ok := lookupCommand("/cle"); ok {
 		t.Fatal("partial should not match")
 	}
@@ -49,16 +52,16 @@ func TestLookupCommand(t *testing.T) {
 
 func TestMatchCommands(t *testing.T) {
 	all := matchCommands("/")
-	if len(all) != 3 {
+	if len(all) != 4 {
 		t.Fatalf("match / = %d items", len(all))
 	}
 	clear := matchCommands("/cle")
 	if len(clear) != 1 || clear[0].name != "/clear" {
 		t.Fatalf("match /cle = %#v", clear)
 	}
-	none := matchCommands("/foo")
+	none := matchCommands("/zzz")
 	if len(none) != 0 {
-		t.Fatalf("match /foo = %#v", none)
+		t.Fatalf("match /zzz = %#v", none)
 	}
 }
 
@@ -202,7 +205,7 @@ func TestRenderModelOverlayMaxRows(t *testing.T) {
 		}
 	}
 	m := Model{
-		cfg: config.Config{Model: "p/a"},
+		cfg: config.Config{Active: "p/a"},
 		overlay: filterOverlay{
 			mode:   overlayModels,
 			models: entries,

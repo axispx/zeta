@@ -22,6 +22,7 @@ var commands = []command{
 	{"/clear", "start a new session"},
 	{"/resume", "open a previous session"},
 	{"/model", "switch model"},
+	{"/config", "manage providers & models"},
 }
 
 // listSel is shared selection state for overlays.
@@ -139,17 +140,17 @@ func (m *Model) resetInput() {
 }
 
 func (m *Model) applyClient() {
-	p := m.cfg.ActiveProvider()
+	p, ok := m.cfg.ActiveProvider()
 	id := m.cfg.ActiveModelID()
-	if p == nil || id == "" {
+	if !ok || id == "" {
 		m.client = nil
 		return
 	}
-	m.client = ai.New(*p, id)
+	m.client = ai.New(p, id)
 }
 
 func (m *Model) syncOverlay() {
-	if m.picker.active {
+	if m.picker.active || m.config.active {
 		m.overlay.clear()
 		return
 	}
@@ -178,7 +179,7 @@ func (m *Model) dismissOverlay() {
 	m.resetInput()
 }
 
-func (m *Model) runCommand(name string) {
+func (m *Model) runCommand(name string) tea.Cmd {
 	m.finishTurn()
 	m.resetInput()
 	m.overlay.clear()
@@ -190,7 +191,20 @@ func (m *Model) runCommand(name string) {
 		m.openPicker()
 	case "/model":
 		m.openModelOverlay()
+	case "/config":
+		return m.openConfigDialog()
 	}
+	return nil
+}
+
+func (m *Model) openConfigDialog() tea.Cmd {
+	m.overlay.clear()
+	m.picker.clear()
+	m.config.apply = func(c config.Config) {
+		m.cfg = c
+		m.applyClient()
+	}
+	return m.config.Open(m.cfg)
 }
 
 func (m *Model) applySession(sess *session.Session, recs []session.Record, err error) {
@@ -223,7 +237,7 @@ func (m *Model) openModelOverlay() {
 	m.overlay.mode = overlayModels
 	m.overlay.models = entries
 	m.resetInput()
-	active := m.cfg.Model
+	active := m.cfg.Active
 	for i, e := range entries {
 		if e.ID() == active {
 			m.overlay.selected = i
@@ -245,7 +259,7 @@ func (m *Model) selectModel() {
 	prevCfg := m.cfg
 	prevClient := m.client
 
-	m.cfg.SetModel(choice.ID())
+	m.cfg.SetActive(choice.ID())
 	if err := m.cfg.Save(); err != nil {
 		m.cfg = prevCfg
 		m.client = prevClient
@@ -309,8 +323,7 @@ func (m *Model) submitInput() tea.Cmd {
 		return nil
 	}
 	if m.overlay.mode == overlayCommands && m.overlay.showing() {
-		m.runCommand(m.overlay.cmds[m.overlay.selected].name)
-		return nil
+		return m.runCommand(m.overlay.cmds[m.overlay.selected].name)
 	}
 	text := strings.TrimSpace(m.textarea.Value())
 	if text == "" {
@@ -318,8 +331,7 @@ func (m *Model) submitInput() tea.Cmd {
 	}
 	if isSlashToken(text) {
 		if _, ok := lookupCommand(text); ok {
-			m.runCommand(text)
-			return nil
+			return m.runCommand(text)
 		}
 		m.resetInput()
 		m.overlay.clear()
@@ -416,13 +428,31 @@ func (m Model) renderCommandOverlay(width int) string {
 
 // formatHintRow renders "prefix+label … hint" within innerW.
 func formatHintRow(prefix, label, hint string, innerW int, labelStyle, hintStyle, gap lipgloss.Style) string {
-	hintR := hintStyle.Render(hint)
-	hintW := lipgloss.Width(hintR)
-	maxLeft := innerW - hintW - 1
+	return formatHintRowTagged(prefix, label, "", hint, innerW, labelStyle, hintStyle, gap)
+}
+
+// formatHintRowTagged is formatHintRow with an optional dim tag after the label (e.g. " (Custom)").
+func formatHintRowTagged(prefix, label, tag, hint string, innerW int, labelStyle, hintStyle, gap lipgloss.Style) string {
+	if innerW < 1 {
+		innerW = 1
+	}
+	hintR := ""
+	hintW := 0
+	if hint != "" {
+		hintR = hintStyle.Render(hint)
+		hintW = lipgloss.Width(hintR)
+	}
+	tagW := lipgloss.Width(tag)
+	// Reserve space for hint + at least one gap column when hint is present.
+	gapMin := 0
+	if hintW > 0 {
+		gapMin = 1
+	}
+	maxLeft := innerW - hintW - gapMin
 	if maxLeft < 1 {
 		maxLeft = 1
 	}
-	avail := maxLeft - lipgloss.Width(prefix)
+	avail := maxLeft - lipgloss.Width(prefix) - tagW
 	if avail < 1 {
 		avail = 1
 	}
@@ -430,9 +460,16 @@ func formatHintRow(prefix, label, hint string, innerW int, labelStyle, hintStyle
 		label = truncateRight(label, avail)
 	}
 	leftR := labelStyle.Render(prefix + label)
+	if tag != "" {
+		// Same style as the name so "(Custom)" reads as part of the label.
+		leftR += labelStyle.Render(tag)
+	}
 	pad := innerW - lipgloss.Width(leftR) - hintW
-	if pad < 1 {
-		pad = 1
+	if pad < gapMin {
+		pad = gapMin
+	}
+	if hintW == 0 {
+		return leftR
 	}
 	return leftR + gap.Render(strings.Repeat(" ", pad)) + hintR
 }
@@ -440,6 +477,11 @@ func formatHintRow(prefix, label, hint string, innerW int, labelStyle, hintStyle
 // formatAccentRow renders a selected/current accent list row ("→ label … hint").
 // current wins color over selected; selected still gets the arrow.
 func formatAccentRow(label, hint string, innerW int, selected, current bool, ink styles.OverlayInk) string {
+	return formatAccentRowTagged(label, "", hint, innerW, selected, current, ink)
+}
+
+// formatAccentRowTagged is formatAccentRow with an optional dim tag after the label.
+func formatAccentRowTagged(label, tag, hint string, innerW int, selected, current bool, ink styles.OverlayInk) string {
 	prefix := strings.Repeat(" ", inputPromptWidth)
 	if selected {
 		prefix = inputPrompt
@@ -451,7 +493,7 @@ func formatAccentRow(label, hint string, innerW int, selected, current bool, ink
 	case selected:
 		labelStyle, hintStyle = ink.Selected, ink.SelectedHint
 	}
-	return formatHintRow(prefix, label, hint, innerW, labelStyle, hintStyle, ink.Gap)
+	return formatHintRowTagged(prefix, label, tag, hint, innerW, labelStyle, hintStyle, ink.Gap)
 }
 
 func (m Model) renderModelOverlay(width int) string {
@@ -469,7 +511,7 @@ func (m Model) renderModelOverlay(width int) string {
 	}
 	start, end := windowAround(m.overlay.selected, len(visible), listH)
 
-	active := m.cfg.Model
+	active := m.cfg.Active
 	var b strings.Builder
 	for i, e := range visible[start:end] {
 		if i > 0 {

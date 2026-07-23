@@ -14,10 +14,9 @@ import (
 
 func TestInputFooterShowsMode(t *testing.T) {
 	cfg := config.Config{
-		Model: "test/gpt-4",
-		Providers: []config.Provider{
-			{
-				ID:      "test",
+		Active: "test/gpt-4",
+		Providers: map[string]config.Provider{
+			"test": {
 				Name:    "Test",
 				BaseURL: "http://x",
 				APIKey:  "k",
@@ -42,10 +41,9 @@ func TestInputFooterShowsMode(t *testing.T) {
 
 func TestInputFooterShowsUsage(t *testing.T) {
 	cfg := config.Config{
-		Model: "test/gpt-4",
-		Providers: []config.Provider{
-			{
-				ID:      "test",
+		Active: "test/gpt-4",
+		Providers: map[string]config.Provider{
+			"test": {
 				Name:    "Test",
 				BaseURL: "http://x",
 				APIKey:  "k",

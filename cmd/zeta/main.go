@@ -14,6 +14,9 @@ func main() {
 	cfg, err := config.Load()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "config: %v\n", err)
+		if path := config.Path(); path != "" {
+			fmt.Fprintf(os.Stderr, "Fix %s or delete it, then run zeta again.\n", path)
+		}
 		os.Exit(1)
 	}
 
