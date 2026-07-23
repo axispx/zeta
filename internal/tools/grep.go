@@ -13,8 +13,7 @@ import (
 
 type grepTool struct{}
 
-func (grepTool) Name() string        { return "grep" }
-func (grepTool) Access() Access      { return AccessRead }
+func (grepTool) Name() string { return "grep" }
 func (grepTool) Description() string {
 	return "Search the workspace for a regex. Returns matching lines with file:line prefixes."
 }

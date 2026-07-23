@@ -10,38 +10,23 @@ import (
 	"github.com/axispx/zeta/internal/ai"
 )
 
-// Access classifies whether a tool can mutate the workspace.
-type Access int
-
-const (
-	AccessRead Access = iota
-	AccessWrite
-)
-
 // Tool is one function the model may call.
 type Tool interface {
 	Name() string
 	Description() string
 	Parameters() map[string]any
-	Access() Access
 	Summary(args json.RawMessage) string
 	Run(ctx context.Context, root string, args json.RawMessage) (string, error)
 }
 
-// All returns the full tool set.
-func All() []Tool {
-	return []Tool{readTool{}, editTool{}, grepTool{}}
+// Build returns the full tool set (build mode).
+func Build() []Tool {
+	return []Tool{readTool{}, editTool{}, grepTool{}, bashTool{}}
 }
 
-// ReadOnly keeps tools that do not mutate the workspace.
-func ReadOnly(ts []Tool) []Tool {
-	out := make([]Tool, 0, len(ts))
-	for _, t := range ts {
-		if t.Access() == AccessRead {
-			out = append(out, t)
-		}
-	}
-	return out
+// Inspect returns ask/plan-safe tools (no edits, no shell).
+func Inspect() []Tool {
+	return []Tool{readTool{}, grepTool{}}
 }
 
 // Defs converts tools to API function definitions.
@@ -72,7 +57,7 @@ func ByName(ts []Tool, name string) (Tool, bool) {
 func Run(ctx context.Context, ts []Tool, root, name string, args json.RawMessage) string {
 	t, ok := ByName(ts, name)
 	if !ok {
-		if _, exists := ByName(All(), name); exists {
+		if _, exists := ByName(Build(), name); exists {
 			return fmt.Sprintf("error: tool %q is not available in this mode", name)
 		}
 		return fmt.Sprintf("error: unknown tool %q", name)

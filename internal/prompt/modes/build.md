@@ -14,7 +14,8 @@ Implement the user's request fully.
 
 ## Tools
 
-You have `read`, `edit`, and `grep`. Use them to inspect and change the workspace.
-- `read` before editing unfamiliar files.
+You have `read`, `edit`, `grep`, and `bash`. Use them to inspect and change the workspace.
+- `read` a file before editing unfamiliar files; `read` a directory to list its immediate children.
 - `grep` to find symbols and call sites.
 - `edit` for all file changes (unique `old_string`, or empty `old_string` to create a file).
+- `bash` for tests, builds, and other process work. Prefer `read`/`edit`/`grep` for file and directory ops.

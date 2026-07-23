@@ -5,15 +5,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 )
 
 type readTool struct{}
 
-func (readTool) Name() string        { return "read" }
-func (readTool) Access() Access      { return AccessRead }
+func (readTool) Name() string { return "read" }
 func (readTool) Description() string {
-	return "Read a file from the workspace. Optionally slice by 1-based line offset and limit."
+	return "Read a file or list a directory from the workspace. " +
+		"For directories, returns immediate children (one per line; trailing / for subdirs). " +
+		"For files, optionally slice by 1-based line offset and limit."
 }
 func (readTool) Parameters() map[string]any {
 	return map[string]any{
@@ -21,15 +23,15 @@ func (readTool) Parameters() map[string]any {
 		"properties": map[string]any{
 			"path": map[string]any{
 				"type":        "string",
-				"description": "Path relative to the workspace root",
+				"description": "Path relative to the workspace root (file or directory)",
 			},
 			"offset": map[string]any{
 				"type":        "integer",
-				"description": "1-based line number to start from (optional)",
+				"description": "1-based line number to start from when reading a file (optional)",
 			},
 			"limit": map[string]any{
 				"type":        "integer",
-				"description": "Max number of lines to return (optional)",
+				"description": "Max number of lines to return when reading a file (optional)",
 			},
 		},
 		"required": []string{"path"},
@@ -63,6 +65,17 @@ func (readTool) Run(ctx context.Context, root string, raw json.RawMessage) (stri
 	if err != nil {
 		return "", err
 	}
+	info, err := os.Stat(abs)
+	if err != nil {
+		return "", err
+	}
+	if info.IsDir() {
+		if args.Offset > 0 || args.Limit > 0 {
+			return "", fmt.Errorf("offset and limit apply only to files, not directories")
+		}
+		return listDirImmediate(abs)
+	}
+
 	data, err := os.ReadFile(abs)
 	if err != nil {
 		return "", err
@@ -112,4 +125,33 @@ func (readTool) Run(ctx context.Context, root string, raw json.RawMessage) (stri
 		out += fmt.Sprintf(truncNoteRead, maxReadLines, maxReadBytes)
 	}
 	return out, nil
+}
+
+func listDirImmediate(abs string) (string, error) {
+	ents, err := os.ReadDir(abs)
+	if err != nil {
+		return "", err
+	}
+	names := make([]string, 0, len(ents))
+	for _, e := range ents {
+		name := e.Name()
+		if name == ".git" {
+			continue
+		}
+		if e.IsDir() {
+			name += "/"
+		}
+		names = append(names, name)
+	}
+	if len(names) == 0 {
+		return "[empty directory]", nil
+	}
+	sort.Slice(names, func(i, j int) bool {
+		di, dj := strings.HasSuffix(names[i], "/"), strings.HasSuffix(names[j], "/")
+		if di != dj {
+			return di
+		}
+		return names[i] < names[j]
+	})
+	return strings.Join(names, "\n"), nil
 }

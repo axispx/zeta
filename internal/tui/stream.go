@@ -34,9 +34,9 @@ type turnErrMsg struct{ err error }
 func toolsForMode(mode prompt.Mode) []tools.Tool {
 	switch mode {
 	case prompt.ModeAsk, prompt.ModePlan:
-		return tools.ReadOnly(tools.All())
+		return tools.Inspect()
 	default:
-		return tools.All()
+		return tools.Build()
 	}
 }
 

@@ -11,8 +11,7 @@ import (
 
 type editTool struct{}
 
-func (editTool) Name() string        { return "edit" }
-func (editTool) Access() Access      { return AccessWrite }
+func (editTool) Name() string { return "edit" }
 func (editTool) Description() string {
 	return "Edit a file by replacing a unique old_string with new_string. " +
 		"If old_string is empty and the file does not exist, create it with new_string. " +

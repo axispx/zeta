@@ -14,7 +14,7 @@ make install # ~/.local/bin/zeta
 
 **Commands:** type `/` for autocomplete · `/clear` new session · `/resume` pick a previous session · `/model` switch model
 
-**Modes:** `build` implements with tools (`read` / `edit` / `grep`) · `ask` Q&A with read-only tools · `plan` plans with read-only tools
+**Modes:** `build` implements with tools (`read` / `edit` / `grep` / `bash`) · `ask` Q&A with read-only tools · `plan` plans with read-only tools
 
 `shift+enter` needs a terminal that can disambiguate modified keys (Kitty keyboard protocol / CSI-u). Ghostty, Kitty, iTerm2 3.5+, Alacritty, WezTerm (`enable_kitty_keyboard = true`).
 If `shift+enter` is remapped in the terminal (common Claude Code / iTerm “send text” setup), fix or remove that binding so the app sees the real key.
@@ -25,7 +25,7 @@ If `shift+enter` is remapped in the terminal (common Claude Code / iTerm “send
 cmd/zeta/            entry
 internal/tui/        bubbletea v2 model (viewport + dynamic textarea)
 internal/ai/         OpenAI-compatible streaming client + tool calls
-internal/tools/      read / edit / grep
+internal/tools/      read / edit / grep / bash
 internal/config/     ~/.zeta/config.json
 internal/session/    JSONL transcripts under ~/.zeta/sessions/
 internal/paths/      ZETA_HOME resolution

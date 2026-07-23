@@ -138,7 +138,7 @@ func (c Config) execTool(ctx context.Context, call ai.ToolCall) (label string, r
 	var out string
 	if t, ok := tools.ByName(c.Tools, call.Name); ok {
 		label = t.Summary(args)
-	} else if t, ok := tools.ByName(tools.All(), call.Name); ok {
+	} else if t, ok := tools.ByName(tools.Build(), call.Name); ok {
 		label = t.Summary(args)
 	} else {
 		label = call.Name
