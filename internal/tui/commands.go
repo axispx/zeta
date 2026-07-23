@@ -135,6 +135,7 @@ func isSlashToken(s string) bool {
 func (m *Model) resetInput() {
 	m.textarea.Reset()
 	m.textarea.SetHeight(inputMinHeight)
+	m.syncTextareaStyles()
 }
 
 func (m *Model) applyClient() {

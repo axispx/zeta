@@ -13,6 +13,7 @@ const (
 	YellowANSI = "11" // bright yellow
 	BlueANSI   = "12" // bright blue
 	CyanANSI   = "14" // bright cyan
+	WhiteANSI  = "15" // bright white
 
 	// Panel lift from terminal bg (Charm Lighten/Darken).
 	// Input is subtler; user bubbles are more elevated.
@@ -29,6 +30,7 @@ var (
 	Yellow = lipgloss.Color(YellowANSI)
 	Blue   = lipgloss.Color(BlueANSI)
 	Cyan   = lipgloss.Color(CyanANSI)
+	White  = lipgloss.Color(WhiteANSI)
 
 	// Prose styles omit Foreground so the terminal default fg applies.
 	Banner = lipgloss.NewStyle().Bold(true).Foreground(Blue)

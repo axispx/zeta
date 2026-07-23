@@ -113,6 +113,7 @@ func (m *Model) applyPanels(termBg color.Color, dark bool) {
 }
 
 // applyTextareaStyles sets textarea chrome; bg nil skips panel fill (pre-BackgroundColorMsg).
+// Empty input dims the focused prompt arrow.
 func applyTextareaStyles(ta *textarea.Model, bg color.Color) {
 	ts := textarea.DefaultStyles(true)
 	base := lipgloss.NewStyle()
@@ -123,18 +124,27 @@ func applyTextareaStyles(ta *textarea.Model, bg color.Color) {
 		prompt = prompt.Background(bg)
 		ph = ph.Background(bg)
 	}
+	focusedPrompt := prompt
+	if ta.Value() == "" {
+		focusedPrompt = prompt.Faint(true)
+	}
 	ts.Focused.Base = base
 	ts.Focused.Text = base
 	ts.Focused.CursorLine = base
 	ts.Focused.Placeholder = ph
-	ts.Focused.Prompt = prompt
+	ts.Focused.Prompt = focusedPrompt
 	ts.Blurred.Base = base
 	ts.Blurred.Text = base
 	ts.Blurred.CursorLine = base
 	ts.Blurred.Placeholder = ph
 	ts.Blurred.Prompt = prompt.Faint(true)
+	ts.Cursor.Color = styles.White
 	ts.Cursor.Blink = false
 	ta.SetStyles(ts)
+}
+
+func (m *Model) syncTextareaStyles() {
+	applyTextareaStyles(&m.textarea, m.chrome.Input)
 }
 
 func (m Model) Init() tea.Cmd {
@@ -151,6 +161,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.BackgroundColorMsg:
 		m.applyPanels(msg, msg.IsDark())
 		m.refreshTranscript()
+		return m, nil
+
+	case tea.FocusMsg:
+		return m, m.textarea.Focus()
+
+	case tea.BlurMsg:
+		m.textarea.Blur()
 		return m, nil
 
 	case tea.WindowSizeMsg:
@@ -218,8 +235,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.refreshTranscript()
 				return m, nil
 			}
-			m.quitting = true
-			return m, tea.Quit
+			return m, nil
 		case m.consumeCommandOverlayKey(msg):
 			return m, nil
 		case msg.String() == "shift+tab":
@@ -236,6 +252,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	prevH := m.textarea.Height()
 	if !m.picker.active {
 		m.textarea, taCmd = m.textarea.Update(msg)
+		m.syncTextareaStyles()
 		if m.textarea.Height() != prevH {
 			m.refreshTranscript()
 		}
@@ -615,6 +632,7 @@ func (m Model) programView(content string) tea.View {
 	v := tea.NewView(content)
 	v.AltScreen = true
 	v.MouseMode = tea.MouseModeCellMotion
+	v.ReportFocus = true
 	// Enables shift+enter and other modified keys on supporting terminals.
 	v.KeyboardEnhancements.ReportEventTypes = true
 	return v
