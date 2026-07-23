@@ -16,7 +16,7 @@ import (
 type turnSession struct {
 	cancel     context.CancelFunc
 	ch         <-chan agent.Event
-	streaming  bool // receiving assistant deltas (settled md + plain tail)
+	streaming  bool // true while receiving assistant deltas
 	activeTool int  // index of open tool row in Model.messages; -1 if none
 }
 
@@ -95,5 +95,10 @@ func startTurn(client *ai.Client, ws workspace.Context, mode prompt.Mode, histor
 		Root:   ws.Abs,
 	}
 	ch := cfg.Run(ctx, requestMsgs(ws, mode, history))
-	return &turnSession{cancel: cancel, ch: ch, streaming: true, activeTool: -1}, waitTurnEvent(ch)
+	return &turnSession{
+		cancel:     cancel,
+		ch:         ch,
+		streaming:  false, // set true on first delta; false = Waiting chrome / settled md
+		activeTool: -1,
+	}, waitTurnEvent(ch)
 }

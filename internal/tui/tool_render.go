@@ -16,20 +16,27 @@ const (
 	maxBashOutLines = 3 // live/final bash stdout lines shown under "$ cmd"
 )
 
-// toolView describes how a tool appears in the transcript.
+// toolView describes how a tool appears in the transcript and busy chrome.
 // Tools that share the same segment key stack together; empty key = generic cluster.
 type toolView struct {
 	keepOut   bool                   // persist Message.Out from the tool result
 	segment   string                 // non-empty → own segment kind (bash/edit/…)
+	busy      string                 // chrome label while the tool runs; empty → statusWorking
 	renderRun func([]Message) string // nil → renderToolCluster
 }
 
 func viewFor(name string) toolView {
 	switch name {
 	case "bash":
-		return toolView{keepOut: true, segment: "bash", renderRun: renderShellRun}
+		return toolView{keepOut: true, segment: "bash", busy: statusRunning, renderRun: renderShellRun}
 	case "edit":
-		return toolView{keepOut: true, segment: "edit", renderRun: renderEditRun}
+		return toolView{keepOut: true, segment: "edit", busy: statusEditing, renderRun: renderEditRun}
+	case "read":
+		return toolView{busy: statusReading}
+	case "grep", "websearch":
+		return toolView{busy: statusSearching}
+	case "webfetch":
+		return toolView{busy: statusFetching}
 	default:
 		return toolView{}
 	}
@@ -37,6 +44,14 @@ func viewFor(name string) toolView {
 
 // toolHasOut is true when the tool row keeps Message.Out for the transcript UI.
 func toolHasOut(name string) bool { return viewFor(name).keepOut }
+
+// toolStatus is the busy chrome label for a tool name.
+func toolStatus(name string) string {
+	if s := viewFor(name).busy; s != "" {
+		return s
+	}
+	return statusWorking
+}
 
 // toolRunAt returns consecutive tool messages starting at i, or nil.
 func toolRunAt(msgs []Message, i int) []Message {

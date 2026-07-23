@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"charm.land/lipgloss/v2"
+
+	"github.com/axispx/zeta/internal/styles"
 )
 
 func TestToolRunAtGroupsTools(t *testing.T) {
@@ -305,17 +307,28 @@ func TestStackMainChromeKeepsInputStable(t *testing.T) {
 	overlay := "a\nb\nc\nd\ne"              // 5 lines
 	input, footer := "INPUT", "FOOTER"
 
+	// gap is one slot: blank, busy status, or overlay (caller clips main for overlay).
 	withGap := stackMainChrome(main, "", input, footer)
-	withOverlay := stackMainChrome(main, overlay, input, footer)
+	withStatus := stackMainChrome(main, "⠋ working", input, footer)
+	clip := lipgloss.Height(overlay) - styles.GapBeforeInput
+	if clip < 0 {
+		clip = 0
+	}
+	withOverlay := stackMainChrome(clipBottomLines(main, clip), overlay, input, footer)
 
-	// Input should sit at the same absolute row in both stacks.
+	// Input should sit at the same absolute row whether the gap is blank,
+	// showing the busy spinner, or replaced by an overlay.
 	gapIdx := strings.Index(withGap, "INPUT")
+	statusIdx := strings.Index(withStatus, "INPUT")
 	overlayIdx := strings.Index(withOverlay, "INPUT")
-	if gapIdx < 0 || overlayIdx < 0 {
+	if gapIdx < 0 || statusIdx < 0 || overlayIdx < 0 {
 		t.Fatal("missing INPUT")
 	}
-	if lipgloss.Height(withGap[:gapIdx]) != lipgloss.Height(withOverlay[:overlayIdx]) {
-		t.Fatalf("input jumped: gap-stack h=%d overlay-stack h=%d",
-			lipgloss.Height(withGap[:gapIdx]), lipgloss.Height(withOverlay[:overlayIdx]))
+	gapH := lipgloss.Height(withGap[:gapIdx])
+	if h := lipgloss.Height(withStatus[:statusIdx]); h != gapH {
+		t.Fatalf("input jumped with status: gap-stack h=%d status-stack h=%d", gapH, h)
+	}
+	if h := lipgloss.Height(withOverlay[:overlayIdx]); h != gapH {
+		t.Fatalf("input jumped with overlay: gap-stack h=%d overlay-stack h=%d", gapH, h)
 	}
 }

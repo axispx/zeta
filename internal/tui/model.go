@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
@@ -56,6 +57,7 @@ type Model struct {
 	config        configDialog
 	chrome        styles.Chrome // terminal-derived panels; zero until BackgroundColorMsg
 	promptHist    promptHistory // up/down recall of prior user turns
+	spinner       spinner.Model // animated while a turn is in flight
 }
 
 // Options controls how the TUI starts a session.
@@ -110,6 +112,7 @@ func New(cfg config.Config, opts Options) (Model, error) {
 		viewport: vp,
 		textarea: ta,
 		ws:       ws,
+		spinner:  spinner.New(spinner.WithSpinner(spinner.MiniDot)),
 	}
 	m.promptHist.reset()
 	applyTextareaStyles(&m.textarea, nil)
@@ -222,6 +225,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			_ = m.sess.SetName(msg.name)
 		}
 		return m, nil
+
+	case spinner.TickMsg:
+		if m.turn == nil {
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.spinner, cmd = m.spinner.Update(msg)
+		return m, cmd
 
 	case turnDeltaMsg:
 		if m.turn == nil {
@@ -347,7 +358,7 @@ func (m *Model) submit(text string) tea.Cmd {
 	var cmds []tea.Cmd
 	var turnCmd tea.Cmd
 	m.turn, turnCmd = startTurn(m.client, m.ws, m.mode, m.history)
-	cmds = append(cmds, turnCmd)
+	cmds = append(cmds, turnCmd, m.spinner.Tick)
 	if titleCmd := m.ensureTitle(text); titleCmd != nil {
 		cmds = append(cmds, titleCmd)
 	}
@@ -739,25 +750,22 @@ func (m Model) View() tea.View {
 		Margin(0, styles.InputMarginH).
 		Render(inputFooter(footerW, m.ws, m.cfg, m.mode, m.contextTokens))
 
-	return m.programView(stackMainChrome(main, m.renderOverlay(m.width), input, footer))
+	// gap is one layout slot: busy status, command overlay, or blank.
+	gap := m.turnStatusLine()
+	if ov := m.renderOverlay(m.width); ov != "" {
+		clip := lipgloss.Height(ov) - styles.GapBeforeInput
+		if clip < 0 {
+			clip = 0
+		}
+		main = clipBottomLines(main, clip)
+		gap = ov
+	}
+	return m.programView(stackMainChrome(main, gap, input, footer))
 }
 
-// stackMainChrome places transcript, optional overlay, input, and footer.
-// Overlay replaces GapBeforeInput; main is clipped so input stays put.
-func stackMainChrome(main, overlay, input, footer string) string {
-	if overlay == "" {
-		return lipgloss.JoinVertical(lipgloss.Left, main, "", input, footer)
-	}
-	clip := lipgloss.Height(overlay) - styles.GapBeforeInput
-	if clip < 0 {
-		clip = 0
-	}
-	return lipgloss.JoinVertical(lipgloss.Left,
-		clipBottomLines(main, clip),
-		overlay,
-		input,
-		footer,
-	)
+// stackMainChrome places transcript, gap row (status/overlay/blank), input, and footer.
+func stackMainChrome(main, gap, input, footer string) string {
+	return lipgloss.JoinVertical(lipgloss.Left, main, gap, input, footer)
 }
 
 func (m Model) programView(content string) tea.View {
