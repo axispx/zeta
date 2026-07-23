@@ -97,6 +97,12 @@ func New(cfg config.Config, opts Options) (Model, error) {
 
 	vp := viewport.New()
 	vp.MouseWheelEnabled = true
+	// Keep only pgup/pgdn — default keymap also binds j/k/f/space/b/u/d/h/l,
+	// which steals those chars from the input and scrolls the transcript.
+	vp.KeyMap = viewport.KeyMap{
+		PageDown: key.NewBinding(key.WithKeys("pgdown")),
+		PageUp:   key.NewBinding(key.WithKeys("pgup")),
+	}
 
 	ws := workspace.Load()
 	m := Model{
