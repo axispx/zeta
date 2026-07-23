@@ -65,6 +65,29 @@ func TestMatchCommands(t *testing.T) {
 	}
 }
 
+func TestSubmitInputQuit(t *testing.T) {
+	ta := textarea.New()
+	ta.SetValue(":q")
+	m := Model{textarea: ta}
+	cmd := m.submitInput()
+	if !m.quitting {
+		t.Fatal("quitting = false")
+	}
+	if cmd == nil {
+		t.Fatal("expected quit cmd")
+	}
+
+	for _, other := range []string{":quit", "/quit", ":Q"} {
+		ta := textarea.New()
+		ta.SetValue(other)
+		m := Model{textarea: ta}
+		_ = m.submitInput()
+		if m.quitting {
+			t.Fatalf("%q should not quit", other)
+		}
+	}
+}
+
 func TestListSelMove(t *testing.T) {
 	var l listSel
 	if !l.move(3, "down") || l.selected != 1 {

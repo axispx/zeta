@@ -329,6 +329,9 @@ func (m *Model) submitInput() tea.Cmd {
 	if text == "" {
 		return nil
 	}
+	if text == ":q" { // vim
+		return m.requestQuit()
+	}
 	if isSlashToken(text) {
 		if _, ok := lookupCommand(text); ok {
 			return m.runCommand(text)

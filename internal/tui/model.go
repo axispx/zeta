@@ -226,9 +226,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		switch {
 		case msg.String() == "ctrl+c":
-			m.finishTurn()
-			m.quitting = true
-			return m, tea.Quit
+			return m, m.requestQuit()
 		case m.config.active:
 			cmd, _ := m.config.Update(msg)
 			return m, cmd
@@ -396,6 +394,16 @@ func (m *Model) finishTurn() {
 	m.turn.cancel()
 	m.turn = nil
 	m.history = trimIncomplete(m.history)
+}
+
+func (m *Model) requestQuit() tea.Cmd {
+	m.finishTurn()
+	return m.quit()
+}
+
+func (m *Model) quit() tea.Cmd {
+	m.quitting = true
+	return tea.Quit
 }
 
 func (m *Model) handleTurnErr(err error) {
