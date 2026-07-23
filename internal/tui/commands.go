@@ -137,6 +137,7 @@ func (m *Model) resetInput() {
 	m.textarea.Reset()
 	m.textarea.SetHeight(inputMinHeight)
 	m.syncTextareaStyles()
+	m.resetPromptHistory()
 }
 
 func (m *Model) applyClient() {
@@ -218,6 +219,7 @@ func (m *Model) applySession(sess *session.Session, recs []session.Record, err e
 	}
 	m.contextTokens = 0
 	m.titlePending = false
+	m.resetPromptHistory()
 	m.refreshTranscript()
 }
 

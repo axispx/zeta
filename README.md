@@ -10,7 +10,7 @@ make build   # bin/zeta
 make install # ~/.local/bin/zeta
 ```
 
-**Keys:** `enter` send · `shift+tab` cycle mode (build / ask / plan) · `shift+enter` / `ctrl+j` / `alt+enter` newline · `ctrl+c` quit · mouse / pgup/pgdn scroll
+**Keys:** `enter` send · `up`/`down` / `ctrl+p`/`ctrl+n` prompt history · `shift+tab` cycle mode (build / ask / plan) · `shift+enter` / `ctrl+j` / `alt+enter` newline · `ctrl+c` quit · mouse / pgup/pgdn scroll
 
 **Commands:** type `/` for autocomplete · `/clear` new session · `/resume` pick a previous session · `/model` switch model · `/config` manage providers & models
 

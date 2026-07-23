@@ -55,6 +55,7 @@ type Model struct {
 	picker        pickerState
 	config        configDialog
 	chrome        styles.Chrome // terminal-derived panels; zero until BackgroundColorMsg
+	promptHist    promptHistory // up/down recall of prior user turns
 }
 
 // New creates the initial TUI model.
@@ -98,6 +99,7 @@ func New(cfg config.Config) Model {
 		textarea: ta,
 		ws:       ws,
 	}
+	m.promptHist.reset()
 	applyTextareaStyles(&m.textarea, nil)
 	m.applyClient()
 	if sess, err := session.New(ws.Abs); err != nil {
@@ -254,6 +256,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.mode = m.mode.Next()
 			}
 			return m, nil
+		case m.handlePromptHistoryKey(msg):
+			return m, nil
 		// Plain Enter only. Never steal shift/alt/ctrl+enter — those are newlines.
 		case msg.Code == tea.KeyEnter && msg.Mod == 0:
 			return m, m.submitInput()
@@ -270,7 +274,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	prevH := m.textarea.Height()
 	if !m.picker.active {
+		before := m.textarea.Value()
 		m.textarea, taCmd = m.textarea.Update(msg)
+		m.notePromptEdit(before)
 		m.syncTextareaStyles()
 		if m.textarea.Height() != prevH {
 			m.refreshTranscript()
