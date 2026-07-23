@@ -368,10 +368,7 @@ func (m *Model) handleTurnTool(msg turnToolMsg) tea.Cmd {
 
 // ensureTitle requests an AI title once for an untitled session.
 func (m *Model) ensureTitle(prompt string) tea.Cmd {
-	if m.client == nil || m.sess == nil || m.titlePending {
-		return nil
-	}
-	if name, err := m.sess.IndexedName(); err != nil || name != "" {
+	if m.client == nil || m.sess == nil || m.titlePending || m.sess.Name != "" {
 		return nil
 	}
 	prompt = strings.TrimSpace(prompt)
@@ -730,6 +727,8 @@ func (m Model) programView(content string) tea.View {
 	v.ReportFocus = true
 	// Enables shift+enter and other modified keys on supporting terminals.
 	v.KeyboardEnhancements.ReportEventTypes = true
+	// Bubble Tea v2 maps WindowTitle → OSC 2 (same idea as opencode's setTerminalTitle).
+	v.WindowTitle = terminalTitle(m.sess)
 	return v
 }
 

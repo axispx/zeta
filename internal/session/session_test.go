@@ -69,6 +69,9 @@ func TestOpenAppendResume(t *testing.T) {
 	if name != "Auth Middleware Fix" {
 		t.Fatalf("indexed name = %q", name)
 	}
+	if s2.Name != "Auth Middleware Fix" {
+		t.Fatalf("hydrated name = %q", s2.Name)
+	}
 	if len(recs2) != 2 {
 		t.Fatalf("recs = %#v", recs2)
 	}
@@ -133,9 +136,12 @@ func TestNewNotPersistedUntilAppend(t *testing.T) {
 		t.Fatalf("new empty session indexed: %#v", entries)
 	}
 
-	// SetName on an unindexed session is a no-op.
-	if err := s.SetName("Should Not Appear"); err != nil {
+	// SetName before first Append keeps the name in memory only.
+	if err := s.SetName("Pending Title"); err != nil {
 		t.Fatal(err)
+	}
+	if s.Name != "Pending Title" {
+		t.Fatalf("in-memory name = %q", s.Name)
 	}
 	entries, err = List(proj)
 	if err != nil {
@@ -157,6 +163,9 @@ func TestNewNotPersistedUntilAppend(t *testing.T) {
 	}
 	if len(entries) != 1 || entries[0].ID != s.ID {
 		t.Fatalf("after append = %#v", entries)
+	}
+	if entries[0].Name != "Pending Title" {
+		t.Fatalf("name should persist on first append: %#v", entries[0])
 	}
 }
 
@@ -232,6 +241,9 @@ func TestOpenID(t *testing.T) {
 	}
 	if got.ID != s1.ID {
 		t.Fatalf("id = %q, want %q", got.ID, s1.ID)
+	}
+	if got.Name != "First" {
+		t.Fatalf("hydrated name = %q", got.Name)
 	}
 	name, err := got.IndexedName()
 	if err != nil {

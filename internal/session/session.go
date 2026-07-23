@@ -65,6 +65,7 @@ type Session struct {
 	Path    string
 	Cwd     string
 	Created string
+	Name    string // display name; hydrated from index on load, set via SetName
 }
 
 // Open resumes the latest session for cwd, or creates a new one if none exist.
@@ -228,6 +229,9 @@ func load(abs, path string) (*Session, []Record, error) {
 	}
 	if err := sc.Err(); err != nil {
 		return nil, nil, fmt.Errorf("read session: %w", err)
+	}
+	if name, err := s.IndexedName(); err == nil {
+		s.Name = name
 	}
 	return s, out, nil
 }

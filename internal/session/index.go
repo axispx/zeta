@@ -37,14 +37,18 @@ func List(cwd string) ([]IndexEntry, error) {
 	return entries, nil
 }
 
-// SetName stores the display name in the project index (for the session picker).
-// No-ops if the session is not indexed yet (empty / never Append'd).
+// SetName stores the display name in memory and, if indexed, in the project index.
+// Before the first Append the name is memory-only; upsertIndex persists it later.
 func (s *Session) SetName(name string) error {
-	if s == nil || s.Path == "" {
+	if s == nil {
 		return nil
 	}
 	name = strings.TrimSpace(name)
 	if name == "" {
+		return nil
+	}
+	s.Name = name
+	if s.Path == "" {
 		return nil
 	}
 	dir := filepath.Dir(s.Path)
@@ -96,6 +100,9 @@ func (s *Session) upsertIndex() error {
 		if s.Created != "" {
 			entries[i].Created = s.Created
 		}
+		if s.Name != "" {
+			entries[i].Name = s.Name
+		}
 		entries[i].Updated = now
 		return writeIndex(dir, entries)
 	}
@@ -105,6 +112,7 @@ func (s *Session) upsertIndex() error {
 	}
 	entries = append(entries, IndexEntry{
 		ID:      s.ID,
+		Name:    s.Name,
 		Created: created,
 		Updated: now,
 	})
