@@ -43,8 +43,9 @@ var (
 			Bold(true).
 			Underline(true)
 
-	// ToolMsg uses default terminal fg (tool call names read as normal text).
-	ToolMsg = lipgloss.NewStyle()
+	ToolMsg = lipgloss.NewStyle().
+			Foreground(Dim).
+			Faint(true)
 
 	Prompt = lipgloss.NewStyle().
 		Bold(true)

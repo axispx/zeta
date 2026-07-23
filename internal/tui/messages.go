@@ -27,22 +27,23 @@ type Message struct {
 	Role Role
 	Text string
 
-	// Cached markdown render for RoleAgent (invalidated when Text/width change).
+	// Cached markdown render for RoleAgent (keyed by source text + width).
 	md       string
 	mdWidth  int
 	mdSource string
 }
 
 // render formats the message for the transcript.
-func (m *Message) render(width int, topMargin int, userMsg lipgloss.Style) string {
-	body := m.renderBody(width, userMsg)
+// When live is true, agent messages use progressive settled/tail rendering.
+func (m *Message) render(width int, topMargin int, userMsg lipgloss.Style, live bool) string {
+	body := m.renderBody(width, userMsg, live)
 	if topMargin > 0 {
 		return lipgloss.NewStyle().MarginTop(topMargin).Render(body)
 	}
 	return body
 }
 
-func (m *Message) renderBody(width int, userMsg lipgloss.Style) string {
+func (m *Message) renderBody(width int, userMsg lipgloss.Style, live bool) string {
 	switch m.Role {
 	case RoleUser:
 		s := userMsg
@@ -51,7 +52,10 @@ func (m *Message) renderBody(width int, userMsg lipgloss.Style) string {
 		}
 		return s.Render(m.Text)
 	case RoleAgent:
-		return m.agentMarkdown(width)
+		if live {
+			return m.streamingMarkdown(width)
+		}
+		return m.cachedMarkdown(m.Text, width)
 	case RoleTool:
 		return widthBody(styles.ToolMsg.Render(m.Text), width)
 	case RoleError:
@@ -61,15 +65,32 @@ func (m *Message) renderBody(width int, userMsg lipgloss.Style) string {
 	}
 }
 
-func (m *Message) agentMarkdown(width int) string {
-	if m.md != "" && m.mdWidth == width && m.mdSource == m.Text {
+// cachedMarkdown renders source via glamour, keyed by source+width.
+func (m *Message) cachedMarkdown(source string, width int) string {
+	if m.md != "" && m.mdWidth == width && m.mdSource == source {
 		return m.md
 	}
-	out := renderMarkdown(m.Text, width)
+	out := renderMarkdown(source, width)
 	m.md = out
 	m.mdWidth = width
-	m.mdSource = m.Text
+	m.mdSource = source
 	return out
+}
+
+// streamingMarkdown styles settled blocks while the agent is still streaming,
+// keeping the in-progress tail plain to avoid half-open fence/inline flicker.
+// Reuses md cache keyed by the settled prefix so glamour runs only when a
+// block boundary advances — not on every delta.
+func (m *Message) streamingMarkdown(width int) string {
+	settled, tail := streamSplit(m.Text)
+	switch {
+	case settled == "":
+		return plainAgent(tail, width)
+	case tail == "":
+		return m.cachedMarkdown(m.Text, width)
+	default:
+		return m.cachedMarkdown(settled, width) + "\n\n" + plainAgent(tail, width)
+	}
 }
 
 // toolRunAt returns consecutive tool messages starting at i, or nil.

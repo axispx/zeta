@@ -7,9 +7,29 @@ import (
 	"charm.land/glamour/v2"
 	"charm.land/glamour/v2/ansi"
 	glamstyles "charm.land/glamour/v2/styles"
+	"github.com/alecthomas/chroma/v2"
+	chromastyles "github.com/alecthomas/chroma/v2/styles"
 
 	"github.com/axispx/zeta/internal/styles"
 )
+
+// zetaChromaTheme is native with Error/Text/Background cleared so unlabeled
+// fences (diagrams, trees) use the terminal default fg instead of chroma's
+// Error tint and forced white Text. Labeled fences keep keyword colors.
+const zetaChromaTheme = "zeta"
+
+func init() {
+	s, err := chromastyles.Get("native").Builder().
+		Add(chroma.Error, "noinherit").
+		Add(chroma.Text, "noinherit").
+		Add(chroma.Background, "noinherit").
+		Build()
+	if err != nil {
+		panic("zeta chroma theme: " + err.Error())
+	}
+	s.Name = zetaChromaTheme
+	chromastyles.Register(s)
+}
 
 // agentMDStyle is ASCIIStyleConfig with zero margins (Transcript already insets).
 // Prose uses the terminal default fg; accents use the 16-color palette so themes apply.
@@ -25,7 +45,7 @@ func agentMDStyle() ansi.StyleConfig {
 	s.Document.BlockSuffix = ""
 	s.Document.StylePrimitive.Color = nil // terminal default fg
 	s.CodeBlock.Margin = uintPtr(0)
-	s.CodeBlock.Theme = "native"
+	s.CodeBlock.Theme = zetaChromaTheme
 	s.CodeBlock.StylePrimitive.Color = nil
 	s.List.LevelIndent = 2
 
@@ -130,7 +150,84 @@ func renderMarkdown(text string, width int) string {
 	return strings.TrimSpace(out)
 }
 
-// plainAgent wraps agent text without markdown (used while streaming).
+// fence is a markdown fence line (``` / ~~~), optionally with an info string.
+type fence struct {
+	marker string // "```" or "~~~"
+	lang   string // info string; empty on closers per CommonMark
+}
+
+func (f fence) closes(open fence) bool {
+	return f.marker == open.marker && f.lang == ""
+}
+
+func parseFenceLine(line string) (fence, bool) {
+	trimmed := strings.TrimLeft(line, " \t")
+	var marker string
+	switch {
+	case strings.HasPrefix(trimmed, "```"):
+		marker = "```"
+	case strings.HasPrefix(trimmed, "~~~"):
+		marker = "~~~"
+	default:
+		return fence{}, false
+	}
+	return fence{
+		marker: marker,
+		lang:   strings.TrimSpace(trimmed[len(marker):]),
+	}, true
+}
+
+// streamSplit divides streaming markdown into a settled prefix and an
+// in-progress tail. Settled text is safe for glamour; tail stays plain.
+//
+// Settled ≡ text before an open fence, else text before the last "\n\n".
+// Settled never keeps a trailing blank line — the joiner always inserts "\n\n".
+func streamSplit(text string) (settled, tail string) {
+	if text == "" {
+		return "", ""
+	}
+	if idx := unmatchedFenceStart(text); idx >= 0 {
+		return strings.TrimRight(text[:idx], "\n"), text[idx:]
+	}
+	idx := strings.LastIndex(text, "\n\n")
+	if idx < 0 {
+		return "", text
+	}
+	settled = text[:idx]
+	tail = text[idx+2:]
+	if tail == "" {
+		return text, ""
+	}
+	return settled, tail
+}
+
+// unmatchedFenceStart returns the byte offset of an unclosed fence, or -1.
+// Open/close matching is marker-aware; info strings never close (CommonMark).
+func unmatchedFenceStart(text string) int {
+	openAt := -1
+	var open fence
+	offset := 0
+	rest := text
+	for {
+		line, after, found := strings.Cut(rest, "\n")
+		if f, ok := parseFenceLine(line); ok {
+			if openAt < 0 {
+				openAt = offset
+				open = f
+			} else if f.closes(open) {
+				openAt = -1
+			}
+		}
+		if !found {
+			break
+		}
+		offset += len(line) + 1
+		rest = after
+	}
+	return openAt
+}
+
+// plainAgent wraps agent text without markdown.
 // lipgloss Width matches glamour WordWrap at margin 0 for plain prose.
 func plainAgent(text string, width int) string {
 	s := styles.AgentMsg

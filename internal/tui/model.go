@@ -542,16 +542,8 @@ func (m *Model) setTranscriptContent() {
 			continue
 		}
 		msg := &m.messages[i]
-		// Live stream stays plain (avoids half-open fence flicker); Model owns that policy.
-		if streaming && i == len(m.messages)-1 && msg.Role == RoleAgent {
-			body := plainAgent(msg.Text, m.contentW)
-			if top > 0 {
-				body = lipgloss.NewStyle().MarginTop(top).Render(body)
-			}
-			b.WriteString(body)
-		} else {
-			b.WriteString(msg.render(m.contentW, top, userMsg))
-		}
+		live := streaming && i == len(m.messages)-1 && msg.Role == RoleAgent
+		b.WriteString(msg.render(m.contentW, top, userMsg, live))
 		i++
 	}
 	m.viewport.SetContent(b.String())

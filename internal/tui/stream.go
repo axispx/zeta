@@ -16,7 +16,7 @@ import (
 type turnSession struct {
 	cancel    context.CancelFunc
 	ch        <-chan agent.Event
-	streaming bool // receiving assistant deltas (plain render)
+	streaming bool // receiving assistant deltas (settled md + plain tail)
 }
 
 type turnDeltaMsg struct{ text string }
