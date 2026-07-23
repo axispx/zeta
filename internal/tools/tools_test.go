@@ -67,17 +67,17 @@ func TestReadEdit(t *testing.T) {
 
 func TestInspect(t *testing.T) {
 	ro := Inspect()
-	if len(ro) != 2 {
+	if len(ro) != 4 {
 		t.Fatalf("inspect len: %d", len(ro))
 	}
-	if len(Build()) != 4 {
+	if len(Build()) != 6 {
 		t.Fatal("expected build tools")
 	}
 	names := map[string]bool{}
 	for _, tool := range ro {
 		names[tool.Name()] = true
 	}
-	if names["bash"] || names["edit"] || !names["read"] || !names["grep"] {
+	if names["bash"] || names["edit"] || !names["read"] || !names["grep"] || !names["websearch"] || !names["webfetch"] {
 		t.Fatalf("inspect names: %v", names)
 	}
 }

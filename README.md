@@ -1,4 +1,4 @@
-# zeta
+# Zeta
 
 Command-line AI coding agent.
 
@@ -14,7 +14,7 @@ make install # ~/.local/bin/zeta
 
 **Commands:** type `/` for autocomplete · `/clear` new session · `/resume` pick a previous session · `/model` switch model · `/config` manage providers & models
 
-**Modes:** `build` implements with tools (`read` / `edit` / `grep` / `bash`) · `ask` Q&A with read-only tools · `plan` plans with read-only tools
+**Modes:** `build` implements with tools (`read` / `edit` / `grep` / `bash` / `websearch` / `webfetch`) · `ask` Q&A with read-only tools · `plan` plans with read-only tools
 
 `shift+enter` needs a terminal that can disambiguate modified keys (Kitty keyboard protocol / CSI-u). Ghostty, Kitty, iTerm2 3.5+, Alacritty, WezTerm (`enable_kitty_keyboard = true`).
 If `shift+enter` is remapped in the terminal (common Claude Code / iTerm “send text” setup), fix or remove that binding so the app sees the real key.
@@ -25,7 +25,7 @@ If `shift+enter` is remapped in the terminal (common Claude Code / iTerm “send
 cmd/zeta/            entry
 internal/tui/        bubbletea v2 model (viewport + dynamic textarea)
 internal/ai/         OpenAI-compatible streaming client + tool calls
-internal/tools/      read / edit / grep / bash
+internal/tools/      read / edit / grep / bash / websearch / webfetch
 internal/config/     ~/.zeta/config.json
 internal/models/     models.dev catalog cache → provider presets
 internal/session/    JSONL transcripts under ~/.zeta/sessions/
@@ -45,7 +45,7 @@ Everything lives under `~/.zeta` (override with `ZETA_HOME`):
     <id>.jsonl            # typed events: session + message
 ```
 
-Launching zeta always starts a fresh empty session. Prior sessions are available via `/resume`. A session's JSONL and index entry are created on the first message; after that prompt, the model generates a short session title for the picker.
+Launching Zeta always starts a fresh empty session. Prior sessions are available via `/resume`. A session's JSONL and index entry are created on the first message; after that prompt, the model generates a short session title for the picker.
 
 ## Config
 
@@ -85,3 +85,17 @@ Path: `$ZETA_HOME/config.json` (default `~/.zeta/config.json`).
 - **`custom`** — optional; when true the provider is a user-defined endpoint (rename / add / edit / remove models). Catalog providers omit this and only allow enable/disable + API key updates.
 
 Use `/config` to configure providers. The list is loaded from [models.dev](https://models.dev) (cached under `$ZETA_HOME/cache/models.json`, 5‑minute TTL) and filtered to OpenAI-compatible APIs. If models.dev is unreachable, the existing cache is kept and reused. **Configured** opens model activation; new **Providers** ask for an API key first, then let you enable models (`ctrl+a` toggles all). **Custom** is for your own endpoint.
+
+## Web search
+
+`websearch` uses Exa hosted MCP by default (no key required; shared free quota). Set `ZETA_WEBSEARCH_PROVIDER=parallel` to use Parallel instead.
+
+`webfetch` fetches a URL directly (HTML → markdown by default). Blocks private/loopback addresses.
+
+Optional env vars:
+
+- `EXA_API_KEY` — use your Exa quota ([dashboard](https://dashboard.exa.ai/api-keys))
+- `PARALLEL_API_KEY` — use your Parallel quota
+- `ZETA_WEBSEARCH_PROVIDER=exa|parallel` — select search provider (default: exa)
+
+On search rate limit, the tool returns a message pointing at those keys.

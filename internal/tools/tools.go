@@ -21,12 +21,12 @@ type Tool interface {
 
 // Build returns the full tool set (build mode).
 func Build() []Tool {
-	return []Tool{readTool{}, editTool{}, grepTool{}, bashTool{}}
+	return []Tool{readTool{}, editTool{}, grepTool{}, bashTool{}, websearchTool{}, webfetchTool{}}
 }
 
 // Inspect returns ask/plan-safe tools (no edits, no shell).
 func Inspect() []Tool {
-	return []Tool{readTool{}, grepTool{}}
+	return []Tool{readTool{}, grepTool{}, websearchTool{}, webfetchTool{}}
 }
 
 // Defs converts tools to API function definitions.

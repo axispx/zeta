@@ -14,7 +14,7 @@ Implement the user's request fully.
 
 ## Tools
 
-You have `read`, `edit`, `grep`, and `bash`. Use them to inspect and change the workspace.
+You have `read`, `edit`, `grep`, `bash`, `websearch`, and `webfetch`. Use them to inspect and change the workspace.
 - `read` a file before editing unfamiliar files; `read` a directory to list its immediate children.
 - `grep` to find symbols and call sites.
 - `edit` for all file changes (unique `old_string`, or empty `old_string` to create a file).
