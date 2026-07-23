@@ -58,8 +58,14 @@ type Model struct {
 	promptHist    promptHistory // up/down recall of prior user turns
 }
 
+// Options controls how the TUI starts a session.
+type Options struct {
+	ResumeID string // non-empty → open that session
+	Picker   bool   // true → open session list on start
+}
+
 // New creates the initial TUI model.
-func New(cfg config.Config) Model {
+func New(cfg config.Config, opts Options) (Model, error) {
 	ta := textarea.New()
 	ta.Placeholder = ""
 	ta.CharLimit = 0
@@ -102,12 +108,33 @@ func New(cfg config.Config) Model {
 	m.promptHist.reset()
 	applyTextareaStyles(&m.textarea, nil)
 	m.applyClient()
+
+	if opts.ResumeID != "" {
+		sess, recs, err := session.OpenID(ws.Abs, opts.ResumeID)
+		if err != nil {
+			return Model{}, err
+		}
+		m.applySession(sess, recs, nil)
+		return m, nil
+	}
+
 	if sess, err := session.New(ws.Abs); err != nil {
 		m.messages = []Message{{Role: RoleError, Text: "session: " + err.Error()}}
 	} else {
 		m.sess = sess
 	}
-	return m
+	if opts.Picker {
+		m.openPicker()
+	}
+	return m, nil
+}
+
+// PersistedSessionID returns the current session id if it has been written to disk.
+func (m Model) PersistedSessionID() string {
+	if m.sess == nil || !m.sess.Persisted() {
+		return ""
+	}
+	return m.sess.ID
 }
 
 func (m *Model) applyPanels(termBg color.Color, dark bool) {
@@ -298,6 +325,13 @@ func (m *Model) submit(text string) tea.Cmd {
 
 	if m.client == nil {
 		errMsg := Message{Role: RoleError, Text: "no provider configured — set up ~/.zeta/config.json"}
+		m.messages = append(m.messages, errMsg)
+		m.persist(session.Record{Role: session.RoleError, Text: errMsg.Text})
+		m.refreshTranscript()
+		return nil
+	}
+	if err := m.ensureFreshClient(); err != nil {
+		errMsg := Message{Role: RoleError, Text: "oauth refresh: " + err.Error()}
 		m.messages = append(m.messages, errMsg)
 		m.persist(session.Record{Role: session.RoleError, Text: errMsg.Text})
 		m.refreshTranscript()

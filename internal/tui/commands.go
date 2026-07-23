@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -141,13 +142,33 @@ func (m *Model) resetInput() {
 }
 
 func (m *Model) applyClient() {
-	p, ok := m.cfg.ActiveProvider()
-	id := m.cfg.ActiveModelID()
-	if !ok || id == "" {
+	choice, ok := m.cfg.ActiveChoice()
+	if !ok {
 		m.client = nil
 		return
 	}
-	m.client = ai.New(p, id)
+	p, ok := m.cfg.Provider(choice.ProviderID)
+	if !ok {
+		m.client = nil
+		return
+	}
+	m.client = ai.New(p, choice.ModelID)
+}
+
+// ensureFreshClient refreshes OAuth tokens if needed, then rebuilds the client.
+func (m *Model) ensureFreshClient() error {
+	choice, ok := m.cfg.ActiveChoice()
+	if !ok {
+		return nil
+	}
+	refreshed, err := m.cfg.EnsureOAuthFresh(context.Background(), choice.ProviderID)
+	if err != nil {
+		return err
+	}
+	if refreshed {
+		m.applyClient()
+	}
+	return nil
 }
 
 func (m *Model) syncOverlay() {

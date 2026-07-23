@@ -211,9 +211,13 @@ func (d *configDialog) openAPIKeyForm(providerID string) {
 	if configured {
 		title = "API Key · " + pre.Name
 	}
+	back := backModelsIfConfigured
+	if d.caps(providerID).authChooser() {
+		back = backAuth
+	}
 	d.startForm(title, []string{"API Key"}, []textinput.Model{
 		newFormInput(apiKeyPlaceholder(configured), true),
-	}, backModelsIfConfigured, submitAPIKey)
+	}, back, submitAPIKey)
 }
 
 func submitAPIKey(d *configDialog, vals []string) error {
@@ -223,7 +227,7 @@ func submitAPIKey(d *configDialog, vals []string) error {
 		return fmt.Errorf("unknown provider")
 	}
 	if key == "" {
-		if existing, ok := d.draft.Provider(d.focusID); ok && existing.APIKey != "" {
+		if existing, ok := d.draft.Provider(d.focusID); ok && existing.HasUsableCredential() {
 			d.listSel.clear()
 			d.enterModels()
 			return nil
@@ -278,6 +282,10 @@ func (d *configDialog) openEditProvider() {
 	p, ok := d.draft.Provider(d.focusID)
 	if !ok {
 		d.status = "provider not found"
+		return
+	}
+	if d.caps(d.focusID).authChooser() {
+		d.openAuthMethods(d.focusID)
 		return
 	}
 	if d.caps(d.focusID).apiKeyOnly() {

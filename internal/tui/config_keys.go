@@ -12,6 +12,8 @@ func (d *configDialog) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		return d.handleFormKey(msg)
 	case configModels:
 		return d.handleModelsKey(msg)
+	case configAuth:
+		return d.handleAuthKey(msg)
 	default:
 		return d.handlePresetsKey(msg)
 	}
@@ -44,7 +46,11 @@ func (d *configDialog) handlePresetsKey(msg tea.KeyPressMsg) tea.Cmd {
 		case connectConfigured:
 			d.openModels(it.id)
 		case connectCatalog:
-			d.openAPIKeyForm(it.id)
+			if d.caps(it.id).authChooser() {
+				d.openAuthMethods(it.id)
+			} else {
+				d.openAPIKeyForm(it.id)
+			}
 		}
 		return nil
 	case "ctrl+x":
@@ -169,6 +175,8 @@ func (d *configDialog) cancelForm() {
 	switch back {
 	case backModels:
 		d.enterModels()
+	case backAuth:
+		d.openAuthMethods(d.focusID)
 	case backModelsIfConfigured:
 		if _, ok := d.draft.Provider(d.focusID); ok {
 			d.enterModels()

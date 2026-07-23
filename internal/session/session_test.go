@@ -125,6 +125,9 @@ func TestNewNotPersistedUntilAppend(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if s.Persisted() {
+		t.Fatal("new session should not be persisted yet")
+	}
 	if _, err := os.Stat(s.Path); !os.IsNotExist(err) {
 		t.Fatalf("jsonl should not exist yet: %v", err)
 	}
@@ -153,6 +156,9 @@ func TestNewNotPersistedUntilAppend(t *testing.T) {
 
 	if err := s.Append(Record{Role: RoleUser, Text: "hi"}); err != nil {
 		t.Fatal(err)
+	}
+	if !s.Persisted() {
+		t.Fatal("session should be persisted after append")
 	}
 	if _, err := os.Stat(s.Path); err != nil {
 		t.Fatalf("jsonl after append: %v", err)

@@ -175,6 +175,11 @@ func TestBaseURLRequiresAPI(t *testing.T) {
 			ID: "openai", Name: "OpenAI", NPM: "@ai-sdk/openai",
 			Models: map[string]Model{"m": {Name: "M", Limit: Limit{Context: 100_000}}},
 		},
+		"xai": {
+			// models.dev leaves api empty; providerAPI fills https://api.x.ai/v1
+			ID: "xai", Name: "xAI", NPM: "@ai-sdk/xai",
+			Models: map[string]Model{"m": {Name: "M", Limit: Limit{Context: 100_000}}},
+		},
 		"deepseek": {
 			ID: "deepseek", Name: "DeepSeek", API: "https://api.deepseek.com",
 			NPM: "@ai-sdk/openai-compatible",
@@ -182,11 +187,18 @@ func TestBaseURLRequiresAPI(t *testing.T) {
 		},
 	}
 	presets := presetsFromCatalog(cat)
-	if len(presets) != 1 || presets[0].ID != "deepseek" {
+	if len(presets) != 2 {
 		t.Fatalf("presets = %#v", presets)
 	}
-	if presets[0].BaseURL != "https://api.deepseek.com" {
-		t.Fatalf("BaseURL = %q", presets[0].BaseURL)
+	byID := map[string]Preset{}
+	for _, p := range presets {
+		byID[p.ID] = p
+	}
+	if byID["deepseek"].BaseURL != "https://api.deepseek.com" {
+		t.Fatalf("deepseek BaseURL = %q", byID["deepseek"].BaseURL)
+	}
+	if byID["xai"].BaseURL != "https://api.x.ai/v1" {
+		t.Fatalf("xai BaseURL = %q", byID["xai"].BaseURL)
 	}
 }
 

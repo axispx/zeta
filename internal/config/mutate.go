@@ -19,6 +19,10 @@ func (c Config) Clone() Config {
 			APIKey:  p.APIKey,
 			Custom:  p.Custom,
 		}
+		if p.OAuth != nil {
+			oc := *p.OAuth
+			cp.OAuth = &oc
+		}
 		if len(p.Models) > 0 {
 			cp.Models = make(map[string]ModelDef, len(p.Models))
 			for mid, m := range p.Models {
@@ -38,8 +42,8 @@ func (c *Config) PutProvider(id string, p Provider) error {
 	if strings.TrimSpace(p.BaseURL) == "" {
 		return fmt.Errorf("provider %q: base_url required", id)
 	}
-	if strings.TrimSpace(p.APIKey) == "" {
-		return fmt.Errorf("provider %q: api_key required", id)
+	if !p.HasUsableCredential() {
+		return fmt.Errorf("provider %q: api_key or oauth access_token required", id)
 	}
 	if p.Models == nil {
 		p.Models = map[string]ModelDef{}
@@ -65,6 +69,7 @@ func (c *Config) withProvider(id string, fn func(*Provider) error) error {
 
 // UpdateProvider updates display name / base URL / API key, preserving Models.
 // Empty name/baseURL/apiKey arguments leave the existing value unchanged.
+// Setting apiKey clears OAuth (credentials are mutually exclusive).
 func (c *Config) UpdateProvider(id, name, baseURL, apiKey string) error {
 	return c.withProvider(id, func(p *Provider) error {
 		if name != "" {
@@ -75,12 +80,13 @@ func (c *Config) UpdateProvider(id, name, baseURL, apiKey string) error {
 		}
 		if apiKey != "" {
 			p.APIKey = apiKey
+			p.OAuth = nil
 		}
 		if strings.TrimSpace(p.BaseURL) == "" {
 			return fmt.Errorf("provider %q: base_url required", id)
 		}
-		if strings.TrimSpace(p.APIKey) == "" {
-			return fmt.Errorf("provider %q: api_key required", id)
+		if !p.HasUsableCredential() {
+			return fmt.Errorf("provider %q: api_key or oauth access_token required", id)
 		}
 		return nil
 	})
@@ -163,8 +169,9 @@ func (c *Config) DeleteModel(providerID, modelID string) error {
 }
 
 // MergeCatalogModels builds provider models from catalog defs. Existing Disabled
-// flags in prev are preserved; new catalog models arrive Disabled; ids absent
-// from catalog are dropped. Invalid catalog entries (empty id / ctx<=0) skipped.
+// flags and ReasoningEffort in prev are preserved; new catalog models arrive
+// Disabled; ids absent from catalog are dropped. Invalid catalog entries
+// (empty id / ctx<=0) skipped.
 func MergeCatalogModels(catalog, prev map[string]ModelDef) map[string]ModelDef {
 	next := make(map[string]ModelDef, len(catalog))
 	for mid, def := range catalog {
@@ -174,6 +181,9 @@ func MergeCatalogModels(catalog, prev map[string]ModelDef) map[string]ModelDef {
 		def.Disabled = true
 		if old, ok := prev[mid]; ok {
 			def.Disabled = old.Disabled
+			if strings.TrimSpace(old.ReasoningEffort) != "" {
+				def.ReasoningEffort = old.ReasoningEffort
+			}
 		}
 		next[mid] = def
 	}

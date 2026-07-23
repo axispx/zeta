@@ -66,6 +66,12 @@ type Session struct {
 	Cwd     string
 	Created string
 	Name    string // display name; hydrated from index on load, set via SetName
+	onDisk  bool   // true once the JSONL exists
+}
+
+// Persisted reports whether the session transcript exists on disk.
+func (s *Session) Persisted() bool {
+	return s != nil && s.onDisk
 }
 
 // Open resumes the latest session for cwd, or creates a new one if none exist.
@@ -145,7 +151,11 @@ func (s *Session) Append(rec Record) error {
 
 // ensureFile creates the project dir and writes the session header if needed.
 func (s *Session) ensureFile() error {
+	if s.onDisk {
+		return nil
+	}
 	if _, err := os.Stat(s.Path); err == nil {
+		s.onDisk = true
 		return nil
 	} else if !os.IsNotExist(err) {
 		return fmt.Errorf("stat session: %w", err)
@@ -156,11 +166,15 @@ func (s *Session) ensureFile() error {
 	if err := os.MkdirAll(filepath.Dir(s.Path), 0o700); err != nil {
 		return fmt.Errorf("create session dir: %w", err)
 	}
-	return s.writeEvent(event{
+	if err := s.writeEvent(event{
 		Type:    typeSession,
 		ID:      s.ID,
 		Created: s.Created,
-	})
+	}); err != nil {
+		return err
+	}
+	s.onDisk = true
+	return nil
 }
 
 func (s *Session) writeEvent(evt event) error {
@@ -187,9 +201,10 @@ func load(abs, path string) (*Session, []Record, error) {
 	defer f.Close()
 
 	s := &Session{
-		ID:   strings.TrimSuffix(filepath.Base(path), ".jsonl"),
-		Path: path,
-		Cwd:  abs,
+		ID:     strings.TrimSuffix(filepath.Base(path), ".jsonl"),
+		Path:   path,
+		Cwd:    abs,
+		onDisk: true,
 	}
 	var out []Record
 	sc := bufio.NewScanner(f)

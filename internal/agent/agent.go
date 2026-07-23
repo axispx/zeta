@@ -8,8 +8,6 @@ import (
 	"github.com/axispx/zeta/internal/tools"
 )
 
-const MaxToolTurns = 20
-
 // EventKind identifies a turn event.
 type EventKind int
 
@@ -48,13 +46,13 @@ type Config struct {
 	Client   *ai.Client
 	Tools    []tools.Tool
 	Root     string
-	MaxTurns int
+	MaxTurns int // <=0 means unlimited
 }
 
 // Run executes completions and tools until the model stops calling tools,
-// the turn limit is hit, or ctx is cancelled. history is the durable API
-// transcript (user/assistant/tool only); system/developer must already be
-// prepended by the caller.
+// an optional MaxTurns limit is hit, or ctx is cancelled. history is the
+// durable API transcript (user/assistant/tool only); system/developer must
+// already be prepended by the caller.
 func (c Config) Run(ctx context.Context, history []ai.Message) <-chan Event {
 	out := make(chan Event, eventBuffer)
 	go func() {
@@ -65,18 +63,15 @@ func (c Config) Run(ctx context.Context, history []ai.Message) <-chan Event {
 }
 
 func (c Config) run(ctx context.Context, history []ai.Message, out chan<- Event) {
-	maxTurns := c.MaxTurns
-	if maxTurns <= 0 {
-		maxTurns = MaxToolTurns
-	}
+	maxTurns := c.MaxTurns // <=0: unlimited
 	defs := tools.Defs(c.Tools)
 
-	for turn := 0; turn <= maxTurns; turn++ {
+	for turn := 0; ; turn++ {
 		if ctx.Err() != nil {
 			out <- Event{Kind: KindDone}
 			return
 		}
-		if turn == maxTurns {
+		if maxTurns > 0 && turn == maxTurns {
 			out <- Event{Kind: KindErr, Err: errToolLimit}
 			return
 		}

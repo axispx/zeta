@@ -56,8 +56,18 @@ func TestMatchCommands(t *testing.T) {
 		t.Fatalf("match / = %d items", len(all))
 	}
 	clear := matchCommands("/cle")
-	if len(clear) != 1 || clear[0].name != "/clear" {
-		t.Fatalf("match /cle = %#v", clear)
+	if len(clear) == 0 {
+		t.Fatalf("expected match for /cle")
+	}
+	found := false
+	for _, c := range clear {
+		if c.name == "/clear" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected /clear in fuzzy matches for /cle, got %#v", clear)
 	}
 	none := matchCommands("/zzz")
 	if len(none) != 0 {

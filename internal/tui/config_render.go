@@ -23,6 +23,8 @@ func (d configDialog) renderPanel(chrome styles.Chrome, termW int, dlg Dialog) s
 		body, footer = d.formBody(contentW, chrome, ink)
 	case configModels:
 		body, footer = d.modelsBody(contentW, chrome, ink)
+	case configAuth:
+		body, footer = d.authBody(contentW, chrome, ink)
 	default:
 		body, footer = d.presetsBody(contentW, chrome, ink)
 	}
@@ -111,7 +113,11 @@ func (d configDialog) presetsBody(innerW int, chrome styles.Chrome, ink styles.O
 func (d configDialog) modelsBody(innerW int, chrome styles.Chrome, ink styles.OverlayInk) (body string, footer DialogFooter) {
 	caps := d.caps(d.focusID)
 	var hints []string
-	hints = append(hints, ink.HintKbd("Update API Key", "ctrl+k"))
+	credLabel := "Update API Key"
+	if d.caps(d.focusID).authChooser() {
+		credLabel = "Credentials"
+	}
+	hints = append(hints, ink.HintKbd(credLabel, "ctrl+k"))
 	if caps.canToggleAll() {
 		hints = append(hints, ink.HintKbd("Toggle All", "ctrl+a"))
 	} else if caps.canEditModels() {
@@ -173,6 +179,64 @@ func (d configDialog) modelsBody(innerW int, chrome styles.Chrome, ink styles.Ov
 			}
 			b.WriteString(formatAccentRow(mark+row.name, right, innerW, sel, false, ink))
 		}
+	}
+	return b.String(), footer
+}
+
+func (d configDialog) authBody(innerW int, chrome styles.Chrome, ink styles.OverlayInk) (body string, footer DialogFooter) {
+	title := d.authTitle
+	if title == "" {
+		title = "Credentials"
+	}
+	var b strings.Builder
+	b.WriteString(configEscTitle(title, innerW, ink))
+	b.WriteByte('\n')
+	if d.oauth != nil {
+		if d.oauth.browser() {
+			footer = DialogFooter{Hint: strings.Join([]string{
+				ink.HintKbd("Submit", "enter"),
+				ink.HintKbd("Cancel", "esc"),
+			}, ink.Gap.Render("  "))}
+			b.WriteString(ink.Hint.Render("Copy the code from the browser, paste below, then enter"))
+			b.WriteString("\n\n")
+			label := "Code"
+			labelW := lipgloss.Width(label)
+			inputW := innerW - labelW - 2
+			if inputW < 10 {
+				inputW = 10
+			}
+			b.WriteString(ink.Selected.Width(labelW).Render(label))
+			b.WriteString(ink.Gap.Render("  "))
+			b.WriteString(formFieldView(d.oauth.pasteIn, inputW, chrome.Input, true))
+			return b.String(), footer
+		}
+		// Device-code flow: clickable verification URL + user code.
+		footer = DialogFooter{Hint: ink.HintKbd("Cancel", "esc")}
+		b.WriteString(ink.Hint.Render("Waiting for device authorization…"))
+		if d.oauth.verifyURL != "" {
+			b.WriteString("\n\n")
+			link := lipgloss.NewStyle().
+				Foreground(ink.Selected.GetForeground()).
+				Underline(true).
+				Hyperlink(d.oauth.verifyURL).
+				Render(d.oauth.verifyURL)
+			b.WriteString(link)
+		}
+		if d.oauth.userCode != "" {
+			b.WriteString("\n\n")
+			b.WriteString(ink.Hint.Render("Code  "))
+			b.WriteString(ink.Selected.Bold(true).Render(d.oauth.userCode))
+		}
+		return b.String(), footer
+	}
+	b.WriteString(ink.Hint.Render("Choose how to authenticate"))
+	rows := authMethodRows()
+	for i, row := range rows {
+		b.WriteByte('\n')
+		if i == 0 {
+			b.WriteByte('\n')
+		}
+		b.WriteString(formatAccentRow(row.name, row.hint, innerW, i == d.selected, false, ink))
 	}
 	return b.String(), footer
 }

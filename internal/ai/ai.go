@@ -81,18 +81,24 @@ func (u Usage) ContextTokens() int64 {
 
 // Client calls OpenAI-compatible chat completion APIs.
 type Client struct {
-	api   openai.Client
-	model string
+	api    openai.Client
+	model  string
+	effort string // reasoning_effort, empty to omit
 }
 
 // New builds a client for the given provider and model id.
 func New(p config.Provider, model string) *Client {
+	effort := ""
+	if md, ok := p.Models[model]; ok {
+		effort = strings.TrimSpace(md.ReasoningEffort)
+	}
 	return &Client{
 		api: openai.NewClient(
 			option.WithBaseURL(strings.TrimRight(p.BaseURL, "/")),
-			option.WithAPIKey(p.APIKey),
+			option.WithAPIKey(p.AuthToken()),
 		),
-		model: model,
+		model:  model,
+		effort: effort,
 	}
 }
 
@@ -121,6 +127,9 @@ func (c *Client) stream(ctx context.Context, msgs []Message, tools []Tool, out c
 		StreamOptions: openai.ChatCompletionStreamOptionsParam{
 			IncludeUsage: openai.Bool(true),
 		},
+	}
+	if c.effort != "" {
+		params.ReasoningEffort = shared.ReasoningEffort(c.effort)
 	}
 	if len(tools) > 0 {
 		params.Tools = toAPITools(tools)

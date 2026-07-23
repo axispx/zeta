@@ -17,11 +17,20 @@ type Config struct {
 	Providers map[string]Provider `json:"providers"`
 }
 
+// OAuthCredential stores OAuth 2.0 tokens for a provider.
+type OAuthCredential struct {
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"`
+	ExpiresAt    int64  `json:"expires_at"` // unix millis
+	TokenType    string `json:"token_type"` // "bearer"
+}
+
 // Provider is an OpenAI-compatible API endpoint. The map key is the provider id.
 type Provider struct {
 	Name    string              `json:"name,omitempty"` // display label; defaults to map key
 	BaseURL string              `json:"base_url"`
-	APIKey  string              `json:"api_key"`
+	APIKey  string              `json:"api_key,omitempty"`
+	OAuth   *OAuthCredential    `json:"oauth,omitempty"`
 	Models  map[string]ModelDef `json:"models"`
 	// Custom marks a user-defined endpoint (not from models.dev).
 	Custom bool `json:"custom,omitempty"`
@@ -31,6 +40,9 @@ type Provider struct {
 type ModelDef struct {
 	Name          string `json:"name,omitempty"` // display label; defaults to map key
 	ContextWindow int    `json:"context_window"` // required; tokens the model can hold
+	// ReasoningEffort is sent as reasoning_effort (e.g. "low"/"medium"/"high").
+	// Empty means omit (provider default).
+	ReasoningEffort string `json:"reasoning_effort,omitempty"`
 	// Disabled keeps the model listed but excludes it from /model and Active.
 	Disabled bool `json:"disabled,omitempty"`
 }
@@ -217,8 +229,8 @@ func validateProvider(id string, p Provider) error {
 	if strings.TrimSpace(p.BaseURL) == "" {
 		return fmt.Errorf("provider %q: base_url required", id)
 	}
-	if strings.TrimSpace(p.APIKey) == "" {
-		return fmt.Errorf("provider %q: api_key required", id)
+	if !p.HasUsableCredential() {
+		return fmt.Errorf("provider %q: api_key or oauth access_token required", id)
 	}
 	if len(p.Models) == 0 {
 		return nil

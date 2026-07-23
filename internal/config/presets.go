@@ -36,15 +36,29 @@ func PresetsFromModels(in []models.Preset) []Preset {
 }
 
 // ConnectPreset installs or updates a provider from a preset + API key.
-// All catalog models are materialized; previously-enabled models stay enabled,
-// and a brand-new provider starts with every model Disabled.
+// Clears any prior OAuth credentials. All catalog models are materialized;
+// previously-enabled models stay enabled, and a brand-new provider starts
+// with every model Disabled.
 func (c *Config) ConnectPreset(pre Preset, apiKey string) error {
-	if strings.TrimSpace(pre.ID) == "" {
-		return fmt.Errorf("provider id required")
-	}
 	apiKey = strings.TrimSpace(apiKey)
 	if apiKey == "" {
 		return fmt.Errorf("api_key required")
+	}
+	return c.connectPreset(pre, apiKey, nil)
+}
+
+// ConnectPresetOAuth installs or updates a provider from a preset + OAuth tokens.
+// Clears any prior API key.
+func (c *Config) ConnectPresetOAuth(pre Preset, oc *OAuthCredential) error {
+	if oc == nil || strings.TrimSpace(oc.AccessToken) == "" {
+		return fmt.Errorf("oauth access_token required")
+	}
+	return c.connectPreset(pre, "", oc)
+}
+
+func (c *Config) connectPreset(pre Preset, apiKey string, oc *OAuthCredential) error {
+	if strings.TrimSpace(pre.ID) == "" {
+		return fmt.Errorf("provider id required")
 	}
 	if strings.TrimSpace(pre.BaseURL) == "" {
 		return fmt.Errorf("provider %q: base_url required", pre.ID)
@@ -67,6 +81,7 @@ func (c *Config) ConnectPreset(pre Preset, apiKey string) error {
 		Name:    name,
 		BaseURL: pre.BaseURL,
 		APIKey:  apiKey,
+		OAuth:   oc,
 		Models:  models,
 		Custom:  false,
 	}); err != nil {

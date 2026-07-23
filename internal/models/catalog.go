@@ -216,8 +216,23 @@ func openAICompatible(p Provider) bool {
 	return strings.Contains(p.NPM, "openai-compatible")
 }
 
-func toPreset(p Provider) (Preset, bool) {
+// providerAPI returns the OpenAI-compatible base URL for a catalog provider.
+// models.dev leaves api empty for some first-party SDKs (e.g. @ai-sdk/xai);
+// fill known defaults so they still appear as presets.
+func providerAPI(p Provider) string {
 	base := strings.TrimRight(strings.TrimSpace(p.API), "/")
+	if base != "" {
+		return base
+	}
+	switch p.ID {
+	case "xai":
+		return "https://api.x.ai/v1"
+	}
+	return ""
+}
+
+func toPreset(p Provider) (Preset, bool) {
+	base := providerAPI(p)
 	if base == "" {
 		return Preset{}, false
 	}

@@ -12,6 +12,7 @@ import (
 
 	"github.com/axispx/zeta/internal/config"
 	"github.com/axispx/zeta/internal/models"
+	"github.com/axispx/zeta/internal/oauth"
 	"github.com/axispx/zeta/internal/search"
 	"github.com/axispx/zeta/internal/styles"
 )
@@ -22,6 +23,7 @@ const (
 	configPresets configView = iota
 	configModels
 	configFormView
+	configAuth
 )
 
 type formBack int
@@ -30,6 +32,7 @@ const (
 	backPresets formBack = iota
 	backModels
 	backModelsIfConfigured
+	backAuth
 )
 
 const (
@@ -38,16 +41,18 @@ const (
 	connectGroupProviders  = "providers"
 )
 
-// providerCaps is the action policy for a provider (catalog vs custom).
-// Sourced from Provider.Custom — durable across catalog load failures.
+// providerCaps is the action policy for a provider (catalog vs custom, oauth).
+// Sourced from Provider.Custom and oauth.Supports — durable across catalog load failures.
 type providerCaps struct {
 	custom bool
+	oauth  bool
 }
 
 func (c providerCaps) canRename() bool     { return c.custom }
 func (c providerCaps) canEditModels() bool { return c.custom }
 func (c providerCaps) canToggleAll() bool  { return !c.custom }
-func (c providerCaps) apiKeyOnly() bool    { return !c.custom }
+func (c providerCaps) apiKeyOnly() bool    { return !c.custom && !c.oauth }
+func (c providerCaps) authChooser() bool   { return c.oauth }
 
 // configDialog is the /config provider+model manager (self-contained sub-model).
 type configDialog struct {
@@ -67,6 +72,9 @@ type configDialog struct {
 	loadGen     int
 	form        configForm
 	status      string
+	authTitle   string
+	oauthGen    int
+	oauth       *oauthSession
 }
 
 type configForm struct {
@@ -79,6 +87,7 @@ type configForm struct {
 }
 
 func (d *configDialog) clear() {
+	d.cancelOAuth()
 	apply := d.apply
 	*d = configDialog{apply: apply}
 }
@@ -88,10 +97,11 @@ func (d configDialog) isForm() bool {
 }
 
 func (d configDialog) caps(id string) providerCaps {
+	oauthOK := oauth.Supports(id)
 	if p, ok := d.draft.Provider(id); ok {
-		return providerCaps{custom: p.Custom}
+		return providerCaps{custom: p.Custom, oauth: oauthOK && !p.Custom}
 	}
-	return providerCaps{} // connecting from catalog
+	return providerCaps{oauth: oauthOK} // connecting from catalog
 }
 
 func (d configDialog) findPreset(id string) (config.Preset, bool) {
@@ -123,6 +133,10 @@ func (d *configDialog) Update(msg tea.Msg) (tea.Cmd, bool) {
 		}
 		d.applyModelsDev(msg)
 		return nil, true
+	case oauthDeviceMsg:
+		return d.handleOAuthDevice(msg), true
+	case oauthDoneMsg:
+		return d.handleOAuthDone(msg), true
 	case tea.PasteMsg:
 		return d.paste(msg), true
 	case tea.KeyPressMsg:
@@ -131,6 +145,11 @@ func (d *configDialog) Update(msg tea.Msg) (tea.Cmd, bool) {
 		}
 		return d.handleKey(msg), true
 	default:
+		if d.oauth != nil && d.oauth.browser() {
+			var cmd tea.Cmd
+			d.oauth.pasteIn, cmd = d.oauth.pasteIn.Update(msg)
+			return cmd, true
+		}
 		if d.isForm() {
 			return d.UpdateForm(msg), true
 		}
@@ -163,6 +182,11 @@ func (d configDialog) View(chrome styles.Chrome, termW, areaW, areaH int) string
 }
 
 func (d *configDialog) paste(msg tea.PasteMsg) tea.Cmd {
+	if d.oauth != nil && d.oauth.browser() {
+		var cmd tea.Cmd
+		d.oauth.pasteIn, cmd = d.oauth.pasteIn.Update(msg)
+		return cmd
+	}
 	if d.isForm() {
 		return d.UpdateForm(msg)
 	}
@@ -311,6 +335,8 @@ func (d *configDialog) connectRows() []connectRow {
 		tag := ""
 		if p.Custom {
 			tag = " (Custom)"
+		} else if p.OAuth != nil {
+			tag = " (OAuth)"
 		}
 		enabled := 0
 		for _, md := range p.Models {
