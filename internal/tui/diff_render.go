@@ -1,13 +1,10 @@
 package tui
 
 import (
-	"strconv"
 	"strings"
 
 	"github.com/axispx/zeta/internal/styles"
 )
-
-const maxDiffUILines = 40 // colored diff body lines shown under an edit header
 
 type diffLineKind int
 
@@ -57,15 +54,13 @@ func parseUnifiedDiff(diff string) []diffLine {
 // File headers (---/+++) and hunk headers (@@) are omitted from the body.
 // Gutter signs (+/−/space) are separated from content with a space so markdown
 // list markers (and similar) don't glue into "+-" / "--".
-// Long diffs are capped at maxDiffUILines (tool result itself is already byte-truncated).
 func formatUnifiedDiff(diff string) (adds, dels int, body string) {
 	lines := parseUnifiedDiff(diff)
 	if len(lines) == 0 {
 		return 0, 0, ""
 	}
 	var b strings.Builder
-	shown := 0
-	skipped := 0
+	first := true
 	for _, line := range lines {
 		switch line.kind {
 		case diffAdd:
@@ -75,14 +70,10 @@ func formatUnifiedDiff(diff string) (adds, dels int, body string) {
 		case diffSkip:
 			continue
 		}
-		if shown >= maxDiffUILines {
-			skipped++
-			continue
-		}
-		if shown > 0 {
+		if !first {
 			b.WriteByte('\n')
 		}
-		shown++
+		first = false
 		switch line.kind {
 		case diffAdd:
 			b.WriteString(styles.DiffAdd.Render("+ " + line.text))
@@ -95,13 +86,6 @@ func formatUnifiedDiff(diff string) (adds, dels int, body string) {
 		default:
 			b.WriteString(line.raw)
 		}
-	}
-	if shown == 0 {
-		return adds, dels, ""
-	}
-	if skipped > 0 {
-		b.WriteByte('\n')
-		b.WriteString(styles.DiffMeta.Render("… " + strconv.Itoa(skipped) + " more lines"))
 	}
 	return adds, dels, b.String()
 }

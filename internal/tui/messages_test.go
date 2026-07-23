@@ -181,21 +181,6 @@ func TestCountDiffLines(t *testing.T) {
 	}
 }
 
-func TestRenderUnifiedDiffUICap(t *testing.T) {
-	var b strings.Builder
-	b.WriteString("--- a\n+++ b\n@@ -1 +1 @@\n")
-	for i := 0; i < maxDiffUILines+5; i++ {
-		b.WriteString("+line\n")
-	}
-	plain := stripANSI(renderUnifiedDiff(b.String()))
-	if !strings.Contains(plain, "… 5 more lines") {
-		t.Fatalf("expected UI cap note: %q", plain)
-	}
-	if strings.Count(plain, "+ line") != maxDiffUILines {
-		t.Fatalf("shown lines: %q", plain)
-	}
-}
-
 func TestRenderBashLineEmptyCommand(t *testing.T) {
 	out := renderShellCall(Message{Role: RoleTool, Text: "bash", Tool: "bash"})
 	if out != "$" {
