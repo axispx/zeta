@@ -1,0 +1,226 @@
+package tui
+
+import (
+	"sort"
+	"strconv"
+	"strings"
+
+	"charm.land/lipgloss/v2"
+
+	"github.com/axispx/zeta/internal/styles"
+)
+
+const (
+	maxGroupTools   = 3 // visible tool lines; earlier ones collapse under the header
+	maxBashOutLines = 3 // live/final bash stdout lines shown under "$ cmd"
+)
+
+// toolRunAt returns consecutive tool messages starting at i, or nil.
+func toolRunAt(msgs []Message, i int) []Message {
+	if i >= len(msgs) || msgs[i].Role != RoleTool {
+		return nil
+	}
+	end := i + 1
+	for end < len(msgs) && msgs[end].Role == RoleTool {
+		end++
+	}
+	return msgs[i:end]
+}
+
+// renderToolGroup collapses a consecutive tool run into compact blocks.
+// Shell calls render as "$ cmd". A blank line separates shell runs from
+// neighboring tool clusters; consecutive shell lines stack tightly.
+func renderToolGroup(msgs []Message, width, topMargin int) string {
+	var b strings.Builder
+	for i, seg := range splitToolSegments(msgs) {
+		if i > 0 {
+			b.WriteString("\n\n")
+		}
+		if seg.shell {
+			b.WriteString(renderShellRun(seg.msgs))
+		} else {
+			b.WriteString(renderToolCluster(seg.msgs))
+		}
+	}
+	body := widthBody(b.String(), width)
+	if topMargin > 0 {
+		return lipgloss.NewStyle().MarginTop(topMargin).Render(body)
+	}
+	return body
+}
+
+type toolSegment struct {
+	shell bool
+	msgs  []Message
+}
+
+// splitToolSegments splits a tool run into maximal shell vs non-shell runs.
+func splitToolSegments(msgs []Message) []toolSegment {
+	var out []toolSegment
+	for i := 0; i < len(msgs); {
+		shell := isShellTool(msgs[i].Tool)
+		j := i + 1
+		for j < len(msgs) && isShellTool(msgs[j].Tool) == shell {
+			j++
+		}
+		out = append(out, toolSegment{shell: shell, msgs: msgs[i:j]})
+		i = j
+	}
+	return out
+}
+
+func renderShellRun(msgs []Message) string {
+	var b strings.Builder
+	for i, m := range msgs {
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		b.WriteString(renderShellCall(m))
+	}
+	return b.String()
+}
+
+// renderShellCall formats a shell Summary as "$ cmd" plus the last few output lines.
+// Successful exit status is omitted from the UI; errors/timeouts are kept.
+func renderShellCall(m Message) string {
+	cmd := strings.TrimSpace(strings.TrimPrefix(m.Text, m.Tool))
+	line := "$"
+	if cmd != "" {
+		line = "$ " + cmd
+	}
+	tail := lastNonEmptyLines(stripOKExit(m.Out), maxBashOutLines)
+	if tail == "" {
+		return line
+	}
+	var b strings.Builder
+	b.WriteString(line)
+	for _, l := range strings.Split(tail, "\n") {
+		b.WriteByte('\n')
+		b.WriteString(styles.ToolMsg.Render(l))
+	}
+	return b.String()
+}
+
+// stripOKExit removes a trailing successful exit status from bash tool output.
+// Errors and timeouts are left intact for the UI.
+func stripOKExit(s string) string {
+	if s == "exit: 0" {
+		return ""
+	}
+	if before, ok := strings.CutSuffix(s, "\nexit: 0"); ok {
+		return before
+	}
+	return s
+}
+
+// lastNonEmptyLines returns the last n non-empty lines of s.
+func lastNonEmptyLines(s string, n int) string {
+	s = strings.TrimRight(s, "\n")
+	if s == "" || n <= 0 {
+		return ""
+	}
+	var lines []string
+	for _, l := range strings.Split(s, "\n") {
+		if l != "" {
+			lines = append(lines, l)
+		}
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+	return strings.Join(lines, "\n")
+}
+
+// renderToolCluster renders one non-shell tool group: optional header, hidden
+// earlier lines, then the visible tail.
+func renderToolCluster(msgs []Message) string {
+	n := len(msgs)
+	var b strings.Builder
+	if n > 1 {
+		names := make([]string, n)
+		for i, m := range msgs {
+			names[i] = m.Tool
+		}
+		verbs, counts := toolGroupHeader(names)
+		b.WriteString(styles.Prompt.Render(verbs))
+		b.WriteString("  ")
+		b.WriteString(styles.SystemMsg.Render(counts))
+	}
+	start := 0
+	if n > maxGroupTools {
+		start = n - maxGroupTools
+		if b.Len() > 0 {
+			b.WriteByte('\n')
+		}
+		b.WriteString(styles.SystemMsg.Render("... " + strconv.Itoa(start) + " earlier items hidden"))
+	}
+	for i := start; i < n; i++ {
+		if b.Len() > 0 {
+			b.WriteByte('\n')
+		}
+		b.WriteString(styles.ToolMsg.Render(msgs[i].Text))
+	}
+	return b.String()
+}
+
+type toolGroupMeta struct {
+	verb string // title case, e.g. "Grepped"
+	one  string // singular count noun
+	many string // plural count noun
+}
+
+func metaForTool(name string) toolGroupMeta {
+	switch name {
+	case "grep":
+		return toolGroupMeta{verb: "Grepped", one: "grep", many: "greps"}
+	case "read":
+		return toolGroupMeta{verb: "Read", one: "file", many: "files"}
+	case "edit":
+		return toolGroupMeta{verb: "Edited", one: "edit", many: "edits"}
+	case "":
+		return toolGroupMeta{verb: "Used", one: "tool", many: "tools"}
+	default:
+		verb := strings.ToUpper(name[:1]) + name[1:]
+		return toolGroupMeta{verb: verb, one: name, many: name + "s"}
+	}
+}
+
+// toolGroupHeader builds "Grepped, read" and "2 greps, 1 file" from tool names.
+// Order is descending frequency, then name.
+func toolGroupHeader(names []string) (verbs, counts string) {
+	freq := map[string]int{}
+	for _, n := range names {
+		freq[n]++
+	}
+	keys := make([]string, 0, len(freq))
+	for k := range freq {
+		keys = append(keys, k)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if freq[keys[i]] != freq[keys[j]] {
+			return freq[keys[i]] > freq[keys[j]]
+		}
+		return keys[i] < keys[j]
+	})
+
+	verbParts := make([]string, 0, len(keys))
+	countParts := make([]string, 0, len(keys))
+	for i, k := range keys {
+		m := metaForTool(k)
+		verb := m.verb
+		if i > 0 {
+			verb = strings.ToLower(verb)
+		}
+		verbParts = append(verbParts, verb)
+		n := freq[k]
+		noun := m.many
+		if n == 1 {
+			noun = m.one
+		}
+		countParts = append(countParts, strconv.Itoa(n)+" "+noun)
+	}
+	return strings.Join(verbParts, ", "), strings.Join(countParts, ", ")
+}

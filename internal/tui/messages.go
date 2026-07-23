@@ -1,15 +1,10 @@
 package tui
 
 import (
-	"strconv"
-	"strings"
-
 	"charm.land/lipgloss/v2"
 
 	"github.com/axispx/zeta/internal/styles"
 )
-
-const maxGroupTools = 3 // visible tool lines before "+N more"
 
 // Role identifies who produced a transcript message.
 type Role int
@@ -26,12 +21,21 @@ const (
 type Message struct {
 	Role Role
 	Text string
+	Tool string // tool name for RoleTool
+	Out  string // live/final tool output (bash rows show last maxBashOutLines)
 
 	// Cached markdown render for RoleAgent (keyed by source text + width).
 	md       string
 	mdWidth  int
 	mdSource string
 }
+
+// newToolMessage builds a transcript tool row.
+func newToolMessage(label, name string) Message {
+	return Message{Role: RoleTool, Text: label, Tool: name}
+}
+
+func isShellTool(name string) bool { return name == "bash" }
 
 // render formats the message for the transcript.
 // When live is true, agent messages use progressive settled/tail rendering.
@@ -91,43 +95,6 @@ func (m *Message) streamingMarkdown(width int) string {
 	default:
 		return m.cachedMarkdown(settled, width) + "\n\n" + plainAgent(tail, width)
 	}
-}
-
-// toolRunAt returns consecutive tool messages starting at i, or nil.
-func toolRunAt(msgs []Message, i int) []Message {
-	if i >= len(msgs) || msgs[i].Role != RoleTool {
-		return nil
-	}
-	end := i + 1
-	for end < len(msgs) && msgs[end].Role == RoleTool {
-		end++
-	}
-	return msgs[i:end]
-}
-
-// renderToolGroup collapses consecutive tool messages into a compact block.
-func renderToolGroup(msgs []Message, width, topMargin int) string {
-	n := len(msgs)
-	show := n
-	if show > maxGroupTools {
-		show = maxGroupTools
-	}
-	var b strings.Builder
-	for i := 0; i < show; i++ {
-		if i > 0 {
-			b.WriteByte('\n')
-		}
-		b.WriteString(styles.ToolMsg.Render(msgs[i].Text))
-	}
-	if n > maxGroupTools {
-		b.WriteByte('\n')
-		b.WriteString(styles.SystemMsg.Render("+" + strconv.Itoa(n-maxGroupTools) + " more"))
-	}
-	body := widthBody(b.String(), width)
-	if topMargin > 0 {
-		return lipgloss.NewStyle().MarginTop(topMargin).Render(body)
-	}
-	return body
 }
 
 func widthBody(body string, width int) string {

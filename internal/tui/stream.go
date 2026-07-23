@@ -14,9 +14,10 @@ import (
 
 // turnSession is one in-flight agent turn (stream + tool loop).
 type turnSession struct {
-	cancel    context.CancelFunc
-	ch        <-chan agent.Event
-	streaming bool // receiving assistant deltas (settled md + plain tail)
+	cancel     context.CancelFunc
+	ch         <-chan agent.Event
+	streaming  bool // receiving assistant deltas (settled md + plain tail)
+	activeTool int  // index of open tool row in Model.messages; -1 if none
 }
 
 type turnDeltaMsg struct{ text string }
@@ -24,8 +25,17 @@ type turnAssistantMsg struct {
 	message ai.Message
 	usage   ai.Usage
 }
+type turnToolStartMsg struct {
+	label string
+	name  string
+}
+type turnToolOutMsg struct {
+	text string
+	name string
+}
 type turnToolMsg struct {
 	label   string
+	name    string
 	message ai.Message
 }
 type turnDoneMsg struct{}
@@ -61,8 +71,12 @@ func waitTurnEvent(ch <-chan agent.Event) tea.Cmd {
 			return turnDeltaMsg{text: evt.Text}
 		case agent.KindAssistant:
 			return turnAssistantMsg{message: evt.Message, usage: evt.Usage}
+		case agent.KindToolStart:
+			return turnToolStartMsg{label: evt.Text, name: evt.Name}
+		case agent.KindToolOut:
+			return turnToolOutMsg{text: evt.Text, name: evt.Name}
 		case agent.KindTool:
-			return turnToolMsg{label: evt.Text, message: evt.Message}
+			return turnToolMsg{label: evt.Text, name: evt.Name, message: evt.Message}
 		case agent.KindDone:
 			return turnDoneMsg{}
 		case agent.KindErr:
@@ -81,5 +95,5 @@ func startTurn(client *ai.Client, ws workspace.Context, mode prompt.Mode, histor
 		Root:   ws.Abs,
 	}
 	ch := cfg.Run(ctx, requestMsgs(ws, mode, history))
-	return &turnSession{cancel: cancel, ch: ch, streaming: true}, waitTurnEvent(ch)
+	return &turnSession{cancel: cancel, ch: ch, streaming: true, activeTool: -1}, waitTurnEvent(ch)
 }

@@ -16,7 +16,11 @@ type EventKind int
 const (
 	// KindDelta is streamed assistant text.
 	KindDelta EventKind = iota
-	// KindTool is a UI label for a tool call; Message is the tool result for the API transcript.
+	// KindToolStart is a tool call beginning (Text=label, Name=tool); UI row only.
+	KindToolStart
+	// KindToolOut is live tool output so far (Text=snapshot, Name=tool). May be dropped if the UI is behind.
+	KindToolOut
+	// KindTool is a finished tool call; Message is the tool result for the API transcript.
 	KindTool
 	// KindAssistant is a completed assistant message (may include tool calls).
 	KindAssistant
@@ -26,10 +30,14 @@ const (
 	KindErr
 )
 
+// eventBuffer absorbs bursts of KindToolOut without stalling tool I/O.
+const eventBuffer = 32
+
 // Event is one item from a tool-using completion turn.
 type Event struct {
 	Kind    EventKind
-	Text    string     // delta text or tool UI label
+	Text    string     // delta text, tool UI label, or KindToolOut snapshot
+	Name    string     // tool name for KindToolStart / KindToolOut / KindTool
 	Message ai.Message // set for KindAssistant / KindTool
 	Usage   ai.Usage   // set for KindAssistant when the provider reports usage
 	Err     error
@@ -48,7 +56,7 @@ type Config struct {
 // transcript (user/assistant/tool only); system/developer must already be
 // prepended by the caller.
 func (c Config) Run(ctx context.Context, history []ai.Message) <-chan Event {
-	out := make(chan Event)
+	out := make(chan Event, eventBuffer)
 	go func() {
 		defer close(out)
 		c.run(ctx, history, out)
@@ -90,9 +98,9 @@ func (c Config) run(ctx context.Context, history []ai.Message, out chan<- Event)
 				out <- Event{Kind: KindDone}
 				return
 			}
-			label, result := c.execTool(ctx, call)
+			label, result := c.execTool(ctx, call, out)
 			history = append(history, result)
-			out <- Event{Kind: KindTool, Text: label, Message: result}
+			out <- Event{Kind: KindTool, Text: label, Name: call.Name, Message: result}
 		}
 	}
 }
@@ -133,7 +141,7 @@ func (c Config) streamOnce(ctx context.Context, history []ai.Message, defs []ai.
 	return asst, usage, true
 }
 
-func (c Config) execTool(ctx context.Context, call ai.ToolCall) (label string, result ai.Message) {
+func (c Config) execTool(ctx context.Context, call ai.ToolCall, ev chan<- Event) (label string, result ai.Message) {
 	args := json.RawMessage(call.Arguments)
 	var out string
 	if t, ok := tools.ByName(c.Tools, call.Name); ok {
@@ -143,6 +151,10 @@ func (c Config) execTool(ctx context.Context, call ai.ToolCall) (label string, r
 	} else {
 		label = call.Name
 	}
+	ev <- Event{Kind: KindToolStart, Text: label, Name: call.Name}
+	ctx = tools.WithProgress(ctx, func(s string) {
+		emitToolOut(ev, call.Name, s)
+	})
 	if !json.Valid(args) {
 		out = "error: invalid JSON arguments"
 	} else {
@@ -152,6 +164,16 @@ func (c Config) execTool(ctx context.Context, call ai.ToolCall) (label string, r
 		Role:       ai.RoleTool,
 		Text:       out,
 		ToolCallID: call.ID,
+	}
+}
+
+// emitToolOut sends live output without blocking the tool when the UI is behind.
+// KindTool always carries the final snapshot.
+func emitToolOut(ev chan<- Event, name, s string) {
+	evt := Event{Kind: KindToolOut, Text: s, Name: name}
+	select {
+	case ev <- evt:
+	default:
 	}
 }
 

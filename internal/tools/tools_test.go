@@ -154,6 +154,29 @@ func TestReadDir(t *testing.T) {
 	}
 }
 
+func TestBashProgress(t *testing.T) {
+	root := t.TempDir()
+	var got []string
+	ctx := WithProgress(context.Background(), func(s string) {
+		got = append(got, s)
+	})
+	out := Run(ctx, Build(), root, "bash", mustRaw(t, map[string]any{
+		"command": "printf 'one\\ntwo\\nthree\\n'",
+	}))
+	if strings.HasPrefix(out, "error:") {
+		t.Fatal(out)
+	}
+	if len(got) == 0 {
+		t.Fatal("expected progress callbacks")
+	}
+	if !strings.Contains(got[len(got)-1], "three") {
+		t.Fatalf("last progress=%q", got[len(got)-1])
+	}
+	if !strings.Contains(out, "three") || !strings.Contains(out, "exit: 0") {
+		t.Fatalf("out: %q", out)
+	}
+}
+
 func TestBash(t *testing.T) {
 	root := t.TempDir()
 	ctx := context.Background()

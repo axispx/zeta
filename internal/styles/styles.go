@@ -46,8 +46,8 @@ var (
 			Underline(true)
 
 	ToolMsg = lipgloss.NewStyle().
-			Foreground(Dim).
-			Faint(true)
+		Foreground(Dim).
+		Faint(true)
 
 	Prompt = lipgloss.NewStyle().
 		Bold(true)
@@ -140,11 +140,11 @@ func (c Chrome) OverlayPanel() lipgloss.Style {
 // OverlayInk is accent-list row styling. Gap carries panel fill so pad cells
 // don't punch through to the terminal background.
 type OverlayInk struct {
-	Row, Hint                         lipgloss.Style
-	Selected, SelectedHint            lipgloss.Style
-	Current, CurrentHint              lipgloss.Style
-	Header                            lipgloss.Style
-	Gap                               lipgloss.Style
+	Row, Hint              lipgloss.Style
+	Selected, SelectedHint lipgloss.Style
+	Current, CurrentHint   lipgloss.Style
+	Header                 lipgloss.Style
+	Gap                    lipgloss.Style
 }
 
 // OverlayInk returns row styles with the input-panel fill baked in.

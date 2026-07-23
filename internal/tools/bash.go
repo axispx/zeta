@@ -114,7 +114,7 @@ func (bashTool) Run(ctx context.Context, root string, raw json.RawMessage) (stri
 	defer cancel()
 
 	shell := userShell()
-	buf := &cappedBuffer{limit: maxBashBytes}
+	buf := &cappedBuffer{limit: maxBashBytes, onUpdate: progressFrom(ctx)}
 	cmd := exec.CommandContext(runCtx, shell, "-c", args.Command)
 	cmd.Dir = dir
 	cmd.Stdout = buf
@@ -165,10 +165,12 @@ func withExit(out, status string) string {
 }
 
 // cappedBuffer keeps at most limit bytes; further writes are discarded.
+// onUpdate, if set, is called with the buffer snapshot when a write contains a newline.
 type cappedBuffer struct {
 	buf       bytes.Buffer
 	limit     int
 	truncated bool
+	onUpdate  func(string)
 }
 
 func (c *cappedBuffer) Write(p []byte) (int, error) {
@@ -180,11 +182,16 @@ func (c *cappedBuffer) Write(p []byte) (int, error) {
 		c.truncated = true
 		return len(p), nil
 	}
+	notify := c.onUpdate != nil && bytes.Contains(p, []byte{'\n'})
 	if len(p) <= remain {
-		return c.buf.Write(p)
+		_, _ = c.buf.Write(p)
+	} else {
+		_, _ = c.buf.Write(p[:remain])
+		c.truncated = true
 	}
-	_, _ = c.buf.Write(p[:remain])
-	c.truncated = true
+	if notify {
+		c.onUpdate(c.String())
+	}
 	return len(p), nil
 }
 

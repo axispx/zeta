@@ -41,6 +41,7 @@ type Record struct {
 	ToolCallID string     `json:"tool_call_id,omitempty"`
 	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
 	Label      string     `json:"label,omitempty"` // UI label for tool rows
+	Tool       string     `json:"tool,omitempty"`  // tool name for RoleTool
 }
 
 // event is one JSONL line: session header or a message.
@@ -54,6 +55,7 @@ type event struct {
 	ToolCallID string     `json:"tool_call_id,omitempty"`
 	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
 	Label      string     `json:"label,omitempty"`
+	Tool       string     `json:"tool,omitempty"`
 }
 
 // Session is an append-only JSONL transcript for one chat.
@@ -133,6 +135,7 @@ func (s *Session) Append(rec Record) error {
 		ToolCallID: rec.ToolCallID,
 		ToolCalls:  rec.ToolCalls,
 		Label:      rec.Label,
+		Tool:       rec.Tool,
 	}); err != nil {
 		return err
 	}
@@ -217,6 +220,7 @@ func load(abs, path string) (*Session, []Record, error) {
 				ToolCallID: evt.ToolCallID,
 				ToolCalls:  evt.ToolCalls,
 				Label:      evt.Label,
+				Tool:       evt.Tool,
 			})
 		default:
 			return nil, nil, fmt.Errorf("session %s:%d: unknown event type %q", filepath.Base(path), lineNo, evt.Type)

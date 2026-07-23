@@ -201,6 +201,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case turnAssistantMsg:
 		return m, m.handleTurnAssistant(msg)
 
+	case turnToolStartMsg:
+		return m, m.handleTurnToolStart(msg)
+
+	case turnToolOutMsg:
+		return m, m.handleTurnToolOut(msg)
+
 	case turnToolMsg:
 		return m, m.handleTurnTool(msg)
 
@@ -298,7 +304,29 @@ func (m *Model) handleTurnAssistant(msg turnAssistantMsg) tea.Cmd {
 	if n := msg.usage.ContextTokens(); n > 0 {
 		m.contextTokens = n
 	}
-	m.persist(recordFromAPI(msg.message, ""))
+	m.persist(recordFromAPI(msg.message))
+	return waitTurnEvent(m.turn.ch)
+}
+
+func (m *Model) handleTurnToolStart(msg turnToolStartMsg) tea.Cmd {
+	if m.turn == nil {
+		return nil
+	}
+	m.turn.streaming = false
+	m.messages = append(m.messages, newToolMessage(msg.label, msg.name))
+	m.turn.activeTool = len(m.messages) - 1
+	m.refreshTranscript()
+	return waitTurnEvent(m.turn.ch)
+}
+
+func (m *Model) handleTurnToolOut(msg turnToolOutMsg) tea.Cmd {
+	if m.turn == nil {
+		return nil
+	}
+	if i := m.turn.activeTool; i >= 0 && i < len(m.messages) && m.messages[i].Tool == msg.name {
+		m.messages[i].Out = msg.text
+		m.refreshTranscript()
+	}
 	return waitTurnEvent(m.turn.ch)
 }
 
@@ -308,8 +336,13 @@ func (m *Model) handleTurnTool(msg turnToolMsg) tea.Cmd {
 	}
 	m.turn.streaming = false
 	m.history = append(m.history, msg.message)
-	m.messages = append(m.messages, Message{Role: RoleTool, Text: msg.label})
-	m.persist(recordFromAPI(msg.message, msg.label))
+	if i := m.turn.activeTool; i >= 0 && i < len(m.messages) && m.messages[i].Tool == msg.name {
+		if isShellTool(m.messages[i].Tool) {
+			m.messages[i].Out = msg.message.Text
+		}
+	}
+	m.turn.activeTool = -1
+	m.persist(toolRecord(msg.message, msg.label, msg.name))
 	m.refreshTranscript()
 	return waitTurnEvent(m.turn.ch)
 }
@@ -373,7 +406,7 @@ func (m *Model) persist(rec session.Record) {
 	}
 }
 
-func recordFromAPI(m ai.Message, toolLabel string) session.Record {
+func recordFromAPI(m ai.Message) session.Record {
 	switch m.Role {
 	case ai.RoleUser:
 		return session.Record{Role: session.RoleUser, Text: m.Text}
@@ -392,11 +425,17 @@ func recordFromAPI(m ai.Message, toolLabel string) session.Record {
 			Role:       session.RoleTool,
 			Text:       m.Text,
 			ToolCallID: m.ToolCallID,
-			Label:      toolLabel,
 		}
 	default:
 		return session.Record{Role: session.RoleError, Text: m.Text}
 	}
+}
+
+func toolRecord(m ai.Message, label, name string) session.Record {
+	rec := recordFromAPI(m)
+	rec.Label = label
+	rec.Tool = name
+	return rec
 }
 
 func loadSession(recs []session.Record) (ui []Message, history []ai.Message) {
@@ -428,7 +467,16 @@ func loadSession(recs []session.Record) (ui []Message, history []ai.Message) {
 			if label == "" {
 				label = "tool"
 			}
-			ui = append(ui, Message{Role: RoleTool, Text: label})
+			tool := r.Tool
+			if tool == "" {
+				// Older sessions stored only the Summary label.
+				tool = firstWord(label)
+			}
+			uiMsg := newToolMessage(label, tool)
+			if isShellTool(tool) {
+				uiMsg.Out = r.Text
+			}
+			ui = append(ui, uiMsg)
 			history = append(history, ai.Message{
 				Role:       ai.RoleTool,
 				Text:       r.Text,
@@ -439,6 +487,14 @@ func loadSession(recs []session.Record) (ui []Message, history []ai.Message) {
 		}
 	}
 	return ui, trimIncomplete(history)
+}
+
+func firstWord(s string) string {
+	s = strings.TrimSpace(s)
+	if i := strings.IndexByte(s, ' '); i >= 0 {
+		return s[:i]
+	}
+	return s
 }
 
 // trimIncomplete drops a trailing partial tool round so the API transcript
