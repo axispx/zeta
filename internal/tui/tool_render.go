@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -15,6 +16,28 @@ const (
 	maxBashOutLines = 3 // live/final bash stdout lines shown under "$ cmd"
 )
 
+// toolView describes how a tool appears in the transcript.
+// Tools that share the same segment key stack together; empty key = generic cluster.
+type toolView struct {
+	keepOut   bool                   // persist Message.Out from the tool result
+	segment   string                 // non-empty → own segment kind (bash/edit/…)
+	renderRun func([]Message) string // nil → renderToolCluster
+}
+
+func viewFor(name string) toolView {
+	switch name {
+	case "bash":
+		return toolView{keepOut: true, segment: "bash", renderRun: renderShellRun}
+	case "edit":
+		return toolView{keepOut: true, segment: "edit", renderRun: renderEditRun}
+	default:
+		return toolView{}
+	}
+}
+
+// toolHasOut is true when the tool row keeps Message.Out for the transcript UI.
+func toolHasOut(name string) bool { return viewFor(name).keepOut }
+
 // toolRunAt returns consecutive tool messages starting at i, or nil.
 func toolRunAt(msgs []Message, i int) []Message {
 	if i >= len(msgs) || msgs[i].Role != RoleTool {
@@ -28,16 +51,17 @@ func toolRunAt(msgs []Message, i int) []Message {
 }
 
 // renderToolGroup collapses a consecutive tool run into compact blocks.
-// Shell calls render as "$ cmd". A blank line separates shell runs from
-// neighboring tool clusters; consecutive shell lines stack tightly.
+// Shell calls render as "$ cmd". Edits render as "Edited/Created  path" + colored diff.
+// A blank line separates segment kinds; consecutive shell lines stack tightly.
 func renderToolGroup(msgs []Message, width, topMargin int) string {
 	var b strings.Builder
 	for i, seg := range splitToolSegments(msgs) {
 		if i > 0 {
 			b.WriteString("\n\n")
 		}
-		if seg.shell {
-			b.WriteString(renderShellRun(seg.msgs))
+		v := viewFor(seg.msgs[0].Tool)
+		if v.renderRun != nil {
+			b.WriteString(v.renderRun(seg.msgs))
 		} else {
 			b.WriteString(renderToolCluster(seg.msgs))
 		}
@@ -50,20 +74,19 @@ func renderToolGroup(msgs []Message, width, topMargin int) string {
 }
 
 type toolSegment struct {
-	shell bool
-	msgs  []Message
+	msgs []Message
 }
 
-// splitToolSegments splits a tool run into maximal shell vs non-shell runs.
+// splitToolSegments splits a tool run into maximal runs of the same view segment.
 func splitToolSegments(msgs []Message) []toolSegment {
 	var out []toolSegment
 	for i := 0; i < len(msgs); {
-		shell := isShellTool(msgs[i].Tool)
+		key := viewFor(msgs[i].Tool).segment
 		j := i + 1
-		for j < len(msgs) && isShellTool(msgs[j].Tool) == shell {
+		for j < len(msgs) && viewFor(msgs[j].Tool).segment == key {
 			j++
 		}
-		out = append(out, toolSegment{shell: shell, msgs: msgs[i:j]})
+		out = append(out, toolSegment{msgs: msgs[i:j]})
 		i = j
 	}
 	return out
@@ -78,6 +101,53 @@ func renderShellRun(msgs []Message) string {
 		b.WriteString(renderShellCall(m))
 	}
 	return b.String()
+}
+
+func renderEditRun(msgs []Message) string {
+	var b strings.Builder
+	for i, m := range msgs {
+		if i > 0 {
+			b.WriteString("\n\n")
+		}
+		b.WriteString(renderEditCall(m))
+	}
+	return b.String()
+}
+
+// renderEditCall formats an edit as "Edited|Created  file  +N -M" plus a colored unified diff.
+// Message.Out is the unified diff body (tool result). Verb/path come from Message.Text.
+func renderEditCall(m Message) string {
+	verb, name := editLabel(m.Text)
+	adds, dels, colored := formatUnifiedDiff(m.Out)
+
+	var b strings.Builder
+	b.WriteString(styles.Prompt.Render(verb))
+	if name != "" && name != "." {
+		b.WriteString("  ")
+		b.WriteString(styles.DiffFile.Render(name))
+	}
+	if adds > 0 {
+		b.WriteString("  ")
+		b.WriteString(styles.DiffAdd.Render("+" + strconv.Itoa(adds)))
+	}
+	if dels > 0 {
+		b.WriteString("  ")
+		b.WriteString(styles.DiffDel.Render("-" + strconv.Itoa(dels)))
+	}
+	if colored != "" {
+		b.WriteByte('\n')
+		b.WriteString(colored)
+	}
+	return b.String()
+}
+
+// editLabel derives the UI verb and basename from the tool Summary label.
+func editLabel(text string) (verb, name string) {
+	head, path, _ := strings.Cut(strings.TrimSpace(text), " ")
+	if head == "create" {
+		return "Created", filepath.Base(path)
+	}
+	return "Edited", filepath.Base(path)
 }
 
 // renderShellCall formats a shell Summary as "$ cmd" plus the last few output lines.
@@ -134,28 +204,27 @@ func lastNonEmptyLines(s string, n int) string {
 	return strings.Join(lines, "\n")
 }
 
-// renderToolCluster renders one non-shell tool group: optional header, hidden
-// earlier lines, then the visible tail.
+// renderToolCluster renders one non-rich tool group: verb header, hidden
+// earlier lines, then the visible tail. The verb header is always shown,
+// including for a single tool call.
 func renderToolCluster(msgs []Message) string {
 	n := len(msgs)
 	var b strings.Builder
-	if n > 1 {
-		names := make([]string, n)
-		for i, m := range msgs {
-			names[i] = m.Tool
-		}
-		verbs, counts := toolGroupHeader(names)
-		b.WriteString(styles.Prompt.Render(verbs))
-		b.WriteString("  ")
-		b.WriteString(styles.SystemMsg.Render(counts))
+	names := make([]string, n)
+	for i, m := range msgs {
+		names[i] = m.Tool
 	}
+	verbs, counts := toolGroupHeader(names)
+	b.WriteString(styles.Prompt.Render(verbs))
+	b.WriteString("  ")
+	b.WriteString(styles.SystemMsg.Render(counts))
 	start := 0
 	if n > maxGroupTools {
 		start = n - maxGroupTools
 		if b.Len() > 0 {
 			b.WriteByte('\n')
 		}
-		b.WriteString(styles.SystemMsg.Render("... " + strconv.Itoa(start) + " earlier items hidden"))
+		b.WriteString(styles.ToolMsg.Render("... " + strconv.Itoa(start) + " earlier items hidden"))
 	}
 	for i := start; i < n; i++ {
 		if b.Len() > 0 {
@@ -178,8 +247,6 @@ func metaForTool(name string) toolGroupMeta {
 		return toolGroupMeta{verb: "Grepped", one: "grep", many: "greps"}
 	case "read":
 		return toolGroupMeta{verb: "Read", one: "file", many: "files"}
-	case "edit":
-		return toolGroupMeta{verb: "Edited", one: "edit", many: "edits"}
 	case "":
 		return toolGroupMeta{verb: "Used", one: "tool", many: "tools"}
 	default:

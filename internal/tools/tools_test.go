@@ -34,7 +34,7 @@ func TestReadEdit(t *testing.T) {
 		"path": "hello.txt", "old_string": "", "new_string": "one\ntwo\nthree\n",
 	})
 	out := Run(ctx, ts, root, "edit", create)
-	if !strings.Contains(out, "created") {
+	if !strings.Contains(out, "--- hello.txt") || !strings.Contains(out, "+one") {
 		t.Fatalf("create: %s", out)
 	}
 
@@ -47,7 +47,7 @@ func TestReadEdit(t *testing.T) {
 		"path": "hello.txt", "old_string": "two", "new_string": "TWO",
 	})
 	out = Run(ctx, ts, root, "edit", edit)
-	if !strings.Contains(out, "edited") {
+	if !strings.Contains(out, "-two") || !strings.Contains(out, "+TWO") {
 		t.Fatalf("edit: %s", out)
 	}
 	data, _ := os.ReadFile(filepath.Join(root, "hello.txt"))
@@ -103,7 +103,10 @@ func TestSummary(t *testing.T) {
 	if got := (readTool{}).Summary(mustRaw(t, map[string]any{"path": "a.go"})); got != "read a.go" {
 		t.Fatal(got)
 	}
-	if got := (editTool{}).Summary(mustRaw(t, map[string]any{"path": "b.go"})); got != "edit b.go" {
+	if got := (editTool{}).Summary(mustRaw(t, map[string]any{"path": "b.go", "old_string": "x"})); got != "edit b.go" {
+		t.Fatal(got)
+	}
+	if got := (editTool{}).Summary(mustRaw(t, map[string]any{"path": "b.go", "old_string": ""})); got != "create b.go" {
 		t.Fatal(got)
 	}
 	if got := (bashTool{}).Summary(mustRaw(t, map[string]any{"command": "go test ./..."})); got != "bash go test ./..." {

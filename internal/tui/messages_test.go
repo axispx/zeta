@@ -32,13 +32,13 @@ func TestRenderToolGroupCollapses(t *testing.T) {
 		{Role: RoleTool, Text: "read b.go", Tool: "read"},
 		{Role: RoleTool, Text: "read c.go", Tool: "read"},
 		{Role: RoleTool, Text: "read d.go", Tool: "read"},
-		{Role: RoleTool, Text: "edit e.go", Tool: "edit"},
+		{Role: RoleTool, Text: "grep x", Tool: "grep"},
 	}
 	out := renderToolGroup(msgs, 80, 0)
-	if !strings.Contains(out, "Read, edited") {
+	if !strings.Contains(out, "Read, grepped") {
 		t.Fatalf("missing verb header: %q", out)
 	}
-	if !strings.Contains(out, "4 files") || !strings.Contains(out, "1 edit") {
+	if !strings.Contains(out, "4 files") || !strings.Contains(out, "1 grep") {
 		t.Fatalf("missing counts: %q", out)
 	}
 	if !strings.Contains(out, "2 earlier items hidden") {
@@ -47,7 +47,7 @@ func TestRenderToolGroupCollapses(t *testing.T) {
 	if strings.Contains(out, "read a.go") {
 		t.Fatalf("should hide earliest: %q", out)
 	}
-	if !strings.Contains(out, "read c.go") || !strings.Contains(out, "read d.go") || !strings.Contains(out, "edit e.go") {
+	if !strings.Contains(out, "read c.go") || !strings.Contains(out, "read d.go") || !strings.Contains(out, "grep x") {
 		t.Fatalf("missing tail tools: %q", out)
 	}
 }
@@ -59,7 +59,7 @@ func TestRenderToolGroupBashSplits(t *testing.T) {
 		{Role: RoleTool, Text: "bash go test ./...", Tool: "bash"},
 		{Role: RoleTool, Text: "bash ls", Tool: "bash"},
 		{Role: RoleTool, Text: `grep "x" .`, Tool: "grep"},
-		{Role: RoleTool, Text: "edit c.go", Tool: "edit"},
+		{Role: RoleTool, Text: "edit c.go", Tool: "edit", Out: "--- c.go\n+++ c.go\n@@ -1 +1 @@\n-old\n+new\n"},
 		{Role: RoleTool, Text: "bash pwd", Tool: "bash"},
 		{Role: RoleTool, Text: "read d.go", Tool: "read"},
 	}
@@ -71,17 +71,126 @@ func TestRenderToolGroupBashSplits(t *testing.T) {
 	if !strings.Contains(out, "\n\n$ go test ./...\n$ ls\n\n") {
 		t.Fatalf("expected stacked bash with blank borders: %q", out)
 	}
-	if !strings.Contains(out, "Edited, grepped") {
-		t.Fatalf("missing regroup after bash: %q", out)
+	if !strings.Contains(out, "Grepped") || !strings.Contains(out, "grep \"x\"") {
+		t.Fatalf("missing grep after bash: %q", out)
 	}
-	if !strings.Contains(out, "1 grep") || !strings.Contains(out, "1 edit") {
-		t.Fatalf("missing regroup counts: %q", out)
+	plain := stripANSI(out)
+	if !strings.Contains(plain, "Edited") || !strings.Contains(plain, "c.go") {
+		t.Fatalf("missing edit header: %q", plain)
+	}
+	if !strings.Contains(plain, "- old") || !strings.Contains(plain, "+ new") {
+		t.Fatalf("missing guttered edit diff: %q", plain)
 	}
 	if !strings.Contains(out, "\n\n$ pwd\n\n") {
 		t.Fatalf("expected blank lines around trailing bash: %q", out)
 	}
-	if strings.Count(out, "Read") != 1 {
-		t.Fatalf("unexpected header for single trailing read: %q", out)
+	if !strings.Contains(plain, "Read  1 file") {
+		t.Fatalf("missing single-tool verb for trailing read: %q", plain)
+	}
+}
+
+func TestRenderToolClusterSingleShowsVerb(t *testing.T) {
+	out := stripANSI(renderToolGroup([]Message{
+		{Role: RoleTool, Text: "read a.go", Tool: "read"},
+	}, 0, 0))
+	if !strings.HasPrefix(out, "Read  1 file\nread a.go") {
+		t.Fatalf("single tool: %q", out)
+	}
+}
+
+func TestRenderEditCall(t *testing.T) {
+	m := Message{
+		Role: RoleTool,
+		Text: "edit hello.txt",
+		Tool: "edit",
+		Out:  "--- hello.txt\n+++ hello.txt\n@@ -1,3 +1,3 @@\n one\n-two\n+TWO\n three\n",
+	}
+	out := renderEditCall(m)
+	plain := stripANSI(out)
+	if !strings.HasPrefix(plain, "Edited  hello.txt  +1  -1\n") {
+		t.Fatalf("header: %q", plain)
+	}
+	if strings.Contains(out, "---") || strings.Contains(out, "+++") || strings.Contains(plain, "@@") {
+		t.Fatalf("should omit file/hunk headers: %q", plain)
+	}
+	if !strings.Contains(plain, "- two") || !strings.Contains(plain, "+ TWO") {
+		t.Fatalf("missing guttered hunk lines: %q", plain)
+	}
+	if !strings.Contains(plain, "  one") || !strings.Contains(plain, "  three") {
+		t.Fatalf("missing guttered context: %q", plain)
+	}
+	// Markdown-style list content must not glue into "+-" / "--".
+	list := stripANSI(renderUnifiedDiff("@@ -1 +1 @@\n-- item\n+- item\n"))
+	if strings.Contains(list, "@@") {
+		t.Fatalf("should omit hunk header: %q", list)
+	}
+	if strings.Contains(list, "+-") || strings.Contains(list, "-- item") {
+		t.Fatalf("gutter glued to content: %q", list)
+	}
+	if !strings.Contains(list, "+ - item") || !strings.Contains(list, "- - item") {
+		t.Fatalf("expected spaced gutter: %q", list)
+	}
+}
+
+func TestRenderEditCallNoDiff(t *testing.T) {
+	out := stripANSI(renderEditCall(Message{Role: RoleTool, Text: "edit x", Tool: "edit"}))
+	if out != "Edited  x" {
+		t.Fatalf("got %q", out)
+	}
+	// Empty-file create / no-op: tool returns "" — never prose in Out.
+	out = stripANSI(renderEditCall(Message{Role: RoleTool, Text: "create empty.txt", Tool: "edit", Out: ""}))
+	if out != "Created  empty.txt" {
+		t.Fatalf("empty create: %q", out)
+	}
+}
+
+func TestRenderEditCallCreated(t *testing.T) {
+	out := stripANSI(renderEditCall(Message{
+		Role: RoleTool,
+		Text: "create hello.txt",
+		Tool: "edit",
+		Out:  "--- hello.txt\n+++ hello.txt\n@@ -0,0 +1 @@\n+hi\n",
+	}))
+	if !strings.HasPrefix(out, "Created  hello.txt  +1\n") {
+		t.Fatalf("got %q", out)
+	}
+}
+
+func TestRenderEditCallBasename(t *testing.T) {
+	out := stripANSI(renderEditCall(Message{
+		Role: RoleTool,
+		Text: "edit /Users/ashish/Developer/zeta/CONTRIBUTORS.md",
+		Tool: "edit",
+		Out:  "--- a\n+++ b\n@@ -1,2 +1,3 @@\n a\n-b\n+c\n+d\n",
+	}))
+	first, _, _ := strings.Cut(out, "\n")
+	if first != "Edited  CONTRIBUTORS.md  +2  -1" {
+		t.Fatalf("got %q", first)
+	}
+	if strings.Contains(first, "/") {
+		t.Fatalf("should be basename only: %q", first)
+	}
+}
+
+func TestCountDiffLines(t *testing.T) {
+	adds, dels := countDiffLines("--- a\n+++ b\n@@ -1 +1,2 @@\n-old\n+new\n+extra\n")
+	if adds != 2 || dels != 1 {
+		t.Fatalf("adds=%d dels=%d", adds, dels)
+	}
+}
+
+func TestRenderUnifiedDiffUICap(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("--- a\n+++ b\n@@ -1 +1 @@\n")
+	for i := 0; i < maxDiffUILines+5; i++ {
+		b.WriteString("+line\n")
+	}
+	plain := stripANSI(renderUnifiedDiff(b.String()))
+	if !strings.Contains(plain, "… 5 more lines") {
+		t.Fatalf("expected UI cap note: %q", plain)
+	}
+	if strings.Count(plain, "+ line") != maxDiffUILines {
+		t.Fatalf("shown lines: %q", plain)
 	}
 }
 

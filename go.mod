@@ -9,6 +9,7 @@ require (
 	charm.land/lipgloss/v2 v2.0.5
 	github.com/JohannesKaufmann/html-to-markdown/v2 v2.5.2
 	github.com/alecthomas/chroma/v2 v2.14.0
+	github.com/aymanbagabas/go-udiff v0.4.1
 	github.com/openai/openai-go/v3 v3.44.0
 	github.com/sahilm/fuzzy v0.1.3
 	golang.org/x/net v0.57.0

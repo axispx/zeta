@@ -9,6 +9,7 @@ import (
 // 16-color ANSI indexes — actual hues come from the terminal colorscheme.
 const (
 	DimANSI    = "8"  // bright black / gray
+	RedANSI    = "9"  // bright red
 	GreenANSI  = "10" // bright green
 	YellowANSI = "11" // bright yellow
 	BlueANSI   = "12" // bright blue
@@ -26,6 +27,7 @@ const (
 
 var (
 	Dim    = lipgloss.Color(DimANSI)
+	Red    = lipgloss.Color(RedANSI)
 	Green  = lipgloss.Color(GreenANSI)
 	Yellow = lipgloss.Color(YellowANSI)
 	Blue   = lipgloss.Color(BlueANSI)
@@ -48,6 +50,12 @@ var (
 	ToolMsg = lipgloss.NewStyle().
 		Foreground(Dim).
 		Faint(true)
+
+	// Diff line styles use the 16-color palette so terminal themes apply.
+	DiffAdd  = lipgloss.NewStyle().Foreground(Green)
+	DiffDel  = lipgloss.NewStyle().Foreground(Red)
+	DiffMeta = lipgloss.NewStyle().Foreground(Dim).Faint(true)
+	DiffFile = lipgloss.NewStyle().Foreground(Dim) // edit header path (full weight vs ToolMsg)
 
 	Prompt = lipgloss.NewStyle().
 		Bold(true)

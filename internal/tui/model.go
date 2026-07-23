@@ -352,7 +352,7 @@ func (m *Model) handleTurnTool(msg turnToolMsg) tea.Cmd {
 	m.turn.streaming = false
 	m.history = append(m.history, msg.message)
 	if i := m.turn.activeTool; i >= 0 && i < len(m.messages) && m.messages[i].Tool == msg.name {
-		if isShellTool(m.messages[i].Tool) {
+		if toolHasOut(m.messages[i].Tool) {
 			m.messages[i].Out = msg.message.Text
 		}
 	}
@@ -488,7 +488,7 @@ func loadSession(recs []session.Record) (ui []Message, history []ai.Message) {
 				tool = firstWord(label)
 			}
 			uiMsg := newToolMessage(label, tool)
-			if isShellTool(tool) {
+			if toolHasOut(tool) {
 				uiMsg.Out = r.Text
 			}
 			ui = append(ui, uiMsg)

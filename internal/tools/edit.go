@@ -15,7 +15,8 @@ func (editTool) Name() string { return "edit" }
 func (editTool) Description() string {
 	return "Edit a file by replacing a unique old_string with new_string. " +
 		"If old_string is empty and the file does not exist, create it with new_string. " +
-		"Set replace_all to true to replace every occurrence."
+		"Set replace_all to true to replace every occurrence. " +
+		"On success, returns a unified diff of the change (empty if the file was unchanged)."
 }
 func (editTool) Parameters() map[string]any {
 	return map[string]any{
@@ -44,13 +45,18 @@ func (editTool) Parameters() map[string]any {
 
 func (editTool) Summary(raw json.RawMessage) string {
 	var a struct {
-		Path string `json:"path"`
+		Path      string `json:"path"`
+		OldString string `json:"old_string"`
 	}
 	_ = json.Unmarshal(raw, &a)
-	if a.Path != "" {
-		return "edit " + a.Path
+	verb := "edit"
+	if a.OldString == "" {
+		verb = "create"
 	}
-	return "edit"
+	if a.Path != "" {
+		return verb + " " + a.Path
+	}
+	return verb
 }
 
 type editArgs struct {
@@ -89,7 +95,7 @@ func (editTool) Run(ctx context.Context, root string, raw json.RawMessage) (stri
 		if err := os.WriteFile(abs, []byte(args.NewString), 0o644); err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("created %s (%d bytes)", rel, len(args.NewString)), nil
+		return unifiedDiff(rel, "", args.NewString), nil
 	}
 
 	if !exists {
@@ -109,22 +115,13 @@ func (editTool) Run(ctx context.Context, root string, raw json.RawMessage) (stri
 	}
 
 	var next string
-	n := count
 	if args.ReplaceAll {
 		next = strings.ReplaceAll(content, args.OldString, args.NewString)
 	} else {
 		next = strings.Replace(content, args.OldString, args.NewString, 1)
-		n = 1
 	}
 	if err := os.WriteFile(abs, []byte(next), 0o644); err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("edited %s (%d replacement%s)", rel, n, plural(n)), nil
-}
-
-func plural(n int) string {
-	if n == 1 {
-		return ""
-	}
-	return "s"
+	return unifiedDiff(rel, content, next), nil
 }

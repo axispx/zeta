@@ -22,7 +22,7 @@ type Message struct {
 	Role Role
 	Text string
 	Tool string // tool name for RoleTool
-	Out  string // live/final tool output (bash rows show last maxBashOutLines)
+	Out  string // live/final tool output (bash stdout / edit unified diff)
 
 	// Cached markdown render for RoleAgent (keyed by source text + width).
 	md       string
@@ -34,8 +34,6 @@ type Message struct {
 func newToolMessage(label, name string) Message {
 	return Message{Role: RoleTool, Text: label, Tool: name}
 }
-
-func isShellTool(name string) bool { return name == "bash" }
 
 // render formats the message for the transcript.
 // When live is true, agent messages use progressive settled/tail rendering.
