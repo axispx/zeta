@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -11,6 +12,17 @@ import (
 	"github.com/axispx/zeta/internal/tools"
 	"github.com/axispx/zeta/internal/workspace"
 )
+
+// streamPaintEvery caps how often live answer/thinking/tool-out redraw the transcript.
+const streamPaintEvery = 30 * time.Millisecond
+
+// streamPaint throttles transcript redraws while tokens arrive.
+// Lives on Model (not turnSession) so gen survives turn boundaries — a stale
+// tick from turn N must not paint turn N+1.
+type streamPaint struct {
+	gen       int
+	scheduled bool
+}
 
 // turnSession is one in-flight agent turn (stream + tool loop).
 type turnSession struct {
@@ -27,7 +39,7 @@ func (t *turnSession) thinkingPhase() bool {
 }
 
 // acceptReasoning appends a reasoning delta during thinkingPhase.
-// Returns whether the live tail changed (caller should refresh the transcript).
+// Returns whether the live tail changed (caller should schedule a paint).
 func (t *turnSession) acceptReasoning(delta string) bool {
 	if t == nil || !t.thinkingPhase() || delta == "" {
 		return false
@@ -45,18 +57,16 @@ func (t *turnSession) beginStreaming() {
 	t.thinking = ""
 }
 
-// endStreaming marks the assistant message as complete (tools may follow).
-// Returns whether a live reasoning tail was cleared (needs transcript refresh).
+// endStreaming marks the assistant segment complete (tools may follow).
+// Returns true when the live stream UI was dirty (answer and/or thinking).
 func (t *turnSession) endStreaming() bool {
 	if t == nil {
 		return false
 	}
+	dirty := t.streaming || t.thinking != ""
 	t.streaming = false
-	if t.thinking == "" {
-		return false
-	}
 	t.thinking = ""
-	return true
+	return dirty
 }
 
 type turnDeltaMsg struct{ text string }
@@ -80,6 +90,37 @@ type turnToolMsg struct {
 }
 type turnDoneMsg struct{}
 type turnErrMsg struct{ err error }
+
+// streamPaintMsg fires after streamPaintEvery to paint accumulated live text.
+type streamPaintMsg struct{ gen int }
+
+// requestStreamPaint schedules a throttled transcript redraw.
+// Safe on every delta/tool-out; only one tick is outstanding at a time.
+func (m *Model) requestStreamPaint() tea.Cmd {
+	if m.paint.scheduled {
+		return nil
+	}
+	m.paint.scheduled = true
+	gen := m.paint.gen
+	return tea.Tick(streamPaintEvery, func(time.Time) tea.Msg {
+		return streamPaintMsg{gen: gen}
+	})
+}
+
+// cancelStreamPaint drops any pending throttled paint (gen bump invalidates in-flight ticks).
+func (m *Model) cancelStreamPaint() {
+	m.paint.gen++
+	m.paint.scheduled = false
+}
+
+// handleStreamPaint applies a due throttled redraw.
+func (m *Model) handleStreamPaint(msg streamPaintMsg) {
+	if msg.gen != m.paint.gen {
+		return // stale after cancel/finish/refresh
+	}
+	m.paint.scheduled = false
+	m.repaintTranscript()
+}
 
 func toolsForMode(mode prompt.Mode) []tools.Tool {
 	switch mode {

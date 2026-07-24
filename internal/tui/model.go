@@ -59,9 +59,11 @@ type Model struct {
 	overlay       filterOverlay
 	picker        pickerState
 	config        configDialog
-	chrome        styles.Chrome // terminal-derived panels; zero until BackgroundColorMsg
-	promptHist    promptHistory // up/down recall of prior user turns
-	spinner       spinner.Model // animated while a turn is in flight
+	chrome        styles.Chrome   // terminal-derived panels; zero until BackgroundColorMsg
+	promptHist    promptHistory   // up/down recall of prior user turns
+	spinner       spinner.Model   // animated while a turn is in flight
+	tx            transcriptCache // frozen settled transcript; tail re-renders only
+	paint         streamPaint     // throttled live redraw; gen survives turn boundaries
 }
 
 // Options controls how the TUI starts a session.
@@ -153,6 +155,8 @@ func (m Model) PersistedSessionID() string {
 func (m *Model) applyPanels(termBg color.Color, dark bool) {
 	m.chrome = styles.NewChrome(termBg, dark)
 	applyTextareaStyles(&m.textarea, m.chrome.Input)
+	// User bubbles bake chrome into the prefix; rebuild on theme change.
+	m.tx.invalidate()
 }
 
 // applyTextareaStyles sets textarea chrome; bg nil skips panel fill (pre-BackgroundColorMsg).
@@ -246,6 +250,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case turnReasoningMsg:
 		return m, m.handleTurnReasoning(msg)
+
+	case streamPaintMsg:
+		m.handleStreamPaint(msg)
+		return m, nil
 
 	case turnAssistantMsg:
 		return m, m.handleTurnAssistant(msg)
@@ -389,15 +397,15 @@ func (m *Model) handleTurnDelta(msg turnDeltaMsg) tea.Cmd {
 	if m.turn == nil {
 		return nil
 	}
-	m.turn.beginStreaming()
+	m.turn.beginStreaming() // clears thinking; pending/next paint drops the chrome
 	n := len(m.messages)
 	if n > 0 && m.messages[n-1].Role == RoleAgent {
 		m.messages[n-1].Text += msg.text
 	} else {
 		m.messages = append(m.messages, Message{Role: RoleAgent, Text: msg.text})
 	}
-	m.refreshTranscript()
-	return waitTurnEvent(m.turn.ch)
+	// Ingest every token; paint at most every streamPaintEvery.
+	return tea.Batch(m.requestStreamPaint(), waitTurnEvent(m.turn.ch))
 }
 
 // handleTurnReasoning appends pre-answer reasoning for the live tail.
@@ -406,17 +414,17 @@ func (m *Model) handleTurnReasoning(msg turnReasoningMsg) tea.Cmd {
 	if m.turn == nil {
 		return nil
 	}
-	if m.turn.acceptReasoning(msg.text) {
-		m.refreshTranscript()
+	if !m.turn.acceptReasoning(msg.text) {
+		return waitTurnEvent(m.turn.ch)
 	}
-	return waitTurnEvent(m.turn.ch)
+	return tea.Batch(m.requestStreamPaint(), waitTurnEvent(m.turn.ch))
 }
 
 func (m *Model) handleTurnAssistant(msg turnAssistantMsg) tea.Cmd {
 	if m.turn == nil {
 		return nil
 	}
-	// Pure-reasoning completions end here (no delta/tool); drop the tail now.
+	// Segment done — flush buffered answer / clear thinking immediately.
 	if m.turn.endStreaming() {
 		m.refreshTranscript()
 	}
@@ -445,7 +453,7 @@ func (m *Model) handleTurnToolOut(msg turnToolOutMsg) tea.Cmd {
 	}
 	if i := m.turn.activeTool; i >= 0 && i < len(m.messages) && m.messages[i].Tool == msg.name {
 		m.messages[i].Out = msg.text
-		m.refreshTranscript()
+		return tea.Batch(m.requestStreamPaint(), waitTurnEvent(m.turn.ch))
 	}
 	return waitTurnEvent(m.turn.ch)
 }
@@ -494,6 +502,7 @@ func (m *Model) finishTurn() {
 	if m.turn == nil {
 		return
 	}
+	m.cancelStreamPaint() // invalidate pending ticks (gen is on Model)
 	m.turn.cancel()
 	m.turn = nil
 	m.history = compact.TrimIncomplete(m.history)
@@ -665,7 +674,14 @@ func (m *Model) layoutPreservingBottom() {
 	}
 }
 
+// refreshTranscript paints immediately and cancels any pending throttled paint.
 func (m *Model) refreshTranscript() {
+	m.cancelStreamPaint()
+	m.repaintTranscript()
+}
+
+// repaintTranscript lays out and paints without touching the paint throttle.
+func (m *Model) repaintTranscript() {
 	m.showScrollbar = false
 	m.layout()
 	if len(m.messages) == 0 {
@@ -678,37 +694,6 @@ func (m *Model) refreshTranscript() {
 		m.layout()
 		m.setTranscriptContent()
 	}
-}
-
-func (m *Model) setTranscriptContent() {
-	var b strings.Builder
-	streaming := m.turn != nil && m.turn.streaming
-	userMsg := m.chrome.UserMsg()
-	first := true
-	for i := 0; i < len(m.messages); {
-		if !first {
-			b.WriteString("\n\n")
-		}
-		top := 0
-		if first {
-			top = 1
-			first = false
-		}
-		if run := toolRunAt(m.messages, i); run != nil {
-			b.WriteString(renderToolGroup(run, m.contentW, top))
-			i += len(run)
-			continue
-		}
-		msg := &m.messages[i]
-		live := streaming && i == len(m.messages)-1 && msg.Role == RoleAgent
-		b.WriteString(msg.render(m.contentW, top, userMsg, live))
-		i++
-	}
-	if m.turn != nil && m.turn.thinking != "" {
-		writeThinkingTail(&b, m.turn.thinking, m.contentW)
-	}
-	m.viewport.SetContent(b.String())
-	m.viewport.GotoBottom()
 }
 
 func (m Model) View() tea.View {

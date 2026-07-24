@@ -254,6 +254,7 @@ func (m *Model) applySession(sess *session.Session, recs []session.Record, err e
 	m.titlePending = false
 	m.clearCompactState()
 	m.resetPromptHistory()
+	m.tx.invalidate()
 	m.refreshTranscript()
 }
 

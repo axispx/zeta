@@ -195,10 +195,19 @@ func TestAcceptReasoningAndBeginStreaming(t *testing.T) {
 	if t0.acceptReasoning("nope") {
 		t.Fatal("should ignore reasoning while streaming")
 	}
-	if t0.endStreaming() {
-		t.Fatal("no thinking to clear")
+	if !t0.endStreaming() {
+		t.Fatal("streaming segment should report dirty")
 	}
 	if t0.streaming {
 		t.Fatal("expected streaming false after endStreaming")
+	}
+	if t0.endStreaming() {
+		t.Fatal("second endStreaming should be clean")
+	}
+
+	// Pure-reasoning path: never streamed, but thinking must still dirty.
+	t1 := &turnSession{activeTool: -1, thinking: "hmm"}
+	if !t1.endStreaming() || t1.thinking != "" {
+		t.Fatalf("thinking-only end: dirty thinking=%q", t1.thinking)
 	}
 }
