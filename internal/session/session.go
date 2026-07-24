@@ -15,10 +15,11 @@ import (
 
 // Roles stored in message events.
 const (
-	RoleUser  = "user"
-	RoleAgent = "agent"
-	RoleError = "error"
-	RoleTool  = "tool"
+	RoleUser    = "user"
+	RoleAgent   = "agent"
+	RoleError   = "error"
+	RoleTool    = "tool"
+	RoleCompact = "compact" // context compaction checkpoint; Text is the summary
 )
 
 const (
@@ -42,6 +43,7 @@ type Record struct {
 	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
 	Label      string     `json:"label,omitempty"` // UI label for tool rows
 	Tool       string     `json:"tool,omitempty"`  // tool name for RoleTool
+	Tail       int        `json:"tail,omitempty"`  // RoleCompact: API messages retained after checkpoint
 }
 
 // event is one JSONL line: session header or a message.
@@ -56,6 +58,7 @@ type event struct {
 	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
 	Label      string     `json:"label,omitempty"`
 	Tool       string     `json:"tool,omitempty"`
+	Tail       int        `json:"tail,omitempty"`
 }
 
 // Session is an append-only JSONL transcript for one chat.
@@ -143,6 +146,7 @@ func (s *Session) Append(rec Record) error {
 		ToolCalls:  rec.ToolCalls,
 		Label:      rec.Label,
 		Tool:       rec.Tool,
+		Tail:       rec.Tail,
 	}); err != nil {
 		return err
 	}
@@ -237,6 +241,7 @@ func load(abs, path string) (*Session, []Record, error) {
 				ToolCalls:  evt.ToolCalls,
 				Label:      evt.Label,
 				Tool:       evt.Tool,
+				Tail:       evt.Tail,
 			})
 		default:
 			return nil, nil, fmt.Errorf("session %s:%d: unknown event type %q", filepath.Base(path), lineNo, evt.Type)

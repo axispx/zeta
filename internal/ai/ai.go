@@ -212,8 +212,9 @@ func toAPITools(tools []Tool) []openai.ChatCompletionToolUnionParam {
 }
 
 // Complete runs a non-streaming chat completion and returns the assistant text.
-func (c *Client) Complete(ctx context.Context, msgs []Message) (string, error) {
-	return c.complete(ctx, msgs, 0)
+// maxTokens caps the completion when > 0.
+func (c *Client) Complete(ctx context.Context, msgs []Message, maxTokens int64) (string, error) {
+	return c.complete(ctx, msgs, maxTokens)
 }
 
 func (c *Client) complete(ctx context.Context, msgs []Message, maxTokens int64) (string, error) {

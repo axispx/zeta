@@ -2,12 +2,13 @@ package tui
 
 import (
 	tea "charm.land/bubbletea/v2"
-
-	"github.com/axispx/zeta/internal/ai"
 )
 
-// promptHistory recalls prior user turns from session history into the input.
-// at == -1 is the live draft; otherwise at indexes history at a RoleUser message.
+// promptHistory recalls prior user turns into the input.
+// Walks the UI transcript (m.messages), not the API history — compaction
+// rewrites API history with checkpoints and drops old turns, which must not
+// pollute up/down recall.
+// at == -1 is the live draft; otherwise at indexes messages at a RoleUser row.
 type promptHistory struct {
 	at    int
 	draft string
@@ -20,11 +21,11 @@ func (h *promptHistory) reset() {
 
 func (h *promptHistory) live() bool { return h.at < 0 }
 
-// stepUser walks history from after/before from looking for RoleUser.
+// stepUserMessage walks msgs from after/before from looking for RoleUser.
 // dir is -1 (older) or +1 (newer). Returns -1 if none.
-func stepUser(history []ai.Message, from, dir int) int {
-	for i := from + dir; i >= 0 && i < len(history); i += dir {
-		if history[i].Role == ai.RoleUser {
+func stepUserMessage(msgs []Message, from, dir int) int {
+	for i := from + dir; i >= 0 && i < len(msgs); i += dir {
+		if msgs[i].Role == RoleUser {
 			return i
 		}
 	}
@@ -61,7 +62,7 @@ func (m *Model) handlePromptHistoryKey(msg tea.KeyPressMsg) bool {
 	}
 
 	h := &m.promptHist
-	if h.at >= 0 && (h.at >= len(m.history) || m.history[h.at].Role != ai.RoleUser) {
+	if h.at >= 0 && (h.at >= len(m.messages) || m.messages[h.at].Role != RoleUser) {
 		h.reset()
 	}
 
@@ -71,9 +72,9 @@ func (m *Model) handlePromptHistoryKey(msg tea.KeyPressMsg) bool {
 		}
 		from := h.at
 		if h.live() {
-			from = len(m.history)
+			from = len(m.messages)
 		}
-		next := stepUser(m.history, from, -1)
+		next := stepUserMessage(m.messages, from, -1)
 		if next < 0 {
 			// Empty history while live: pass through. At oldest: consume.
 			return !h.live()
@@ -82,7 +83,7 @@ func (m *Model) handlePromptHistoryKey(msg tea.KeyPressMsg) bool {
 			h.draft = m.textarea.Value()
 		}
 		h.at = next
-		m.setPromptValue(m.history[next].Text)
+		m.setPromptValue(m.messages[next].Text)
 		return true
 	}
 
@@ -93,13 +94,13 @@ func (m *Model) handlePromptHistoryKey(msg tea.KeyPressMsg) bool {
 	if h.live() {
 		return false
 	}
-	next := stepUser(m.history, h.at, +1)
+	next := stepUserMessage(m.messages, h.at, +1)
 	if next < 0 {
 		m.setPromptValue(h.draft)
 		h.reset()
 		return true
 	}
 	h.at = next
-	m.setPromptValue(m.history[next].Text)
+	m.setPromptValue(m.messages[next].Text)
 	return true
 }

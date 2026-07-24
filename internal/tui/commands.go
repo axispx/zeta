@@ -21,6 +21,7 @@ type command struct {
 
 var commands = []command{
 	{"/clear", "start a new session"},
+	{"/compact", "summarize older context"},
 	{"/resume", "open a previous session"},
 	{"/model", "switch model"},
 	{"/config", "manage providers & models"},
@@ -209,6 +210,8 @@ func (m *Model) runCommand(name string) tea.Cmd {
 	switch name {
 	case "/clear":
 		m.startNewSession()
+	case "/compact":
+		return m.startCompact()
 	case "/resume":
 		m.openPicker()
 	case "/model":
@@ -240,6 +243,7 @@ func (m *Model) applySession(sess *session.Session, recs []session.Record, err e
 	}
 	m.contextTokens = 0
 	m.titlePending = false
+	m.clearCompactState()
 	m.resetPromptHistory()
 	m.refreshTranscript()
 }
@@ -342,7 +346,7 @@ func (m *Model) consumeCommandOverlayKey(msg tea.KeyPressMsg) bool {
 
 // submitInput handles plain Enter: selected palette command, exact slash command, or chat.
 func (m *Model) submitInput() tea.Cmd {
-	if m.turn != nil {
+	if m.busy() {
 		return nil
 	}
 	if m.overlay.mode == overlayCommands && m.overlay.showing() {

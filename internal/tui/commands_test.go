@@ -36,6 +36,9 @@ func TestLookupCommand(t *testing.T) {
 	if _, ok := lookupCommand("/clear"); !ok {
 		t.Fatal("expected /clear")
 	}
+	if _, ok := lookupCommand("/compact"); !ok {
+		t.Fatal("expected /compact")
+	}
 	if _, ok := lookupCommand("/model"); !ok {
 		t.Fatal("expected /model")
 	}
@@ -52,7 +55,7 @@ func TestLookupCommand(t *testing.T) {
 
 func TestMatchCommands(t *testing.T) {
 	all := matchCommands("/")
-	if len(all) != 4 {
+	if len(all) != 5 {
 		t.Fatalf("match / = %d items", len(all))
 	}
 	clear := matchCommands("/cle")

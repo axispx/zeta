@@ -32,6 +32,9 @@ func (m Model) turnStatusLine() string {
 
 // busyLabel derives the chrome status from turn phase (no stored status field).
 func (m Model) busyLabel() string {
+	if m.compacting {
+		return statusCompacting
+	}
 	if m.turn == nil {
 		return ""
 	}

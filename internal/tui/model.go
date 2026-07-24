@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"image/color"
 	"strings"
 
@@ -12,6 +13,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/axispx/zeta/internal/ai"
+	"github.com/axispx/zeta/internal/compact"
 	"github.com/axispx/zeta/internal/config"
 	"github.com/axispx/zeta/internal/prompt"
 	"github.com/axispx/zeta/internal/session"
@@ -51,6 +53,8 @@ type Model struct {
 	history       []ai.Message // durable API transcript (user/assistant/tool); no system/developer
 	contextTokens int64        // last response's context footprint (prompt+completion)
 	titlePending  bool
+	compacting    bool // true while a compact LLM call is in flight (manual or auto)
+	compactCancel context.CancelFunc
 	mode          prompt.Mode
 	overlay       filterOverlay
 	picker        pickerState
@@ -226,8 +230,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case compactDoneMsg:
+		return m, m.handleCompactDone(msg)
+
 	case spinner.TickMsg:
-		if m.turn == nil {
+		if !m.busy() {
 			return m, nil
 		}
 		var cmd tea.Cmd
@@ -287,11 +294,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.dismissOverlay()
 				return m, nil
 			}
+			if m.compacting {
+				m.cancelCompact()
+				return m, nil
+			}
 			if m.turn != nil {
 				m.finishTurn()
 				m.refreshTranscript()
 				return m, nil
 			}
+			return m, nil
+		case m.compacting:
+			// Block input while compaction runs (result arrives via compactDoneMsg).
 			return m, nil
 		case m.consumeCommandOverlayKey(msg):
 			return m, nil
@@ -332,6 +346,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 // submit appends the user turn, starts a streaming completion, and refreshes.
+// When the transcript is near the context limit, auto-compacts first.
 func (m *Model) submit(text string) tea.Cmd {
 	user := Message{Role: RoleUser, Text: text}
 	m.messages = append(m.messages, user)
@@ -355,11 +370,22 @@ func (m *Model) submit(text string) tea.Cmd {
 		return nil
 	}
 
+	if m.shouldAutoCompact() {
+		return m.runCompact(compactAuto, text)
+	}
+	return m.beginTurn(text)
+}
+
+// beginTurn starts the agent loop for the current history.
+func (m *Model) beginTurn(titlePrompt string) tea.Cmd {
+	if m.client == nil {
+		return nil
+	}
 	var cmds []tea.Cmd
 	var turnCmd tea.Cmd
 	m.turn, turnCmd = startTurn(m.client, m.ws, m.mode, m.history)
 	cmds = append(cmds, turnCmd, m.spinner.Tick)
-	if titleCmd := m.ensureTitle(text); titleCmd != nil {
+	if titleCmd := m.ensureTitle(titlePrompt); titleCmd != nil {
 		cmds = append(cmds, titleCmd)
 	}
 	return tea.Batch(cmds...)
@@ -447,11 +473,12 @@ func (m *Model) finishTurn() {
 	}
 	m.turn.cancel()
 	m.turn = nil
-	m.history = trimIncomplete(m.history)
+	m.history = compact.TrimIncomplete(m.history)
 }
 
 func (m *Model) requestQuit() tea.Cmd {
 	m.finishTurn()
+	m.cancelCompact()
 	return m.quit()
 }
 
@@ -517,27 +544,13 @@ func toolRecord(m ai.Message, label, name string) session.Record {
 
 func loadSession(recs []session.Record) (ui []Message, history []ai.Message) {
 	ui = make([]Message, 0, len(recs))
-	history = make([]ai.Message, 0, len(recs))
 	for _, r := range recs {
 		switch r.Role {
 		case session.RoleUser:
 			ui = append(ui, Message{Role: RoleUser, Text: r.Text})
-			history = append(history, ai.Message{Role: ai.RoleUser, Text: r.Text})
 		case session.RoleAgent:
 			if r.Text != "" {
 				ui = append(ui, Message{Role: RoleAgent, Text: r.Text})
-			}
-			asst := ai.Message{Role: ai.RoleAssistant, Text: r.Text}
-			for _, tc := range r.ToolCalls {
-				asst.ToolCalls = append(asst.ToolCalls, ai.ToolCall{
-					ID:        tc.ID,
-					Name:      tc.Name,
-					Arguments: tc.Arguments,
-				})
-			}
-			// Skip empty assistant rows with no tool calls (nothing to send).
-			if asst.Text != "" || len(asst.ToolCalls) > 0 {
-				history = append(history, asst)
 			}
 		case session.RoleTool:
 			label := r.Label
@@ -554,16 +567,14 @@ func loadSession(recs []session.Record) (ui []Message, history []ai.Message) {
 				uiMsg.Out = r.Text
 			}
 			ui = append(ui, uiMsg)
-			history = append(history, ai.Message{
-				Role:       ai.RoleTool,
-				Text:       r.Text,
-				ToolCallID: r.ToolCallID,
-			})
+		case session.RoleCompact:
+			// Full JSONL is kept for the UI; API history is rebuilt below.
+			ui = append(ui, Message{Role: RoleSystem, Text: compactDividerText})
 		case session.RoleError:
 			ui = append(ui, Message{Role: RoleError, Text: r.Text})
 		}
 	}
-	return ui, trimIncomplete(history)
+	return ui, compact.RebuildAPIHistory(recs)
 }
 
 func firstWord(s string) string {
@@ -572,43 +583,6 @@ func firstWord(s string) string {
 		return s[:i]
 	}
 	return s
-}
-
-// trimIncomplete drops a trailing partial tool round so the API transcript
-// never ends with assistant tool_calls lacking results (e.g. cancelled mid-turn).
-func trimIncomplete(h []ai.Message) []ai.Message {
-	pending := 0
-	roundStart := -1
-	for i, m := range h {
-		switch m.Role {
-		case ai.RoleUser:
-			pending = 0
-			roundStart = -1
-		case ai.RoleAssistant:
-			if pending > 0 {
-				return h[:roundStart]
-			}
-			if n := len(m.ToolCalls); n > 0 {
-				pending = n
-				roundStart = i
-			}
-		case ai.RoleTool:
-			if pending == 0 {
-				if roundStart >= 0 {
-					return h[:roundStart]
-				}
-				return h[:i]
-			}
-			pending--
-			if pending == 0 {
-				roundStart = -1
-			}
-		}
-	}
-	if pending > 0 && roundStart >= 0 {
-		return h[:roundStart]
-	}
-	return h
 }
 
 // layout sizes chrome regions. m.showScrollbar reserves one column for the transcript scrollbar.
