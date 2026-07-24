@@ -9,25 +9,44 @@ import (
 // Busy-status labels shown above the input while a turn is in flight.
 const (
 	statusWaiting   = "Waiting"
+	statusThinking  = "Thinking"
 	statusWorking   = "Working"
 	statusReading   = "Reading"
 	statusEditing   = "Editing"
 	statusRunning   = "Running"
 	statusSearching = "Searching"
 	statusFetching  = "Fetching"
+
+	// busyStatusRows is blank + spinner + blank so the label is not flush
+	// against the transcript or input. layout() sizes the viewport for this.
+	busyStatusRows = 3
 )
 
 // turnStatusLine is the busy indicator above the input while a turn runs.
-// Occupies the GapBeforeInput row so layout height stays stable.
+// Height is always busyStatusRows when non-empty (see gapHeight).
 func (m Model) turnStatusLine() string {
 	label := m.busyLabel()
 	if label == "" {
 		return ""
 	}
-	// Keep the same left inset as the input box / footer.
-	return lipgloss.NewStyle().
+	status := lipgloss.NewStyle().
 		Margin(0, styles.InputMarginH).
 		Render(styles.SystemMsg.Render(m.spinner.View() + " " + label))
+	return lipgloss.JoinVertical(lipgloss.Left, "", status, "")
+}
+
+// gapHeight is the layout rows for the gap slot between transcript and input:
+// command/model overlay, busy status chrome, or the reserved GapBeforeInput row.
+func (m Model) gapHeight() int {
+	if ov := m.renderOverlay(m.width); ov != "" {
+		if h := lipgloss.Height(ov); h > 0 {
+			return h
+		}
+	}
+	if m.busyLabel() != "" {
+		return busyStatusRows
+	}
+	return styles.GapBeforeInput
 }
 
 // busyLabel derives the chrome status from turn phase (no stored status field).
@@ -43,6 +62,9 @@ func (m Model) busyLabel() string {
 	}
 	if m.turn.streaming {
 		return statusWorking
+	}
+	if m.turn.thinking != "" {
+		return statusThinking
 	}
 	return statusWaiting
 }

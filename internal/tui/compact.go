@@ -96,6 +96,8 @@ func (m *Model) runCompact(kind compactKind, titlePrompt string) tea.Cmd {
 	ctx, cancel := context.WithCancel(context.Background())
 	m.compactCancel = cancel
 	m.compacting = true
+	// Busy gap grows while compacting; shrink transcript now.
+	m.layoutPreservingBottom()
 
 	return tea.Batch(func() tea.Msg {
 		var res compact.Result

@@ -1,10 +1,12 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
 	"charm.land/bubbles/v2/spinner"
+	"charm.land/lipgloss/v2"
 )
 
 func TestBusyLabel(t *testing.T) {
@@ -23,6 +25,12 @@ func TestBusyLabel(t *testing.T) {
 	if got := m.busyLabel(); got != statusWaiting {
 		t.Fatalf("pre-delta = %q, want %q", got, statusWaiting)
 	}
+
+	m.turn.thinking = "ponder"
+	if got := m.busyLabel(); got != statusThinking {
+		t.Fatalf("thinking = %q, want %q", got, statusThinking)
+	}
+	m.turn.thinking = ""
 
 	m.turn.streaming = true
 	if got := m.busyLabel(); got != statusWorking {
@@ -49,11 +57,81 @@ func TestTurnStatusLine(t *testing.T) {
 	if !strings.Contains(got, statusWaiting) {
 		t.Fatalf("busy status missing Waiting: %q", got)
 	}
+	// blank + spinner + blank
+	if h := lipgloss.Height(got); h != busyStatusRows {
+		t.Fatalf("busy status height=%d, want %d: %q", h, busyStatusRows, got)
+	}
+	lines := strings.Split(got, "\n")
+	if len(lines) != busyStatusRows || strings.TrimSpace(lines[0]) != "" || strings.TrimSpace(lines[2]) != "" {
+		t.Fatalf("expected blank padding rows: %q", got)
+	}
 	m.messages = []Message{{Role: RoleTool, Tool: "read"}}
 	m.turn.activeTool = 0
 	got = stripANSI(m.turnStatusLine())
 	if !strings.Contains(got, statusReading) {
 		t.Fatalf("busy status missing Reading: %q", got)
+	}
+}
+
+// Long history sticks the newest user bubble to the viewport bottom. When the
+// busy gap grows, layout() must shrink the viewport (and keep stick-to-bottom)
+// so the bubble text stays visible — not clip painted lines after the fact.
+func TestLayoutBusyGapKeepsBottomUserMessage(t *testing.T) {
+	m := testModel()
+	m.width = 60
+	m.height = 24
+	// Enough agent lines that the transcript overflows the viewport.
+	var lines []string
+	for i := 0; i < 40; i++ {
+		lines = append(lines, fmt.Sprintf("history line %02d", i))
+	}
+	m.messages = []Message{
+		{Role: RoleAgent, Text: strings.Join(lines, "\n\n")},
+		{Role: RoleUser, Text: "UNIQUE_USER_PROMPT"},
+	}
+	m.layout()
+	m.setTranscriptContent()
+	if !m.viewport.AtBottom() {
+		t.Fatal("expected stick-to-bottom after setTranscriptContent")
+	}
+	idleH := m.viewport.Height()
+	if m.gapHeight() != 1 { // styles.GapBeforeInput
+		t.Fatalf("idle gapHeight=%d, want 1", m.gapHeight())
+	}
+
+	m.turn = &turnSession{streaming: false, activeTool: -1}
+	m.spinner = spinner.New(spinner.WithSpinner(spinner.MiniDot))
+	if m.gapHeight() != busyStatusRows {
+		t.Fatalf("busy gapHeight=%d, want %d", m.gapHeight(), busyStatusRows)
+	}
+	m.layoutPreservingBottom()
+	if m.viewport.Height() >= idleH {
+		t.Fatalf("busy viewport height %d should be < idle %d", m.viewport.Height(), idleH)
+	}
+	if !m.viewport.AtBottom() {
+		t.Fatal("expected stick-to-bottom after layoutPreservingBottom")
+	}
+
+	got := stripANSI(m.mainView())
+	if !strings.Contains(got, "UNIQUE_USER_PROMPT") {
+		t.Fatalf("user message missing from transcript with busy gap:\n%s", got)
+	}
+}
+
+func TestGapHeight(t *testing.T) {
+	m := testModel()
+	m.width = 60
+	if got := m.gapHeight(); got != 1 {
+		t.Fatalf("idle gapHeight=%d, want 1", got)
+	}
+	m.turn = &turnSession{streaming: false, activeTool: -1}
+	if got := m.gapHeight(); got != busyStatusRows {
+		t.Fatalf("busy gapHeight=%d, want %d", got, busyStatusRows)
+	}
+	m.turn = nil
+	m.compacting = true
+	if got := m.gapHeight(); got != busyStatusRows {
+		t.Fatalf("compacting gapHeight=%d, want %d", got, busyStatusRows)
 	}
 }
 

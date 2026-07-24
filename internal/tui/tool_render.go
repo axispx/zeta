@@ -265,8 +265,10 @@ func metaForTool(name string) toolGroupMeta {
 	case "":
 		return toolGroupMeta{verb: "Used", one: "tool", many: "tools"}
 	default:
+		// Use the bare tool name for both counts — auto-plural "bashs" is worse
+		// than invariant "2 bash". Known tools above have proper plurals.
 		verb := strings.ToUpper(name[:1]) + name[1:]
-		return toolGroupMeta{verb: verb, one: name, many: name + "s"}
+		return toolGroupMeta{verb: verb, one: name, many: name}
 	}
 }
 

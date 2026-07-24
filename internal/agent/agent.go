@@ -26,6 +26,9 @@ const (
 	KindDone
 	// KindErr means the turn failed.
 	KindErr
+	// KindReasoning is streamed reasoning / thinking tokens (UI only; not answer text).
+	// Appended after existing kinds so their iota values stay stable.
+	KindReasoning
 )
 
 // eventBuffer absorbs bursts of KindToolOut without stalling tool I/O.
@@ -109,6 +112,10 @@ func (c Config) streamOnce(ctx context.Context, history []ai.Message, defs []ai.
 		case ai.EventDelta:
 			if evt.Text != "" {
 				out <- Event{Kind: KindDelta, Text: evt.Text}
+			}
+		case ai.EventReasoning:
+			if evt.Text != "" {
+				out <- Event{Kind: KindReasoning, Text: evt.Text}
 			}
 		case ai.EventDone:
 			asst = evt.Message

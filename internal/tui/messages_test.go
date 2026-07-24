@@ -288,18 +288,28 @@ func TestWidthBody(t *testing.T) {
 }
 
 func TestStackMainChromeKeepsInputStable(t *testing.T) {
-	main := strings.Repeat("m\n", 19) + "m" // 20 lines
-	overlay := "a\nb\nc\nd\ne"              // 5 lines
+	// layout() keeps mainH + gapH constant so the input row does not jump when
+	// the gap grows from the reserved blank to busy status or a command overlay.
+	const regionH = 20
+	overlay := "a\nb\nc\nd\ne" // 5 lines
 	input, footer := "INPUT", "FOOTER"
+	status := lipgloss.JoinVertical(lipgloss.Left, "", "⠋ working", "")
 
-	// gap is one slot: blank, busy status, or overlay (caller clips main for overlay).
-	withGap := stackMainChrome(main, "", input, footer)
-	withStatus := stackMainChrome(main, "⠋ working", input, footer)
-	clip := lipgloss.Height(overlay) - styles.GapBeforeInput
-	if clip < 0 {
-		clip = 0
+	stack := func(gap string) string {
+		gh := styles.GapBeforeInput
+		if gap != "" {
+			gh = lipgloss.Height(gap)
+		}
+		mainH := regionH - gh
+		if mainH < 1 {
+			mainH = 1
+		}
+		main := strings.Repeat("m\n", mainH-1) + "m"
+		return stackMainChrome(main, gap, input, footer)
 	}
-	withOverlay := stackMainChrome(clipBottomLines(main, clip), overlay, input, footer)
+	withGap := stack("")
+	withStatus := stack(status)
+	withOverlay := stack(overlay)
 
 	// Input should sit at the same absolute row whether the gap is blank,
 	// showing the busy spinner, or replaced by an overlay.

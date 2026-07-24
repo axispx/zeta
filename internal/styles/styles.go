@@ -51,6 +51,9 @@ var (
 		Foreground(Dim).
 		Faint(true)
 
+	// ThinkingMsg is the live reasoning tail (dim, ephemeral).
+	ThinkingMsg = ToolMsg.Italic(true)
+
 	// Diff line styles use the 16-color palette so terminal themes apply.
 	DiffAdd  = lipgloss.NewStyle().Foreground(Green)
 	DiffDel  = lipgloss.NewStyle().Foreground(Red)

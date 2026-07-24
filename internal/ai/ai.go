@@ -2,6 +2,7 @@ package ai
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -52,6 +53,9 @@ const (
 	EventDelta EventType = iota
 	EventDone
 	EventErr
+	// EventReasoning is streamed reasoning / thinking tokens (not answer content).
+	// Appended after existing types so their iota values stay stable.
+	EventReasoning
 )
 
 // Event is one item from a streaming completion.
@@ -144,8 +148,13 @@ func (c *Client) stream(ctx context.Context, msgs []Message, tools []Tool, out c
 		if len(chunk.Choices) == 0 {
 			continue
 		}
-		if delta := chunk.Choices[0].Delta.Content; delta != "" {
-			out <- Event{Type: EventDelta, Text: delta}
+		delta := chunk.Choices[0].Delta
+		// Reasoning fields are omitted from SDK types; read from raw JSON.
+		if r := reasoningFromRaw(delta.RawJSON()); r != "" {
+			out <- Event{Type: EventReasoning, Text: r}
+		}
+		if text := delta.Content; text != "" {
+			out <- Event{Type: EventDelta, Text: text}
 		}
 	}
 
@@ -159,6 +168,27 @@ func (c *Client) stream(ctx context.Context, msgs []Message, tools []Tool, out c
 	}
 
 	out <- Event{Type: EventDone, Message: assistantFromAcc(acc), Usage: usageFromAcc(acc)}
+}
+
+// reasoningFromRaw pulls OpenAI-compatible reasoning text from a stream delta's
+// raw JSON. Providers put it in reasoning_content (DeepSeek) or reasoning (others).
+// SDK delta types omit these fields, so we read RawJSON on the hot path.
+func reasoningFromRaw(raw string) string {
+	// Most chunks are content-only; avoid json.Unmarshal when the key cannot appear.
+	if raw == "" || !strings.Contains(raw, "reasoning") {
+		return ""
+	}
+	var probe struct {
+		ReasoningContent string `json:"reasoning_content"`
+		Reasoning        string `json:"reasoning"`
+	}
+	if err := json.Unmarshal([]byte(raw), &probe); err != nil {
+		return ""
+	}
+	if probe.ReasoningContent != "" {
+		return probe.ReasoningContent
+	}
+	return probe.Reasoning
 }
 
 func assistantFromAcc(acc openai.ChatCompletionAccumulator) Message {

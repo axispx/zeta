@@ -2,6 +2,32 @@ package ai
 
 import "testing"
 
+func TestReasoningFromRaw(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{"empty", "", ""},
+		{"content only", `{"content":"hi"}`, ""},
+		{"no reasoning key", `{"content":"hi","role":"assistant"}`, ""},
+		{"reasoning_content", `{"reasoning_content":"think"}`, "think"},
+		{"reasoning", `{"reasoning":"ponder"}`, "ponder"},
+		{"prefers reasoning_content", `{"reasoning_content":"a","reasoning":"b"}`, "a"},
+		{"invalid", `{`, ""},
+		{"nullish", `{"reasoning_content":null}`, ""},
+		// fast-path: substring "reasoning" without a real field still unmarshals empty
+		{"false positive substring", `{"note":"reasoning about x"}`, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := reasoningFromRaw(tt.raw); got != tt.want {
+				t.Fatalf("reasoningFromRaw(%q) = %q, want %q", tt.raw, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestCleanTitle(t *testing.T) {
 	tests := []struct {
 		in, want string

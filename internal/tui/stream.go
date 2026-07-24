@@ -16,11 +16,51 @@ import (
 type turnSession struct {
 	cancel     context.CancelFunc
 	ch         <-chan agent.Event
-	streaming  bool // true while receiving assistant deltas
-	activeTool int  // index of open tool row in Model.messages; -1 if none
+	streaming  bool   // true while receiving assistant deltas
+	thinking   string // live reasoning tail; only while thinkingPhase
+	activeTool int    // index of open tool row in Model.messages; -1 if none
+}
+
+// thinkingPhase is true before answer deltas or an open tool (pre-answer reasoning).
+func (t *turnSession) thinkingPhase() bool {
+	return t != nil && !t.streaming && t.activeTool < 0
+}
+
+// acceptReasoning appends a reasoning delta during thinkingPhase.
+// Returns whether the live tail changed (caller should refresh the transcript).
+func (t *turnSession) acceptReasoning(delta string) bool {
+	if t == nil || !t.thinkingPhase() || delta == "" {
+		return false
+	}
+	t.thinking = appendThinking(t.thinking, delta)
+	return true
+}
+
+// beginStreaming marks answer tokens as started and drops any live reasoning tail.
+func (t *turnSession) beginStreaming() {
+	if t == nil {
+		return
+	}
+	t.streaming = true
+	t.thinking = ""
+}
+
+// endStreaming marks the assistant message as complete (tools may follow).
+// Returns whether a live reasoning tail was cleared (needs transcript refresh).
+func (t *turnSession) endStreaming() bool {
+	if t == nil {
+		return false
+	}
+	t.streaming = false
+	if t.thinking == "" {
+		return false
+	}
+	t.thinking = ""
+	return true
 }
 
 type turnDeltaMsg struct{ text string }
+type turnReasoningMsg struct{ text string }
 type turnAssistantMsg struct {
 	message ai.Message
 	usage   ai.Usage
@@ -69,6 +109,8 @@ func waitTurnEvent(ch <-chan agent.Event) tea.Cmd {
 		switch evt.Kind {
 		case agent.KindDelta:
 			return turnDeltaMsg{text: evt.Text}
+		case agent.KindReasoning:
+			return turnReasoningMsg{text: evt.Text}
 		case agent.KindAssistant:
 			return turnAssistantMsg{message: evt.Message, usage: evt.Usage}
 		case agent.KindToolStart:

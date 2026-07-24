@@ -173,6 +173,12 @@ func (m *Model) ensureFreshClient() error {
 }
 
 func (m *Model) syncOverlay() {
+	before := m.gapHeight()
+	defer func() {
+		if m.ready && m.gapHeight() != before {
+			m.layoutPreservingBottom()
+		}
+	}()
 	if m.picker.active || m.config.active {
 		m.overlay.clear()
 		return
@@ -200,6 +206,9 @@ func (m *Model) syncOverlay() {
 func (m *Model) dismissOverlay() {
 	m.overlay.clear()
 	m.resetInput()
+	if m.ready {
+		m.layoutPreservingBottom()
+	}
 }
 
 func (m *Model) runCommand(name string) tea.Cmd {
@@ -270,6 +279,9 @@ func (m *Model) openModelOverlay() {
 			m.overlay.selected = i
 			break
 		}
+	}
+	if m.ready {
+		m.layoutPreservingBottom()
 	}
 }
 

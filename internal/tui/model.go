@@ -242,18 +242,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case turnDeltaMsg:
-		if m.turn == nil {
-			return m, nil
-		}
-		m.turn.streaming = true
-		n := len(m.messages)
-		if n > 0 && m.messages[n-1].Role == RoleAgent {
-			m.messages[n-1].Text += msg.text
-		} else {
-			m.messages = append(m.messages, Message{Role: RoleAgent, Text: msg.text})
-		}
-		m.refreshTranscript()
-		return m, waitTurnEvent(m.turn.ch)
+		return m, m.handleTurnDelta(msg)
+
+	case turnReasoningMsg:
+		return m, m.handleTurnReasoning(msg)
 
 	case turnAssistantMsg:
 		return m, m.handleTurnAssistant(msg)
@@ -384,6 +376,8 @@ func (m *Model) beginTurn(titlePrompt string) tea.Cmd {
 	var cmds []tea.Cmd
 	var turnCmd tea.Cmd
 	m.turn, turnCmd = startTurn(m.client, m.ws, m.mode, m.history)
+	// Busy gap grows (GapBeforeInput → busyStatusRows); shrink transcript now.
+	m.layoutPreservingBottom()
 	cmds = append(cmds, turnCmd, m.spinner.Tick)
 	if titleCmd := m.ensureTitle(titlePrompt); titleCmd != nil {
 		cmds = append(cmds, titleCmd)
@@ -391,11 +385,41 @@ func (m *Model) beginTurn(titlePrompt string) tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
+func (m *Model) handleTurnDelta(msg turnDeltaMsg) tea.Cmd {
+	if m.turn == nil {
+		return nil
+	}
+	m.turn.beginStreaming()
+	n := len(m.messages)
+	if n > 0 && m.messages[n-1].Role == RoleAgent {
+		m.messages[n-1].Text += msg.text
+	} else {
+		m.messages = append(m.messages, Message{Role: RoleAgent, Text: msg.text})
+	}
+	m.refreshTranscript()
+	return waitTurnEvent(m.turn.ch)
+}
+
+// handleTurnReasoning appends pre-answer reasoning for the live tail.
+// Outside thinkingPhase tokens are ignored; the stream is still drained.
+func (m *Model) handleTurnReasoning(msg turnReasoningMsg) tea.Cmd {
+	if m.turn == nil {
+		return nil
+	}
+	if m.turn.acceptReasoning(msg.text) {
+		m.refreshTranscript()
+	}
+	return waitTurnEvent(m.turn.ch)
+}
+
 func (m *Model) handleTurnAssistant(msg turnAssistantMsg) tea.Cmd {
 	if m.turn == nil {
 		return nil
 	}
-	m.turn.streaming = false
+	// Pure-reasoning completions end here (no delta/tool); drop the tail now.
+	if m.turn.endStreaming() {
+		m.refreshTranscript()
+	}
 	m.history = append(m.history, msg.message)
 	if n := msg.usage.ContextTokens(); n > 0 {
 		m.contextTokens = n
@@ -408,7 +432,7 @@ func (m *Model) handleTurnToolStart(msg turnToolStartMsg) tea.Cmd {
 	if m.turn == nil {
 		return nil
 	}
-	m.turn.streaming = false
+	m.turn.endStreaming()
 	m.messages = append(m.messages, newToolMessage(msg.label, msg.name))
 	m.turn.activeTool = len(m.messages) - 1
 	m.refreshTranscript()
@@ -430,7 +454,6 @@ func (m *Model) handleTurnTool(msg turnToolMsg) tea.Cmd {
 	if m.turn == nil {
 		return nil
 	}
-	m.turn.streaming = false
 	m.history = append(m.history, msg.message)
 	if i := m.turn.activeTool; i >= 0 && i < len(m.messages) && m.messages[i].Tool == msg.name {
 		if toolHasOut(m.messages[i].Tool) {
@@ -586,6 +609,7 @@ func firstWord(s string) string {
 }
 
 // layout sizes chrome regions. m.showScrollbar reserves one column for the transcript scrollbar.
+// Transcript height accounts for the real gap (busy status / overlay / reserved blank).
 func (m *Model) layout() {
 	w := m.width
 	if w < minTermW {
@@ -598,7 +622,7 @@ func (m *Model) layout() {
 	}
 
 	// gap + input body + margin below + footer (cwd/model)
-	chromeH := styles.GapBeforeInput + inputH + styles.InputChromeV + styles.InputMarginB + 1
+	chromeH := m.gapHeight() + inputH + styles.InputChromeV + styles.InputMarginB + 1
 	th := m.height - chromeH
 	if th < minTranscriptH {
 		th = minTranscriptH
@@ -629,6 +653,16 @@ func (m *Model) layout() {
 	m.viewport.SetWidth(contentW)
 	m.viewport.SetHeight(th)
 	m.textarea.SetWidth(inputInnerW)
+}
+
+// layoutPreservingBottom re-runs layout and keeps stick-to-bottom scroll when
+// chrome height changes (busy gap, overlay) without rewriting transcript content.
+func (m *Model) layoutPreservingBottom() {
+	atBottom := m.viewport.AtBottom()
+	m.layout()
+	if atBottom {
+		m.viewport.GotoBottom()
+	}
 }
 
 func (m *Model) refreshTranscript() {
@@ -670,6 +704,9 @@ func (m *Model) setTranscriptContent() {
 		b.WriteString(msg.render(m.contentW, top, userMsg, live))
 		i++
 	}
+	if m.turn != nil && m.turn.thinking != "" {
+		writeThinkingTail(&b, m.turn.thinking, m.contentW)
+	}
 	m.viewport.SetContent(b.String())
 	m.viewport.GotoBottom()
 }
@@ -702,7 +739,13 @@ func (m Model) View() tea.View {
 		return m.programView(m.config.View(m.chrome, w, w, h))
 	}
 
-	main := m.mainView()
+	// gap is one layout slot: busy status, command overlay, or blank.
+	// layout() already sized the transcript for gapHeight().
+	gap := m.turnStatusLine()
+	if ov := m.renderOverlay(m.width); ov != "" {
+		gap = ov
+	}
+
 	// Inset by InputMarginH each side (matches transcript ContentInset).
 	inputW := m.width - 2*styles.InputMarginH
 	if inputW < minInputInnerW+styles.InputChromeH {
@@ -724,17 +767,7 @@ func (m Model) View() tea.View {
 		Margin(0, styles.InputMarginH).
 		Render(inputFooter(footerW, m.ws, m.cfg, m.mode, m.contextTokens))
 
-	// gap is one layout slot: busy status, command overlay, or blank.
-	gap := m.turnStatusLine()
-	if ov := m.renderOverlay(m.width); ov != "" {
-		clip := lipgloss.Height(ov) - styles.GapBeforeInput
-		if clip < 0 {
-			clip = 0
-		}
-		main = clipBottomLines(main, clip)
-		gap = ov
-	}
-	return m.programView(stackMainChrome(main, gap, input, footer))
+	return m.programView(stackMainChrome(m.mainView(), gap, input, footer))
 }
 
 // stackMainChrome places transcript, gap row (status/overlay/blank), input, and footer.
