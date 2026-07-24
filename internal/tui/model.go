@@ -279,6 +279,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		switch {
 		case msg.String() == "ctrl+c":
+			if m.tryInterrupt() {
+				return m, nil
+			}
 			return m, m.requestQuit()
 		case m.config.active:
 			cmd, _ := m.config.Update(msg)
@@ -290,19 +293,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, cmd
 			}
 		case msg.String() == "esc":
-			if m.overlay.mode == overlayCommands && m.overlay.showing() {
-				m.dismissOverlay()
-				return m, nil
-			}
-			if m.compacting {
-				m.cancelCompact()
-				return m, nil
-			}
-			if m.turn != nil {
-				m.finishTurn()
-				m.refreshTranscript()
-				return m, nil
-			}
+			m.tryInterrupt()
 			return m, nil
 		case m.compacting:
 			// Block input while compaction runs (result arrives via compactDoneMsg).

@@ -144,6 +144,7 @@ func TestToolStatus(t *testing.T) {
 		{"edit", statusEditing},
 		{"bash", statusRunning},
 		{"grep", statusSearching},
+		{"glob", statusSearching},
 		{"websearch", statusSearching},
 		{"webfetch", statusFetching},
 		{"", statusWorking},

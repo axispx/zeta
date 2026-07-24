@@ -21,12 +21,12 @@ type Tool interface {
 
 // Build returns the full tool set (build mode).
 func Build() []Tool {
-	return []Tool{readTool{}, editTool{}, grepTool{}, bashTool{}, websearchTool{}, webfetchTool{}}
+	return []Tool{readTool{}, editTool{}, grepTool{}, globTool{}, bashTool{}, websearchTool{}, webfetchTool{}}
 }
 
 // Inspect returns ask/plan-safe tools (no edits, no shell).
 func Inspect() []Tool {
-	return []Tool{readTool{}, grepTool{}, websearchTool{}, webfetchTool{}}
+	return []Tool{readTool{}, grepTool{}, globTool{}, websearchTool{}, webfetchTool{}}
 }
 
 // Defs converts tools to API function definitions.
@@ -102,10 +102,12 @@ func displayPath(root, abs string) string {
 }
 
 const (
-	maxReadBytes  = 200 * 1024
-	maxReadLines  = 2000
-	maxGrepLines  = 200
-	maxGrepBytes  = 100 * 1024
-	truncNoteRead = "\n\n[truncated: showing first %d lines / %d bytes]"
-	truncNoteGrep = "\n\n[truncated: showing first %d lines]"
+	maxReadBytes   = 200 * 1024
+	maxReadLines   = 2000
+	maxGrepLines   = 200
+	maxGrepBytes   = 100 * 1024
+	maxGlobResults = 500
+	truncNoteRead  = "\n\n[truncated: showing first %d lines / %d bytes]"
+	truncNoteGrep  = "\n\n[truncated: showing first %d lines]"
+	truncNoteGlob  = "\n\n[truncated: showing first %d matches]"
 )

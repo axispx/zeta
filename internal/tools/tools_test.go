@@ -67,17 +67,17 @@ func TestReadEdit(t *testing.T) {
 
 func TestInspect(t *testing.T) {
 	ro := Inspect()
-	if len(ro) != 4 {
+	if len(ro) != 5 {
 		t.Fatalf("inspect len: %d", len(ro))
 	}
-	if len(Build()) != 6 {
+	if len(Build()) != 7 {
 		t.Fatal("expected build tools")
 	}
 	names := map[string]bool{}
 	for _, tool := range ro {
 		names[tool.Name()] = true
 	}
-	if names["bash"] || names["edit"] || !names["read"] || !names["grep"] || !names["websearch"] || !names["webfetch"] {
+	if names["bash"] || names["edit"] || !names["read"] || !names["grep"] || !names["glob"] || !names["websearch"] || !names["webfetch"] {
 		t.Fatalf("inspect names: %v", names)
 	}
 }
@@ -299,9 +299,7 @@ func TestBashTruncation(t *testing.T) {
 }
 
 func TestGrep(t *testing.T) {
-	if _, err := exec.LookPath("rg"); err != nil {
-		t.Skip("rg not on PATH")
-	}
+	requireRG(t)
 	root := t.TempDir()
 	_ = os.WriteFile(filepath.Join(root, "a.go"), []byte("package main\nfunc Hello() {}\n"), 0o644)
 	_ = os.WriteFile(filepath.Join(root, "b.txt"), []byte("Hello world\n"), 0o644)
@@ -319,12 +317,50 @@ func TestGrep(t *testing.T) {
 	if strings.Contains(out, "b.txt") {
 		t.Fatalf("glob leaked: %q", out)
 	}
+	// Relative path output (no absolute root prefix).
+	if strings.Contains(out, root) {
+		t.Fatalf("expected relative paths, got %q", out)
+	}
+
+	out = Run(context.Background(), Build(), root, "grep", mustRaw(t, map[string]any{
+		"pattern": "Hello",
+		"path":    "a.go",
+	}))
+	if strings.HasPrefix(out, "error:") {
+		t.Fatal(out)
+	}
+	if !strings.Contains(out, "Hello") {
+		t.Fatalf("file path search: %q", out)
+	}
 
 	out = Run(context.Background(), Build(), root, "grep", mustRaw(t, map[string]any{
 		"pattern": "nomatch_xyz",
 	}))
 	if out != "no matches" {
 		t.Fatalf("got %q", out)
+	}
+}
+
+func TestRgTarget(t *testing.T) {
+	root := t.TempDir()
+	got, err := rgTarget(root, root)
+	if err != nil || got != "" {
+		t.Fatalf("root → %q %v", got, err)
+	}
+	sub := filepath.Join(root, "internal", "tools")
+	got, err = rgTarget(root, sub)
+	if err != nil || got != filepath.Join("internal", "tools") {
+		t.Fatalf("subdir → %q %v", got, err)
+	}
+	if _, err := rgTarget(root, filepath.Join(root, "..", "elsewhere")); err == nil {
+		t.Fatal("expected outside error")
+	}
+}
+
+func requireRG(t *testing.T) {
+	t.Helper()
+	if _, err := exec.LookPath("rg"); err != nil {
+		t.Skip("rg not on PATH")
 	}
 }
 

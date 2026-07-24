@@ -1,12 +1,9 @@
 package tools
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"os/exec"
-	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -39,18 +36,14 @@ func (grepTool) Parameters() map[string]any {
 }
 
 func (grepTool) Summary(raw json.RawMessage) string {
-	var a struct {
-		Pattern string `json:"pattern"`
-		Path    string `json:"path"`
-		Glob    string `json:"glob"`
-	}
+	var a grepArgs
 	_ = json.Unmarshal(raw, &a)
 	parts := []string{"grep", strconv.Quote(a.Pattern)}
-	if a.Path != "" {
-		parts = append(parts, a.Path)
+	if p := strings.TrimSpace(a.Path); p != "" {
+		parts = append(parts, p)
 	}
-	if a.Glob != "" {
-		parts = append(parts, "--glob "+a.Glob)
+	if g := strings.TrimSpace(a.Glob); g != "" {
+		parts = append(parts, "--glob "+g)
 	}
 	return strings.Join(parts, " ")
 }
@@ -69,47 +62,32 @@ func (grepTool) Run(ctx context.Context, root string, raw json.RawMessage) (stri
 	if strings.TrimSpace(args.Pattern) == "" {
 		return "", fmt.Errorf("pattern is required")
 	}
-	if _, err := exec.LookPath("rg"); err != nil {
-		return "", fmt.Errorf("rg (ripgrep) not found on PATH; install with: brew install ripgrep")
-	}
 
-	searchPath := root
-	if strings.TrimSpace(args.Path) != "" {
-		abs, err := resolvePath(root, args.Path)
-		if err != nil {
-			return "", err
-		}
-		searchPath = abs
-	}
-
-	cmdArgs := []string{"--line-number", "--no-heading", "--color", "never", "--hidden", "--glob", "!.git"}
-	if args.Glob != "" {
-		cmdArgs = append(cmdArgs, "--glob", args.Glob)
-	}
-	cmdArgs = append(cmdArgs, "--", args.Pattern, searchPath)
-
-	cmd := exec.CommandContext(ctx, "rg", cmdArgs...)
-	cmd.Dir = root
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	err := cmd.Run()
+	abs, err := resolveSearchPath(root, args.Path)
 	if err != nil {
-		// rg exits 1 when no matches.
-		if ee, ok := err.(*exec.ExitError); ok && ee.ExitCode() == 1 {
-			return "no matches", nil
-		}
-		msg := strings.TrimSpace(stderr.String())
-		if msg == "" {
-			msg = err.Error()
-		}
-		return "", fmt.Errorf("%s", msg)
+		return "", err
+	}
+	target, err := rgTarget(root, abs)
+	if err != nil {
+		return "", err
 	}
 
-	out := relativizeGrep(root, stdout.String())
-	lines := strings.Split(out, "\n")
-	if len(lines) > 0 && lines[len(lines)-1] == "" {
-		lines = lines[:len(lines)-1]
+	cmdArgs := append([]string{"--line-number", "--no-heading", "--color", "never"}, rgWorkspaceFlags()...)
+	if g := strings.TrimSpace(args.Glob); g != "" {
+		cmdArgs = append(cmdArgs, "--glob", g)
+	}
+	cmdArgs = append(cmdArgs, "--", args.Pattern)
+	if target != "" {
+		cmdArgs = append(cmdArgs, target)
+	}
+
+	stdout, err := runRg(ctx, root, cmdArgs)
+	if err != nil {
+		return "", err
+	}
+	lines := linesFromRg(stdout)
+	if len(lines) == 0 {
+		return "no matches", nil
 	}
 	truncated := false
 	if len(lines) > maxGrepLines {
@@ -124,23 +102,5 @@ func (grepTool) Run(ctx context.Context, root string, raw json.RawMessage) (stri
 	if truncated {
 		joined += fmt.Sprintf(truncNoteGrep, maxGrepLines)
 	}
-	if joined == "" {
-		return "no matches", nil
-	}
 	return joined, nil
-}
-
-func relativizeGrep(root, out string) string {
-	prefix := root
-	if !strings.HasSuffix(prefix, string(filepath.Separator)) {
-		prefix += string(filepath.Separator)
-	}
-	var b strings.Builder
-	for i, line := range strings.Split(out, "\n") {
-		if i > 0 {
-			b.WriteByte('\n')
-		}
-		b.WriteString(strings.TrimPrefix(line, prefix))
-	}
-	return b.String()
 }

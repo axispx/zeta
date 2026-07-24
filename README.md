@@ -10,13 +10,13 @@ make build   # bin/zeta
 make install # ~/.local/bin/zeta
 ```
 
-**Keys:** `enter` send · `up`/`down` / `ctrl+p`/`ctrl+n` prompt history · `shift+tab` cycle mode (build / ask / plan) · `shift+enter` / `ctrl+j` / `alt+enter` newline · `ctrl+c` quit · mouse / pgup/pgdn scroll
+**Keys:** `enter` send · `up`/`down` / `ctrl+p`/`ctrl+n` prompt history · `shift+tab` cycle mode (build / ask / plan) · `shift+enter` / `ctrl+j` / `alt+enter` newline · `esc` / `ctrl+c` cancel turn (or quit when idle) · mouse / pgup/pgdn scroll
 
 **Commands:** type `/` for autocomplete · `/clear` new session · `/compact` summarize older context · `/resume` pick a previous session · `/model` switch model · `/config` manage providers & models
 
 **Context:** long sessions auto-compact before a turn when estimated tokens approach the model context window (keeps a recent tail + summary checkpoint). `/compact` forces the same path manually.
 
-**Modes:** `build` implements with tools (`read` / `edit` / `grep` / `bash` / `websearch` / `webfetch`) · `ask` Q&A with read-only tools · `plan` plans with read-only tools
+**Modes:** `build` implements with tools (`read` / `edit` / `grep` / `glob` / `bash` / `websearch` / `webfetch`) · `ask` Q&A with read-only tools · `plan` plans with read-only tools
 
 `shift+enter` needs a terminal that can disambiguate modified keys (Kitty keyboard protocol / CSI-u). Ghostty, Kitty, iTerm2 3.5+, Alacritty, WezTerm (`enable_kitty_keyboard = true`).
 If `shift+enter` is remapped in the terminal (common Claude Code / iTerm “send text” setup), fix or remove that binding so the app sees the real key.
@@ -28,7 +28,7 @@ cmd/zeta/            entry
 internal/tui/        bubbletea v2 model (viewport + dynamic textarea)
 internal/ai/         OpenAI-compatible streaming client + tool calls
 internal/compact/    context compaction (checkpoint + recent tail)
-internal/tools/      read / edit / grep / bash / websearch / webfetch
+internal/tools/      read / edit / grep / glob / bash / websearch / webfetch
 internal/config/     ~/.zeta/config.json
 internal/models/     models.dev catalog cache → provider presets
 internal/session/    JSONL transcripts under ~/.zeta/sessions/
