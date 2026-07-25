@@ -77,6 +77,10 @@ var (
 	ScrollThumb = lipgloss.NewStyle().
 			Bold(true)
 
+	// Selection highlights drag-selected transcript cells (app-level copy).
+	Selection = lipgloss.NewStyle().
+			Reverse(true)
+
 	// Footer mode accents (Build / Ask / Plan). Mapping from mode → style lives in tui.
 	StyleModeBuild = lipgloss.NewStyle().Bold(true).Foreground(Blue)
 	StyleModeAsk   = lipgloss.NewStyle().Bold(true).Foreground(Green)

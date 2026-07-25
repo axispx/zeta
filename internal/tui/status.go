@@ -36,8 +36,8 @@ func (m Model) turnStatusLine() string {
 }
 
 // gapContent is the gap slot between transcript and input: bottom panel
-// (permission / ask / plan), command/model overlay, busy status, or empty.
-// Priority: bottom panel → overlay → busy.
+// (permission / ask / plan), command/model overlay, busy status, copy flash, or empty.
+// Priority: bottom panel → overlay → busy → copy flash.
 func (m Model) gapContent() string {
 	if p := m.renderBottom(m.width); p != "" {
 		return p
@@ -45,7 +45,20 @@ func (m Model) gapContent() string {
 	if ov := m.renderOverlay(m.width); ov != "" {
 		return ov
 	}
-	return m.turnStatusLine()
+	if busy := m.turnStatusLine(); busy != "" {
+		return busy
+	}
+	if m.copyFlash {
+		return copiedFlashLine()
+	}
+	return ""
+}
+
+// copiedFlashLine is a one-row "Copied" hint in the gap after a successful copy.
+func copiedFlashLine() string {
+	return lipgloss.NewStyle().
+		Margin(0, styles.InputMarginH).
+		Render(styles.SystemMsg.Render("Copied"))
 }
 
 // gapHeight is the layout rows for the gap slot between transcript and input.

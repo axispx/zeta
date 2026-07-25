@@ -68,6 +68,9 @@ type Model struct {
 	spinner       spinner.Model   // animated while a turn is in flight
 	tx            transcriptCache // frozen settled transcript; tail re-renders only
 	paint         streamPaint     // throttled live redraw; gen survives turn boundaries
+	sel           transcriptSel   // app-level transcript drag selection
+	copyFlash     bool            // brief "Copied" in the gap after a successful copy
+	copyFlashGen  int             // invalidates stale flash timers
 }
 
 // Options controls how the TUI starts a session.
@@ -109,6 +112,10 @@ func New(cfg config.Config, opts Options) (Model, error) {
 
 	vp := viewport.New()
 	vp.MouseWheelEnabled = true
+	// SoftWrap: overflow lines become extra display rows (not truncated). Required so
+	// YOffset/TotalLineCount and drag selection share one display-line space with
+	// wrapContentLines (scrollbar + select both count wrapped rows).
+	vp.SoftWrap = true
 	// Keep only pgup/pgdn — default keymap also binds j/k/f/space/b/u/d/h/l,
 	// which steals those chars from the input and scrolls the transcript.
 	vp.KeyMap = viewport.KeyMap{
@@ -222,7 +229,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.textarea.Focus()
 
 	case tea.BlurMsg:
+		// Pointer/focus left the terminal mid-drag → finish like mouse-up.
+		cmd := m.finishSelectionDrag()
 		m.textarea.Blur()
+		return m, cmd
+
+	case copyFlashMsg:
+		if msg.gen == m.copyFlashGen {
+			m.copyFlash = false
+		}
 		return m, nil
 
 	case tea.WindowSizeMsg:
@@ -284,13 +299,28 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.MouseClickMsg:
 		if cmd, ok := m.handleBottomClick(msg); ok {
+			m.sel.clear()
+			return m, cmd
+		}
+		if cmd, ok := m.handleSelectionMouse(msg); ok {
 			return m, cmd
 		}
 
 	case tea.MouseMotionMsg:
+		if cmd, ok := m.handleSelectionMouse(msg); ok {
+			return m, cmd
+		}
 		if m.handleBottomMotion(msg) {
 			return m, nil
 		}
+
+	case tea.MouseReleaseMsg:
+		if cmd, ok := m.handleSelectionMouse(msg); ok {
+			return m, cmd
+		}
+
+	case tea.MouseWheelMsg:
+		m.handleSelectionMouse(msg) // cancel drag; fall through to viewport scroll
 
 	case tea.KeyPressMsg:
 		switch {
@@ -316,6 +346,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		switch {
 		case msg.String() == "esc":
+			if m.sel.has() {
+				m.sel.clear()
+				return m, nil
+			}
 			m.tryInterrupt()
 			return m, nil
 		case m.compacting:
@@ -850,6 +884,10 @@ func (m Model) mainView() string {
 		inner = lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, hero)
 	} else {
 		inner = m.viewport.View()
+		if m.sel.has() {
+			start, end := m.sel.normalized()
+			inner = highlightSelection(inner, m.viewport.YOffset(), start, end)
+		}
 	}
 
 	body := styles.Transcript.Render(inner)

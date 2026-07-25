@@ -49,6 +49,7 @@ Cycle modes with **Shift+Tab**.
 | `Shift+Enter` / `Ctrl+J` / `Alt+Enter` | Newline                                     |
 | `Esc` / `Ctrl+C`                       | Cancel the current turn (or quit when idle) |
 | Mouse / `PgUp` / `PgDn`                | Scroll                                      |
+| Drag transcript                        | Select text and copy on release (no scrollbar) |
 
 ### Permissions (Build)
 
@@ -78,6 +79,8 @@ Sometimes the agent asks a multiple-choice question (plus freeform **Other**):
 `Shift+Enter` works best in terminals that report modified keys (Kitty keyboard protocol): Ghostty, Kitty, iTerm2 3.5+, Alacritty, WezTerm (`enable_kitty_keyboard = true`).
 
 If `Shift+Enter` is remapped (common in iTerm), remove that binding or use `Ctrl+J` / `Alt+Enter` for newlines.
+
+**Copy:** drag in the transcript to select (the scrollbar is not included); releasing the mouse copies to the clipboard. Leaving the terminal mid-drag counts as release.
 
 ## Commands
 
