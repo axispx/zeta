@@ -69,26 +69,58 @@ func TestInteractive(t *testing.T) {
 	if !Interactive(AskUser) {
 		t.Fatal("ask_user must be interactive")
 	}
-	for _, name := range []string{"read", "bash", "edit", "write"} {
+	for _, name := range []string{"read", "bash", "edit", "write", "skill"} {
 		if Interactive(name) {
 			t.Fatalf("%s must not be interactive", name)
 		}
 	}
 }
 
+func TestSkillToolRun(t *testing.T) {
+	root := t.TempDir()
+	out := Run(context.Background(), Build(), root, Skill, mustRaw(t, map[string]any{
+		"name": "definitely-not-a-real-skill-name-zzz",
+	}))
+	if !strings.Contains(out, "unknown skill") {
+		t.Fatalf("got %s", out)
+	}
+	out = Run(context.Background(), Build(), root, Skill, mustRaw(t, map[string]any{
+		"name": "review",
+	}))
+	if strings.HasPrefix(out, "error:") || !strings.Contains(out, "Thermo-Nuclear") {
+		t.Fatalf("got %s", out[:min(200, len(out))])
+	}
+	// Available in inspect too.
+	out = Run(context.Background(), Inspect(), root, Skill, mustRaw(t, map[string]any{
+		"name": "review",
+	}))
+	if strings.HasPrefix(out, "error:") || !strings.Contains(out, `<skill_content name="review">`) {
+		t.Fatalf("inspect: %s", out[:min(200, len(out))])
+	}
+}
+
+func TestSkillToolSummary(t *testing.T) {
+	if got := (skillTool{}).Summary(mustRaw(t, map[string]any{"name": "demo"})); got != "skill demo" {
+		t.Fatal(got)
+	}
+	if got := (skillTool{}).Summary(mustRaw(t, map[string]any{})); got != "skill" {
+		t.Fatal(got)
+	}
+}
+
 func TestInspect(t *testing.T) {
 	ro := Inspect()
-	if len(ro) != 6 {
+	if len(ro) != 7 {
 		t.Fatalf("inspect len: %d", len(ro))
 	}
-	if len(Build()) != 9 {
-		t.Fatal("expected build tools")
+	if len(Build()) != 10 {
+		t.Fatalf("build len: %d", len(Build()))
 	}
 	names := map[string]bool{}
 	for _, tool := range ro {
 		names[tool.Name()] = true
 	}
-	if names["bash"] || names["edit"] || names["write"] || !names["read"] || !names["grep"] || !names["glob"] || !names["websearch"] || !names["webfetch"] || !names["ask_user"] {
+	if names["bash"] || names["edit"] || names["write"] || !names["skill"] || !names["read"] || !names["grep"] || !names["glob"] || !names["websearch"] || !names["webfetch"] || !names["ask_user"] {
 		t.Fatalf("inspect names: %v", names)
 	}
 }

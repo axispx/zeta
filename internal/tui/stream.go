@@ -11,6 +11,7 @@ import (
 	"github.com/axispx/zeta/internal/ai"
 	"github.com/axispx/zeta/internal/permission"
 	"github.com/axispx/zeta/internal/prompt"
+	"github.com/axispx/zeta/internal/skill"
 	"github.com/axispx/zeta/internal/tools"
 	"github.com/axispx/zeta/internal/workspace"
 )
@@ -138,14 +139,26 @@ func toolsForMode(mode prompt.Mode) []tools.Tool {
 	}
 }
 
-// requestMsgs prepends system + mode instructions to the durable history.
+// requestMsgs prepends system + mode instructions to the durable history
+// and expands a trailing slash-skill user turn into a developer playbook.
+// Durable history keeps the user text (token + optional args); completed
+// slash turns are not re-injected on later requests.
 func requestMsgs(ws workspace.Context, mode prompt.Mode, history []ai.Message) []ai.Message {
-	out := make([]ai.Message, 0, len(history)+2)
+	out := make([]ai.Message, 0, len(history)+3)
 	out = append(out,
 		ai.Message{Role: ai.RoleSystem, Text: prompt.System(ws)},
 		ai.Message{Role: ai.RoleDeveloper, Text: mode.Instructions()},
 	)
-	return append(out, history...)
+	out = append(out, history...)
+	if n := len(history); n > 0 {
+		last := history[n-1]
+		if last.Role == ai.RoleUser {
+			if s, ok := skill.MatchSlash(last.Text); ok {
+				out = append(out, ai.Message{Role: ai.RoleDeveloper, Text: skill.SlashInjection(s)})
+			}
+		}
+	}
+	return out
 }
 
 func waitTurn(t *turnSession) tea.Cmd {

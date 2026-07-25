@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/axispx/zeta/internal/skill"
 	"github.com/axispx/zeta/internal/workspace"
 )
 
@@ -18,6 +19,10 @@ var systemMD string
 func System(ws workspace.Context) string {
 	var b strings.Builder
 	b.WriteString(strings.TrimSpace(systemMD))
+	if cat := skill.Catalog(); cat != "" {
+		b.WriteString("\n\n# Skills\n\n")
+		b.WriteString(cat)
+	}
 	b.WriteString("\n\n# Environment\n\n")
 	b.WriteString(fmt.Sprintf("- OS: %s/%s\n", runtime.GOOS, runtime.GOARCH))
 	b.WriteString(fmt.Sprintf("- Date: %s\n", time.Now().Format("2006-01-02")))

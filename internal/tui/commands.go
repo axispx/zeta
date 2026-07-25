@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -12,20 +13,48 @@ import (
 	"github.com/axispx/zeta/internal/permission"
 	"github.com/axispx/zeta/internal/search"
 	"github.com/axispx/zeta/internal/session"
+	"github.com/axispx/zeta/internal/skill"
 	"github.com/axispx/zeta/internal/styles"
 )
 
+// command is a slash-palette entry. skill marks a bundled playbook binding
+// (fill-into-input); harness commands run immediately via runCommand.
 type command struct {
-	name string
-	desc string
+	name  string
+	desc  string
+	skill bool
 }
 
-var commands = []command{
-	{"/clear", "start a new session"},
-	{"/compact", "summarize older context"},
-	{"/resume", "open a previous session"},
-	{"/model", "switch model"},
-	{"/config", "manage providers & models"},
+// builtinCommands are harness commands (not skill slash bindings).
+var builtinCommands = []command{
+	{name: "/clear", desc: "start a new session"},
+	{name: "/compact", desc: "summarize older context"},
+	{name: "/resume", desc: "open a previous session"},
+	{name: "/model", desc: "switch model"},
+	{name: "/config", desc: "manage providers & models"},
+}
+
+// commands is builtins plus slash-bound bundled skills (init-time, fixed).
+// Harness tokens win: a skill slash that collides with a builtin panics at startup.
+var commands []command
+
+func init() {
+	commands = make([]command, 0, len(builtinCommands)+len(skill.All()))
+	seen := make(map[string]struct{}, len(builtinCommands)+len(skill.All()))
+	for _, c := range builtinCommands {
+		commands = append(commands, c)
+		seen[c.name] = struct{}{}
+	}
+	for _, s := range skill.All() {
+		if s.Slash == "" {
+			continue
+		}
+		if _, clash := seen[s.Slash]; clash {
+			panic(fmt.Sprintf("skill slash %q collides with a harness command", s.Slash))
+		}
+		commands = append(commands, command{name: s.Slash, desc: s.Description, skill: true})
+		seen[s.Slash] = struct{}{}
+	}
 }
 
 // listSel is shared selection state for overlays.
@@ -233,6 +262,17 @@ func (m *Model) runCommand(name string) tea.Cmd {
 	return nil
 }
 
+// fillSkillSlash puts a skill token in the input (trailing space for args) and
+// dismisses the command overlay without submitting.
+func (m *Model) fillSkillSlash(name string) {
+	m.overlay.clear()
+	m.textarea.SetValue(name + " ")
+	m.textarea.MoveToEnd()
+	if m.ready {
+		m.layoutPreservingBottom()
+	}
+}
+
 func (m *Model) openConfigDialog() tea.Cmd {
 	m.overlay.clear()
 	m.picker.clear()
@@ -345,7 +385,12 @@ func (m *Model) handleOverlayKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 			return nil, true
 		}
 		if key == "tab" {
-			m.textarea.SetValue(m.overlay.cmds[m.overlay.selected].name)
+			cmd := m.overlay.cmds[m.overlay.selected]
+			if cmd.skill {
+				m.fillSkillSlash(cmd.name)
+			} else {
+				m.textarea.SetValue(cmd.name)
+			}
 			return nil, true
 		}
 		return nil, false
@@ -369,7 +414,13 @@ func (m *Model) submitInput() tea.Cmd {
 		return nil
 	}
 	if m.overlay.mode == overlayCommands && m.overlay.showing() {
-		return m.runCommand(m.overlay.cmds[m.overlay.selected].name)
+		cmd := m.overlay.cmds[m.overlay.selected]
+		// Skills always fill so the user can add args; second Enter submits.
+		if cmd.skill {
+			m.fillSkillSlash(cmd.name)
+			return nil
+		}
+		return m.runCommand(cmd.name)
 	}
 	text, imgs := m.parseComposer()
 	if text == "" && len(imgs) == 0 {
@@ -377,6 +428,10 @@ func (m *Model) submitInput() tea.Cmd {
 	}
 	if text == ":q" { // vim
 		return m.requestQuit()
+	}
+	// Skill slash (exact or with args) → chat turn; playbook injected in requestMsgs.
+	if _, ok := skill.MatchSlash(text); ok {
+		return m.submit(text, imgs)
 	}
 	if isSlashToken(text) {
 		if len(imgs) > 0 {
@@ -387,7 +442,7 @@ func (m *Model) submitInput() tea.Cmd {
 			m.refreshTranscript()
 			return nil
 		}
-		if _, ok := lookupCommand(text); ok {
+		if c, ok := lookupCommand(text); ok && !c.skill {
 			return m.runCommand(text)
 		}
 		m.resetInput()

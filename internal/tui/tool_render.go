@@ -31,7 +31,7 @@ func viewFor(name string) toolView {
 		return toolView{keepOut: true, segment: "bash", busy: statusRunning, renderRun: renderShellRun}
 	case "edit", "write":
 		return toolView{keepOut: true, segment: "edit", busy: statusEditing, renderRun: renderEditRun}
-	case "read":
+	case "read", "skill":
 		return toolView{busy: statusReading}
 	case "grep", "glob", "websearch":
 		return toolView{busy: statusSearching}
@@ -291,6 +291,8 @@ func metaForTool(name string) toolGroupMeta {
 		return toolGroupMeta{verb: "Globbed", one: "glob", many: "globs"}
 	case "read":
 		return toolGroupMeta{verb: "Read", one: "file", many: "files"}
+	case "skill":
+		return toolGroupMeta{verb: "Skill", one: "skill", many: "skills"}
 	case "":
 		return toolGroupMeta{verb: "Used", one: "tool", many: "tools"}
 	default:

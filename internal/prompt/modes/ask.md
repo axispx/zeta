@@ -8,6 +8,7 @@ Answer questions, explain code, and discuss approaches only.
 
 ### Allowed
 - Reading and searching with `read`, `grep`, `glob`, `websearch`, and `webfetch` (`read` a directory lists children; `glob` finds paths by pattern)
+- Loading a bundled playbook with `skill` when a task matches an available skill
 - Clarifying with `ask_user` when a preference or tradeoff cannot be discovered from the tree
 - Explaining behavior, tradeoffs, and approaches from what you can inspect or look up
 

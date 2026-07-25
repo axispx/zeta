@@ -45,6 +45,9 @@ func TestLookupCommand(t *testing.T) {
 	if _, ok := lookupCommand("/config"); !ok {
 		t.Fatal("expected /config")
 	}
+	if _, ok := lookupCommand("/review"); !ok {
+		t.Fatal("expected /review skill slash")
+	}
 	if _, ok := lookupCommand("/cle"); ok {
 		t.Fatal("partial should not match")
 	}
@@ -55,8 +58,19 @@ func TestLookupCommand(t *testing.T) {
 
 func TestMatchCommands(t *testing.T) {
 	all := matchCommands("/")
-	if len(all) != 5 {
-		t.Fatalf("match / = %d items", len(all))
+	// builtins + slash-bound skills (at least /review)
+	if len(all) < 6 {
+		t.Fatalf("match / = %d items, want >= 6", len(all))
+	}
+	foundReview := false
+	for _, c := range all {
+		if c.name == "/review" {
+			foundReview = true
+			break
+		}
+	}
+	if !foundReview {
+		t.Fatalf("expected /review in palette, got %#v", all)
 	}
 	clear := matchCommands("/cle")
 	if len(clear) == 0 {
