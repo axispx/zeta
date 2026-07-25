@@ -32,7 +32,7 @@ func TestLoadSessionRebuildsAfterCompact(t *testing.T) {
 	old := session.Record{Role: session.RoleUser, Text: strings.Repeat("old ", 500)}
 	midAsst := session.Record{Role: session.RoleAgent, Text: "working"}
 	recent := session.Record{Role: session.RoleUser, Text: "recent question"}
-	summary := "## Objective\n- ship it"
+	summary := "## Task\n- ship it"
 	follow := session.Record{Role: session.RoleUser, Text: "and then?"}
 	// Keep only the recent user message as the retained tail.
 	recs := []session.Record{
@@ -79,7 +79,7 @@ func TestLoadSessionCompactEmptyTail(t *testing.T) {
 	recs := []session.Record{
 		{Role: session.RoleUser, Text: strings.Repeat("old ", 500)},
 		{Role: session.RoleUser, Text: "recent"},
-		{Role: session.RoleCompact, Text: "## Objective\n- x", Tail: 0},
+		{Role: session.RoleCompact, Text: "## Task\n- x", Tail: 0},
 	}
 	_, hist := loadSession(recs)
 	if len(hist) != 1 || !compact.IsCheckpoint(hist[0]) {
@@ -125,7 +125,7 @@ func TestHandleCompactDone(t *testing.T) {
 		{Role: ai.RoleUser, Text: "new"},
 	}
 	m.compacting = true
-	sum := "## Objective\n- done"
+	sum := "## Task\n- done"
 	cp := compact.CheckpointMessage(sum)
 	cmd := m.handleCompactDone(compactDoneMsg{
 		result: compact.Result{
@@ -177,7 +177,7 @@ func TestHandleCompactDoneAutoContinuesTurn(t *testing.T) {
 	m.client = &ai.Client{}
 	m.compacting = true
 	m.history = []ai.Message{{Role: ai.RoleUser, Text: "hi"}}
-	sum := "## Objective\n- go"
+	sum := "## Task\n- go"
 	cp := compact.CheckpointMessage(sum)
 	cmd := m.handleCompactDone(compactDoneMsg{
 		result: compact.Result{

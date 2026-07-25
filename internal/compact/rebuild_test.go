@@ -13,7 +13,7 @@ func TestRebuildAPIHistoryWithTail(t *testing.T) {
 	mid := session.Record{Role: session.RoleAgent, Text: "working"}
 	recent := session.Record{Role: session.RoleUser, Text: "recent question"}
 	tailCount := 1
-	summary := "## Objective\n- ship it"
+	summary := "## Task\n- ship it"
 	follow := session.Record{Role: session.RoleUser, Text: "and then?"}
 	log := []session.Record{
 		old, mid, recent,
@@ -44,7 +44,7 @@ func TestRebuildAPIHistoryEmptyTail(t *testing.T) {
 	log := []session.Record{
 		{Role: session.RoleUser, Text: strings.Repeat("old ", 500)},
 		{Role: session.RoleUser, Text: "recent"},
-		{Role: session.RoleCompact, Text: "## Objective\n- x", Tail: 0},
+		{Role: session.RoleCompact, Text: "## Task\n- x", Tail: 0},
 	}
 	hist := RebuildAPIHistory(log)
 	if len(hist) != 1 || !IsCheckpoint(hist[0]) {

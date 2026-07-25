@@ -9,6 +9,37 @@ import (
 	"github.com/axispx/zeta/internal/styles"
 )
 
+func TestRenderAgentSettledFramesPlan(t *testing.T) {
+	msg := &Message{
+		Role: RoleAgent,
+		Text: "Intro.\n\n<proposed_plan>\n## Fix auth\n\n- step one\n</proposed_plan>",
+	}
+	out := stripANSI(msg.renderBody(80, lipgloss.NewStyle(), false))
+	if strings.Contains(out, "<proposed_plan>") {
+		t.Fatalf("tags leaked: %q", out)
+	}
+	if !strings.Contains(out, "Fix auth") || !strings.Contains(out, "step one") {
+		t.Fatalf("missing plan body: %q", out)
+	}
+	if !strings.Contains(out, "┃") {
+		t.Fatalf("expected plan frame border, got %q", out)
+	}
+}
+
+func TestRenderAgentLiveFramesOpenPlan(t *testing.T) {
+	msg := &Message{
+		Role: RoleAgent,
+		Text: "Intro.\n\n<proposed_plan>\n## Fix auth\npartial",
+	}
+	out := stripANSI(msg.renderBody(80, lipgloss.NewStyle(), true))
+	if strings.Contains(out, "<proposed_plan>") {
+		t.Fatalf("tags leaked live: %q", out)
+	}
+	if !strings.Contains(out, "Fix auth") || !strings.Contains(out, "┃") {
+		t.Fatalf("expected framed live plan: %q", out)
+	}
+}
+
 func TestToolRunAtGroupsTools(t *testing.T) {
 	msgs := []Message{
 		{Role: RoleUser, Text: "hi"},

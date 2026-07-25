@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -29,10 +30,10 @@ type streamPaint struct {
 type turnSession struct {
 	cancel     context.CancelFunc
 	ch         <-chan agent.Event
-	reply      chan<- bool // harness → agent; true=allow, false=deny; one per gated start
-	streaming  bool        // true while receiving assistant deltas
-	thinking   string      // live reasoning tail; only while thinkingPhase
-	activeTool int         // index of open tool row in Model.messages; -1 if none
+	reply      chan<- agent.Reply // harness → agent; one decision per gated start
+	streaming  bool               // true while receiving assistant deltas
+	thinking   string             // live reasoning tail; only while thinkingPhase
+	activeTool int                // index of open tool row in Model.messages; -1 if none
 }
 
 // thinkingPhase is true before answer deltas or an open tool (pre-answer reasoning).
@@ -82,6 +83,7 @@ type turnToolStartMsg struct {
 	name   string
 	path   string
 	detail string
+	args   json.RawMessage // raw tool args (interactive tools)
 }
 type turnToolOutMsg struct {
 	text string
@@ -165,7 +167,13 @@ func turnEventMsg(evt agent.Event) tea.Msg {
 	case agent.KindAssistant:
 		return turnAssistantMsg{message: evt.Message, usage: evt.Usage}
 	case agent.KindToolStart:
-		return turnToolStartMsg{label: evt.Text, name: evt.Name, path: evt.Path, detail: evt.Detail}
+		return turnToolStartMsg{
+			label:  evt.Text,
+			name:   evt.Name,
+			path:   evt.Path,
+			detail: evt.Detail,
+			args:   evt.Args,
+		}
 	case agent.KindToolOut:
 		return turnToolOutMsg{text: evt.Text, name: evt.Name}
 	case agent.KindTool:
@@ -181,16 +189,15 @@ func turnEventMsg(evt agent.Event) tea.Msg {
 
 func startTurn(client *ai.Client, ws workspace.Context, mode prompt.Mode, history []ai.Message, grants *permission.Session) (*turnSession, tea.Cmd) {
 	ctx, cancel := context.WithCancel(context.Background())
-	replies := make(chan bool, 1)
+	replies := make(chan agent.Reply, 1)
 	cfg := agent.Config{
 		Client:  client,
 		Tools:   toolsForMode(mode),
 		Root:    ws.Abs,
 		Replies: replies,
-		// Harness policy: side-effect tools without a session grant block.
-		// edit/write are never session-grantable (always prompt).
+		// Same classifier as handleTurnToolStart (waitFor).
 		Gate: func(name string) bool {
-			return permission.NeedsDecision(grants, name)
+			return waitFor(name, grants) != waitNone
 		},
 	}
 	ch := cfg.Run(ctx, requestMsgs(ws, mode, history))

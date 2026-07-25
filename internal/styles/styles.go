@@ -82,6 +82,12 @@ var (
 	StyleModeAsk   = lipgloss.NewStyle().Bold(true).Foreground(Green)
 	StyleModePlan  = lipgloss.NewStyle().Bold(true).Foreground(Yellow)
 
+	// PlanFrame is the yellow left border for proposed-plan bodies in the transcript.
+	PlanFrame = lipgloss.NewStyle().
+			Border(lipgloss.ThickBorder(), false, false, false, true).
+			BorderForeground(Yellow).
+			PaddingLeft(1)
+
 	// Overlay / accent-list rows (command palette, model overlay, session picker).
 	// OverlayRow uses default terminal fg (same as input text).
 	OverlayRow         = lipgloss.NewStyle()

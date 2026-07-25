@@ -58,7 +58,8 @@ type Model struct {
 	compactCancel context.CancelFunc
 	mode          prompt.Mode
 	grants        *permission.Session // "allow for session" (bash only); reset on /clear
-	perm          *permissionPrompt
+	bottom        bottomSlot          // exclusive input-slot panel (perm | ask | plan)
+	pendingPlan   string              // plan body produced this turn; offered once on turnDone
 	overlay       filterOverlay
 	picker        pickerState
 	config        configDialog
@@ -273,6 +274,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case turnDoneMsg:
 		m.finishTurn()
+		m.maybeOfferPlan()
 		m.refreshTranscript()
 		return m, nil
 
@@ -281,12 +283,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.MouseClickMsg:
-		if m.handlePermissionClick(msg) {
-			return m, nil
+		if cmd, ok := m.handleBottomClick(msg); ok {
+			return m, cmd
 		}
 
 	case tea.MouseMotionMsg:
-		if m.handlePermissionMotion(msg) {
+		if m.handleBottomMotion(msg) {
 			return m, nil
 		}
 
@@ -302,12 +304,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		case m.picker.active:
 			return m, m.handlePickerKey(msg)
-		case m.handlePermissionKey(msg):
-			return m, nil
-		case m.overlay.mode == overlayModels:
-			if cmd, ok := m.handleOverlayKey(msg); ok {
+		default:
+			if cmd, ok := m.handleBottomKey(msg); ok {
 				return m, cmd
 			}
+			if m.overlay.mode == overlayModels {
+				if cmd, ok := m.handleOverlayKey(msg); ok {
+					return m, cmd
+				}
+			}
+		}
+		switch {
 		case msg.String() == "esc":
 			m.tryInterrupt()
 			return m, nil
@@ -317,7 +324,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case m.consumeCommandOverlayKey(msg):
 			return m, nil
 		case msg.String() == "shift+tab":
-			if m.turn == nil {
+			if m.turn == nil && !m.inputBlocked() {
 				m.mode = m.mode.Next()
 			}
 			return m, nil
@@ -338,7 +345,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	prevH := m.textarea.Height()
-	if !m.picker.active && m.perm == nil {
+	if !m.picker.active && !m.inputBlocked() {
 		before := m.textarea.Value()
 		m.textarea, taCmd = m.textarea.Update(msg)
 		m.notePromptEdit(before)
@@ -439,7 +446,10 @@ func (m *Model) handleTurnAssistant(msg turnAssistantMsg) tea.Cmd {
 	if n := msg.usage.ContextTokens(); n > 0 {
 		m.contextTokens = n
 	}
+	// Single encoding: full assistant text (including <proposed_plan>) on the
+	// agent row for UI, JSONL, and API history.
 	m.persist(recordFromAPI(msg.message))
+	m.noteProducedPlan(msg.message.Text)
 	return waitTurn(m.turn)
 }
 
@@ -459,18 +469,13 @@ func (m *Model) handleTurnToolStart(msg turnToolStartMsg) tea.Cmd {
 	}
 	m.refreshTranscript()
 
-	// Agent only waits when Gate is true. Match NeedsDecision — do not send
-	// a Decision the agent isn't awaiting.
-	if !permission.NeedsDecision(m.grants, msg.name) {
-		return waitTurn(m.turn)
-	}
-	m.perm = &permissionPrompt{
-		label: label,
-		name:  msg.name,
-		path:  msg.path,
-	}
-	if m.ready {
-		m.layoutPreservingBottom()
+	// Agent only waits when waitFor matches Gate — do not send a Reply it isn't awaiting.
+	switch waitFor(msg.name, m.grants) {
+	case waitInteractive:
+		m.openInteractiveTool(msg.name, msg.args)
+	case waitPermission:
+		m.bottom.setPerm(newPermissionPrompt(label, msg.name, msg.path))
+		m.afterSetBottom()
 	}
 	return waitTurn(m.turn)
 }
@@ -536,8 +541,8 @@ func (m *Model) finishTurn() {
 		return
 	}
 	m.cancelStreamPaint() // invalidate pending ticks (gen is on Model)
-	// Deny any open ask so the agent unblocks on the same path as user deny.
-	m.abandonPermission()
+	// Deny any open permission/ask so the agent unblocks on the same path as user deny.
+	m.abandonBottom()
 	// Cancel mid-tool: close out the open row — late KindTool is dropped.
 	if i := m.turn.activeTool; i >= 0 && i < len(m.messages) && m.messages[i].Status == ToolRunning {
 		m.messages[i].Status = ToolDenied
@@ -662,9 +667,9 @@ func (m *Model) layout() {
 		inputH = inputMinHeight
 	}
 
-	// gap + footer; input chrome is hidden while a permission prompt is open.
+	// gap + footer; input chrome is hidden while a bottom panel replaces it.
 	chromeH := m.gapHeight() + 1 // footer
-	if m.perm == nil {
+	if !m.inputBlocked() {
 		chromeH += inputH + styles.InputChromeV + styles.InputMarginB
 	}
 	th := m.height - chromeH
@@ -767,9 +772,9 @@ func (m Model) View() tea.View {
 	return m.programView(stackMainChrome(m.mainView(), gap, input, footer))
 }
 
-// renderInput returns the input box, or "" when a permission prompt replaces it.
+// renderInput returns the input box, or "" when a bottom panel replaces it.
 func (m Model) renderInput() string {
-	if m.perm != nil {
+	if m.inputBlocked() {
 		return ""
 	}
 	inputW := m.width - 2*styles.InputMarginH

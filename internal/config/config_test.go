@@ -112,6 +112,21 @@ func TestSetActive(t *testing.T) {
 	}
 }
 
+func TestPreferredBuildModel(t *testing.T) {
+	cfg := sampleConfig()
+	if got := cfg.PreferredBuildModel(); got != cfg.Active {
+		t.Fatalf("fallback active: got %q", got)
+	}
+	cfg.SetBuildDefault("xai/grok-3")
+	if got := cfg.PreferredBuildModel(); got != "xai/grok-3" {
+		t.Fatalf("defaults.build: got %q", got)
+	}
+	cfg.SetBuildDefault("nope/missing")
+	if got := cfg.PreferredBuildModel(); got != cfg.Active {
+		t.Fatalf("invalid default should fall back: got %q", got)
+	}
+}
+
 func TestValidateAllowsEmptyModels(t *testing.T) {
 	cfg := sampleConfig()
 	p := cfg.Providers["deepseek"]

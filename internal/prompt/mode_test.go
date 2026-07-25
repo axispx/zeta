@@ -11,9 +11,9 @@ func TestModeNext(t *testing.T) {
 	tests := []struct {
 		in, want Mode
 	}{
-		{ModeBuild, ModeAsk},
-		{ModeAsk, ModePlan},
-		{ModePlan, ModeBuild},
+		{ModeBuild, ModePlan},
+		{ModePlan, ModeAsk},
+		{ModeAsk, ModeBuild},
 	}
 	for _, tt := range tests {
 		if got := tt.in.Next(); got != tt.want {

@@ -30,12 +30,12 @@ func ArgPath(raw json.RawMessage) string {
 
 // Build returns the full tool set (build mode).
 func Build() []Tool {
-	return []Tool{readTool{}, editTool{}, writeTool{}, grepTool{}, globTool{}, bashTool{}, websearchTool{}, webfetchTool{}}
+	return []Tool{readTool{}, editTool{}, writeTool{}, grepTool{}, globTool{}, bashTool{}, websearchTool{}, webfetchTool{}, askUserTool{}}
 }
 
 // Inspect returns ask/plan-safe tools (no edits, no shell).
 func Inspect() []Tool {
-	return []Tool{readTool{}, grepTool{}, globTool{}, websearchTool{}, webfetchTool{}}
+	return []Tool{readTool{}, grepTool{}, globTool{}, websearchTool{}, webfetchTool{}, askUserTool{}}
 }
 
 // Defs converts tools to API function definitions.
@@ -59,6 +59,24 @@ func ByName(ts []Tool, name string) (Tool, bool) {
 		}
 	}
 	return nil, false
+}
+
+// interactiveTool is implemented by tools that never auto-run: the harness
+// must supply a Reply (Deny / Inject) before the agent loop continues.
+// Side-effect tools use permission.NeedsDecision separately.
+type interactiveTool interface {
+	Interactive() bool
+}
+
+// Interactive reports whether a named tool requires a harness decision and
+// never runs via Tool.Run on its own. Looks up the tool in Build().
+func Interactive(name string) bool {
+	t, ok := ByName(Build(), name)
+	if !ok {
+		return false
+	}
+	it, ok := t.(interactiveTool)
+	return ok && it.Interactive()
 }
 
 // Run executes a named tool from the set. Failures return an error string

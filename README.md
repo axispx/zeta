@@ -18,7 +18,9 @@ make install # ~/.local/bin/zeta
 
 **Context:** long sessions auto-compact before a turn when estimated tokens approach the model context window (keeps a recent tail + summary checkpoint). `/compact` forces the same path manually.
 
-**Modes:** `build` implements with tools (`read` / `edit` / `write` / `grep` / `glob` / `bash` / `websearch` / `webfetch`) · `ask` Q&A with read-only tools · `plan` plans with read-only tools
+**Modes:** `build` implements with tools (`read` / `edit` / `write` / `grep` / `glob` / `bash` / `websearch` / `webfetch` / `ask_user`) · `ask` Q&A with read-only tools · `plan` plans with read-only tools (`ask_user` for clarifying questions). When a plan is ready (`<proposed_plan>`), approve / revise / discard; approve opens a build-model picker, clears context, switches to Build, and starts implementing.
+
+**Ask user:** in plan (and other modes), the agent can call `ask_user` with 2–4 options (recommended first); the UI adds **Other** freeform (≤5 rows). ↑/↓ · enter · 1–9 · type for Other · esc cancel.
 
 `shift+enter` needs a terminal that can disambiguate modified keys (Kitty keyboard protocol / CSI-u). Ghostty, Kitty, iTerm2 3.5+, Alacritty, WezTerm (`enable_kitty_keyboard = true`).
 If `shift+enter` is remapped in the terminal (common iTerm “send text” setups), fix or remove that binding so the app sees the real key.
@@ -32,10 +34,11 @@ internal/ai/         OpenAI-compatible streaming client + tool calls
 internal/agent/      tool loop + permission gate
 internal/permission/ allow | deny for side-effect tools
 internal/compact/    context compaction (checkpoint + recent tail)
-internal/tools/      read / edit / write / grep / glob / bash / websearch / webfetch
+internal/tools/      read / edit / write / grep / glob / bash / websearch / webfetch / ask_user
 internal/config/     ~/.zeta/config.json
 internal/models/     models.dev catalog cache → provider presets
 internal/session/    JSONL transcripts under ~/.zeta/sessions/
+internal/plan/       proposed_plan extract/display + build seed text
 internal/paths/      ZETA_HOME resolution
 internal/styles/     lipgloss tokens + banner
 ```
@@ -85,6 +88,7 @@ Path: `$ZETA_HOME/config.json` (default `~/.zeta/config.json`).
 ```
 
 - **`active`** — active model as `provider_id/model_id`
+- **`defaults`** — optional `{ "build": "provider/model" }`; remembered when you approve a plan
 - **`providers`** — map of provider id → `{ "name", "api_key", "base_url", "models" }`
 - **`models`** — map of model id → `{ "name": "...", "context_window": N, "disabled": true? }`
 - **`context_window`** — required; max tokens for that model (used for the footer context %). DeepSeek V4 is 1M; see [pricing](https://api-docs.deepseek.com/quick_start/pricing/).

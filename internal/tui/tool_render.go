@@ -37,6 +37,8 @@ func viewFor(name string) toolView {
 		return toolView{busy: statusSearching}
 	case "webfetch":
 		return toolView{busy: statusFetching}
+	case "ask_user":
+		return toolView{keepOut: true, busy: statusWaiting}
 	default:
 		return toolView{}
 	}

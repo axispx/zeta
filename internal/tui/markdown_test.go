@@ -140,7 +140,7 @@ func TestStreamSplit(t *testing.T) {
 
 func TestStreamingMarkdown(t *testing.T) {
 	msg := &Message{Role: RoleAgent, Text: "## Summary\n\nHere is "}
-	out := stripANSI(msg.streamingMarkdown(60))
+	out := stripANSI(msg.streamingMarkdown(msg.Text, 60))
 	if strings.Contains(out, "##") {
 		t.Fatalf("heading should be styled without hashes: %q", out)
 	}
@@ -152,7 +152,7 @@ func TestStreamingMarkdown(t *testing.T) {
 	}
 
 	open := &Message{Role: RoleAgent, Text: "Intro.\n\n```go\nfunc main() {\n"}
-	openOut := stripANSI(open.streamingMarkdown(60))
+	openOut := stripANSI(open.streamingMarkdown(open.Text, 60))
 	if !strings.Contains(openOut, "Intro.") {
 		t.Fatalf("missing settled prose: %q", openOut)
 	}
@@ -163,18 +163,18 @@ func TestStreamingMarkdown(t *testing.T) {
 
 func TestStreamingMarkdownCache(t *testing.T) {
 	msg := &Message{Role: RoleAgent, Text: "## Done\n\npartial"}
-	_ = msg.streamingMarkdown(50)
+	_ = msg.streamingMarkdown(msg.Text, 50)
 	if msg.mdSource != "## Done" {
 		t.Fatalf("cache should key settled prefix, got %q", msg.mdSource)
 	}
 	msg.md = "SENTINEL"
 	msg.Text = "## Done\n\npartial more"
-	out := msg.streamingMarkdown(50)
+	out := msg.streamingMarkdown(msg.Text, 50)
 	if !strings.Contains(out, "SENTINEL") {
 		t.Fatalf("tail growth should hit settled cache: %q", out)
 	}
 	msg.Text = "## Done\n\nnext\n\npartial"
-	_ = msg.streamingMarkdown(50)
+	_ = msg.streamingMarkdown(msg.Text, 50)
 	if msg.md == "SENTINEL" {
 		t.Fatal("new settled boundary should invalidate cache")
 	}
@@ -182,7 +182,7 @@ func TestStreamingMarkdownCache(t *testing.T) {
 
 func TestMessageRenderStreamingPlain(t *testing.T) {
 	msg := &Message{Role: RoleAgent, Text: "```go\nfunc main() {\n"}
-	plain := stripANSI(msg.streamingMarkdown(40))
+	plain := stripANSI(msg.streamingMarkdown(msg.Text, 40))
 	if !strings.Contains(plain, "```go") {
 		t.Fatalf("streaming should keep raw fence: %q", plain)
 	}

@@ -266,13 +266,13 @@ func turnTokens(msgs []ai.Message, starts []int, j int) int {
 func BuildPrompt(previousSummary string, head []ai.Message) []ai.Message {
 	var user strings.Builder
 	if prev := strings.TrimSpace(previousSummary); prev != "" {
-		user.WriteString("Update the anchored summary below using the conversation history.\n")
-		user.WriteString("Preserve still-true details, remove stale details, and merge in the new facts.\n")
+		user.WriteString("Revise the handoff note in <previous-summary> using the conversation history below.\n")
+		user.WriteString("Keep what still applies, drop what does not, and add new facts from the history.\n")
 		user.WriteString("<previous-summary>\n")
 		user.WriteString(prev)
 		user.WriteString("\n</previous-summary>\n\n")
 	} else {
-		user.WriteString("Create a new anchored summary from the conversation history.\n\n")
+		user.WriteString("Write a fresh handoff note from the conversation history below.\n\n")
 	}
 	user.WriteString("Conversation history:\n\n")
 	user.WriteString(serialize(head))

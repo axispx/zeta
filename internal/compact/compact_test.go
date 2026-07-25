@@ -68,7 +68,7 @@ func TestIsCheckpointPrefix(t *testing.T) {
 }
 
 func TestCheckpointRoundTrip(t *testing.T) {
-	sum := "## Objective\n- ship compaction"
+	sum := "## Task\n- ship compaction"
 	m := CheckpointMessage(sum)
 	if m.Role != ai.RoleUser {
 		t.Fatalf("role: %s", m.Role)
@@ -202,7 +202,7 @@ func TestBuildPromptIncludesPrevious(t *testing.T) {
 	if !strings.Contains(msgs[1].Text, "[User]\nfix the bug") {
 		t.Fatal("missing serialized head")
 	}
-	if !strings.Contains(msgs[1].Text, "## Objective") {
+	if !strings.Contains(msgs[1].Text, "## Task") {
 		t.Fatal("missing template")
 	}
 }
@@ -212,7 +212,7 @@ func TestBuildPromptFresh(t *testing.T) {
 	if strings.Contains(msgs[1].Text, "<previous-summary>") {
 		t.Fatal("should not include previous-summary")
 	}
-	if !strings.Contains(msgs[1].Text, "Create a new anchored summary") {
+	if !strings.Contains(msgs[1].Text, "Write a fresh handoff note") {
 		t.Fatal("missing fresh instruction")
 	}
 }
@@ -252,7 +252,7 @@ func TestRunForcedCompacts(t *testing.T) {
 		{Role: ai.RoleAssistant, Text: "ok"},
 		{Role: ai.RoleUser, Text: "recent"},
 	}
-	stub := &stubCompleter{text: "## Objective\n- done"}
+	stub := &stubCompleter{text: "## Task\n- done"}
 	res, err := RunForced(context.Background(), stub, hist, Config{
 		Keep: estimateMsg(hist[2]) + 20,
 	})
@@ -268,7 +268,7 @@ func TestRunForcedCompacts(t *testing.T) {
 	if !IsCheckpoint(res.History[0]) {
 		t.Fatalf("first msg not checkpoint: %q", res.History[0].Text)
 	}
-	if sum, ok := ParseSummary(res.History[0]); !ok || !strings.Contains(sum, "Objective") {
+	if sum, ok := ParseSummary(res.History[0]); !ok || !strings.Contains(sum, "Task") {
 		t.Fatalf("summary: %q", sum)
 	}
 	// tail should keep the recent user message
@@ -345,12 +345,12 @@ func TestRunForcedNothingToCompact(t *testing.T) {
 }
 
 func TestRunForcedMergesPreviousSummary(t *testing.T) {
-	cp := CheckpointMessage("## Objective\n- old goal")
+	cp := CheckpointMessage("## Task\n- old goal")
 	// force head non-empty: large middle message, tiny tail keep
 	mid := ai.Message{Role: ai.RoleUser, Text: strings.Repeat("middle ", 300)}
 	tail := ai.Message{Role: ai.RoleUser, Text: "now"}
 	hist := []ai.Message{cp, mid, tail}
-	stub := &stubCompleter{text: "## Objective\n- new goal"}
+	stub := &stubCompleter{text: "## Task\n- new goal"}
 	res, err := RunForced(context.Background(), stub, hist, Config{
 		Keep: estimateMsg(tail) + 5,
 	})

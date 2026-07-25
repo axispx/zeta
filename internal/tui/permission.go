@@ -6,14 +6,9 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/axispx/zeta/internal/agent"
 	"github.com/axispx/zeta/internal/permission"
 	"github.com/axispx/zeta/internal/styles"
-)
-
-const (
-	// permissionGutter matches inputPromptWidth so the title aligns with option
-	// labels (the → occupies the gutter; body text starts in the same column).
-	permissionGutter = inputPromptWidth
 )
 
 type permOption struct {
@@ -38,178 +33,148 @@ func permOptionsFor(tool string) []permOption {
 	}
 }
 
+func permOptionRows(tool string) []optionRow {
+	opts := permOptionsFor(tool)
+	rows := make([]optionRow, len(opts))
+	for i, o := range opts {
+		rows[i] = optionRow{key: o.key, label: o.label}
+	}
+	return rows
+}
+
 // permissionPrompt is the modal approval surface (replaces the input while open).
 // Diff/command payloads live on the active transcript tool row (Message.Out /
 // label), not in this panel. Decisions go through turnSession.reply (harness-owned).
 type permissionPrompt struct {
-	label    string
-	name     string
-	path     string
-	selected int // index into options()
+	label string
+	name  string
+	path  string
+	list  optionList
 }
 
-func (p *permissionPrompt) options() []permOption {
-	if p == nil {
-		return nil
-	}
-	return permOptionsFor(p.name)
+func newPermissionPrompt(label, name, path string) *permissionPrompt {
+	p := &permissionPrompt{label: label, name: name, path: path}
+	p.list.setRows(permOptionRows(name))
+	return p
 }
 
-// sendDecision delivers allow/deny to the agent. Non-blocking: on cancel the
+// sendReply delivers a harness decision to the agent. Non-blocking: on cancel the
 // agent may already have taken ctx.Done() and left the buffer free or stale.
-func (m *Model) sendDecision(d permission.Decision) {
+func (m *Model) sendReply(r agent.Reply) {
 	if m.turn != nil && m.turn.reply != nil {
 		select {
-		case m.turn.reply <- d != permission.Deny:
+		case m.turn.reply <- r:
 		default:
 		}
 	}
 }
 
 func (m *Model) decidePermission(d permission.Decision) {
-	if m.perm == nil {
+	if m.bottom.perm == nil {
 		return
 	}
 	if d == permission.AllowSession {
-		m.grants.Grant(m.perm.name)
+		m.grants.Grant(m.bottom.perm.name)
 	}
-	m.sendDecision(d)
-	m.perm = nil
-	if m.ready {
-		m.layoutPreservingBottom()
+	if d == permission.Deny {
+		m.sendReply(agent.DenyTool())
+	} else {
+		m.sendReply(agent.RunTool())
 	}
+	m.bottom.clear()
+	m.afterSetBottom()
 }
 
 // abandonPermission sends Deny so the agent unblocks on the same path as a
 // user deny, then clears the prompt. Used when the turn is cancelled.
 func (m *Model) abandonPermission() {
-	if m.perm == nil {
+	if m.bottom.perm == nil {
 		return
 	}
 	m.decidePermission(permission.Deny)
 }
 
 // handlePermissionKey consumes nav / a/s/d / enter while the prompt is open.
-// Other keys are swallowed so the approval UI can't leak into overlays/input.
-// Esc returns false so Update's interrupt path still runs.
-func (m *Model) handlePermissionKey(msg tea.KeyPressMsg) bool {
-	if m.perm == nil {
-		return false
+// Esc returns handled=false so Update's interrupt path still runs.
+func (m *Model) handlePermissionKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
+	p := m.bottom.perm
+	if p == nil {
+		return nil, false
 	}
-	opts := m.perm.options()
-	switch msg.String() {
-	case "esc":
-		return false
-	case "up", "ctrl+p":
-		if m.perm.selected > 0 {
-			m.perm.selected--
-		}
-	case "down", "ctrl+n":
-		if m.perm.selected < len(opts)-1 {
-			m.perm.selected++
-		}
-	case "enter":
-		i := m.perm.selected
-		if i < 0 || i >= len(opts) {
-			i = 0
-		}
-		m.decidePermission(opts[i].decide)
-	default:
-		for _, opt := range opts {
-			if msg.String() == opt.key {
-				m.decidePermission(opt.decide)
-				return true
-			}
+	idx, chose, handled := p.list.handleKey(msg)
+	if !handled {
+		return nil, false
+	}
+	if chose {
+		opts := permOptionsFor(p.name)
+		if idx >= 0 && idx < len(opts) {
+			m.decidePermission(opts[idx].decide)
 		}
 	}
-	return true
+	return nil, true
 }
 
 // handlePermissionClick selects an option under the cursor on left-click.
-func (m *Model) handlePermissionClick(msg tea.MouseClickMsg) bool {
-	if m.perm == nil || msg.Button != tea.MouseLeft {
-		return false
+func (m *Model) handlePermissionClick(msg tea.MouseClickMsg) (tea.Cmd, bool) {
+	p := m.bottom.perm
+	if p == nil || msg.Button != tea.MouseLeft {
+		return nil, false
 	}
-	if i := m.permissionOptionAt(msg.X, msg.Y); i >= 0 {
-		opts := m.perm.options()
-		if i < len(opts) {
-			m.decidePermission(opts[i].decide)
-			return true
-		}
+	titleH := m.permissionTitleH()
+	idx, chose := p.list.handleClick(msg.X, msg.Y, m.viewport.Height(), m.width, titleH)
+	if !chose {
+		return nil, false
 	}
-	return false
+	opts := permOptionsFor(p.name)
+	if idx >= 0 && idx < len(opts) {
+		m.decidePermission(opts[idx].decide)
+		return nil, true
+	}
+	return nil, false
 }
 
 // handlePermissionMotion highlights the option under the cursor.
 func (m *Model) handlePermissionMotion(msg tea.MouseMotionMsg) bool {
-	if m.perm == nil {
+	p := m.bottom.perm
+	if p == nil {
 		return false
 	}
-	if i := m.permissionOptionAt(msg.X, msg.Y); i >= 0 {
-		m.perm.selected = i
-		return true
-	}
-	return false
+	return p.list.handleMotion(msg.X, msg.Y, m.viewport.Height(), m.width, m.permissionTitleH())
+}
+
+func (m Model) permissionTitleH() int {
+	_, contentW := overlayWidths(m.width)
+	ink := m.chrome.OverlayInk()
+	return lipgloss.Height(m.renderPermissionTitle(contentW, ink))
 }
 
 // permissionOptionAt returns the option index at terminal (x,y), or -1.
+// Used by tests.
 func (m Model) permissionOptionAt(x, y int) int {
-	if m.perm == nil || m.width < 1 {
+	if m.bottom.perm == nil {
 		return -1
 	}
-	if x < styles.InputMarginH || x >= m.width-styles.InputMarginH {
-		return -1
-	}
-	_, contentW := overlayWidths(m.width)
-	ink := m.chrome.OverlayInk()
-	// blank spacer + OverlayPanel top pad; gap starts right after the transcript.
-	rel := y - m.viewport.Height() - 1 - 1
-	titleH := lipgloss.Height(m.renderPermissionTitle(contentW, ink))
-	idx := rel - titleH
-	opts := m.perm.options()
-	if idx < 0 || idx >= len(opts) {
-		return -1
-	}
-	return idx
+	return optionIndexAt(x, y, m.viewport.Height(), m.width, m.permissionTitleH(), m.bottom.perm.list.n())
 }
 
 func (m Model) renderPermission(width int) string {
-	if m.perm == nil {
+	p := m.bottom.perm
+	if p == nil {
 		return ""
 	}
-	innerW, contentW := overlayWidths(width)
+	_, contentW := overlayWidths(width)
 	ink := m.chrome.OverlayInk()
-	opts := m.perm.options()
 
-	var b strings.Builder
-	b.WriteString(m.renderPermissionTitle(contentW, ink))
-
-	sel := m.perm.selected
-	if sel < 0 || sel >= len(opts) {
-		sel = 0
-	}
-	for i, opt := range opts {
-		b.WriteByte('\n')
-		label := "[" + opt.key + "] " + opt.label
-		b.WriteString(formatAccentRow(label, "", contentW, i == sel, false, ink))
-	}
-
-	panel := lipgloss.NewStyle().
-		Margin(0, styles.InputMarginH, styles.InputMarginB, styles.InputMarginH).
-		Render(m.chrome.OverlayPanel().
-			Padding(1, styles.OverlayPadRight, 1, 0).
-			Width(innerW).
-			Render(b.String()))
-	// One blank row above the approval prompt (matches busy-status breathing room).
-	return lipgloss.JoinVertical(lipgloss.Left, "", panel)
+	body := m.renderPermissionTitle(contentW, ink) + p.list.render(contentW, ink)
+	return renderBottomPanel(m.chrome, width, body)
 }
 
 func (m Model) renderPermissionTitle(contentW int, ink styles.OverlayInk) string {
-	inner := contentW - permissionGutter
+	inner := contentW - panelGutter
 	if inner < 1 {
 		inner = 1
 	}
-	p := m.perm
+	p := m.bottom.perm
 	if p == nil {
 		return ""
 	}
@@ -219,7 +184,7 @@ func (m Model) renderPermissionTitle(contentW int, ink styles.OverlayInk) string
 		if title == "" {
 			title = "Allow " + p.name + "?"
 		}
-		return padPermission(ink.Header.Width(inner).Render(title), permissionGutter)
+		return padPanel(ink.Header.Width(inner).Render(title), panelGutter)
 	}
 	var line string
 	switch c {
@@ -238,17 +203,5 @@ func (m Model) renderPermissionTitle(contentW int, ink styles.OverlayInk) string
 			line = ink.Header.Render(strings.TrimSpace(verb) + " file")
 		}
 	}
-	return padPermission(ink.Gap.Width(inner).Render(line), permissionGutter)
-}
-
-func padPermission(s string, pad int) string {
-	if pad <= 0 || s == "" {
-		return s
-	}
-	prefix := strings.Repeat(" ", pad)
-	lines := strings.Split(s, "\n")
-	for i, line := range lines {
-		lines[i] = prefix + line
-	}
-	return strings.Join(lines, "\n")
+	return padPanel(ink.Gap.Width(inner).Render(line), panelGutter)
 }

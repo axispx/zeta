@@ -1,0 +1,59 @@
+package tui
+
+import (
+	"testing"
+
+	"github.com/axispx/zeta/internal/permission"
+	"github.com/axispx/zeta/internal/tools"
+)
+
+func TestWaitFor(t *testing.T) {
+	var grants permission.Session
+
+	if g := waitFor(tools.AskUser, &grants); g != waitInteractive {
+		t.Fatalf("ask_user: %v", g)
+	}
+	if g := waitFor("bash", &grants); g != waitPermission {
+		t.Fatalf("bash ungated: %v", g)
+	}
+	if g := waitFor("edit", &grants); g != waitPermission {
+		t.Fatalf("edit: %v", g)
+	}
+	if g := waitFor("read", &grants); g != waitNone {
+		t.Fatalf("read: %v", g)
+	}
+
+	grants.Grant("bash")
+	if g := waitFor("bash", &grants); g != waitNone {
+		t.Fatalf("bash session-granted: %v", g)
+	}
+	// edit never session-grantable
+	grants.Grant("edit")
+	if g := waitFor("edit", &grants); g != waitPermission {
+		t.Fatalf("edit still waits: %v", g)
+	}
+	// interactive wins even if somehow permission would also apply
+	if g := waitFor(tools.AskUser, &grants); g != waitInteractive {
+		t.Fatalf("interactive priority: %v", g)
+	}
+}
+
+func TestBottomSlotExclusive(t *testing.T) {
+	var b bottomSlot
+	b.setPerm(&permissionPrompt{name: "bash"})
+	if b.perm == nil || b.ask != nil || b.plan != nil {
+		t.Fatalf("setPerm: %+v", b)
+	}
+	b.setAsk(newAskPrompt(sampleAskArgs()))
+	if b.ask == nil || b.perm != nil || b.plan != nil {
+		t.Fatalf("setAsk clears perm: %+v", b)
+	}
+	b.setPlan(&planPrompt{body: "x", title: "T"})
+	if b.plan == nil || b.ask != nil || b.perm != nil {
+		t.Fatalf("setPlan clears ask: %+v", b)
+	}
+	b.clear()
+	if b.blocked() {
+		t.Fatal("clear")
+	}
+}

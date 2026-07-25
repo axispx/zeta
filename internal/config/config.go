@@ -15,6 +15,13 @@ import (
 type Config struct {
 	Active    string              `json:"active"` // provider/model eg: openai/gpt-5.6-luna
 	Providers map[string]Provider `json:"providers"`
+	// Defaults remembers preferred models (e.g. small build after plan approve).
+	Defaults ModeDefaults `json:"defaults,omitempty"`
+}
+
+// ModeDefaults holds optional preferred model ids (provider/model).
+type ModeDefaults struct {
+	Build string `json:"build,omitempty"`
 }
 
 // OAuthCredential stores OAuth 2.0 tokens for a provider.
@@ -344,4 +351,32 @@ func (c Config) ContextWindow() int {
 // SetActive sets the active model as provider_id/model_id.
 func (c *Config) SetActive(id string) {
 	c.Active = id
+}
+
+// PreferredBuildModel returns defaults.build when it resolves to an enabled
+// model, otherwise the current Active id (may be empty).
+func (c Config) PreferredBuildModel() string {
+	if id := strings.TrimSpace(c.Defaults.Build); id != "" && c.modelEnabled(id) {
+		return id
+	}
+	return strings.TrimSpace(c.Active)
+}
+
+// SetBuildDefault remembers id as the preferred build model (in memory).
+// Caller should Save when persistence is needed.
+func (c *Config) SetBuildDefault(id string) {
+	c.Defaults.Build = strings.TrimSpace(id)
+}
+
+func (c Config) modelEnabled(id string) bool {
+	provider, model, err := ParseModelID(id)
+	if err != nil {
+		return false
+	}
+	p, ok := c.Providers[provider]
+	if !ok {
+		return false
+	}
+	m, ok := p.Models[model]
+	return ok && m.Enabled()
 }

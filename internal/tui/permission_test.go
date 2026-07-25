@@ -13,58 +13,58 @@ import (
 )
 
 func TestHandlePermissionKey(t *testing.T) {
-	replies := make(chan bool, 1)
+	replies := make(chan agent.Reply, 1)
 	m := Model{
 		grants: &permission.Session{},
-		perm:   &permissionPrompt{name: "bash", label: "bash echo"},
+		bottom: bottomSlot{perm: newPermissionPrompt("bash echo", "bash", "")},
 		turn:   &turnSession{reply: replies, activeTool: -1, cancel: func() {}},
 	}
-	if !m.handlePermissionKey(tea.KeyPressMsg{Code: 'a', Text: "a"}) {
+	if _, ok := m.handlePermissionKey(tea.KeyPressMsg{Code: 'a', Text: "a"}); !ok {
 		t.Fatal("expected handled")
 	}
-	if m.perm != nil {
+	if m.bottom.perm != nil {
 		t.Fatal("perm should clear")
 	}
-	if allow := <-replies; !allow {
+	if allow := <-replies; allow.Kind == agent.ReplyDeny {
 		t.Fatal("want allow")
 	}
 
-	replies = make(chan bool, 1)
-	m.perm = &permissionPrompt{name: "bash"}
+	replies = make(chan agent.Reply, 1)
+	m.bottom.perm = newPermissionPrompt("", "bash", "")
 	m.turn.reply = replies
-	if !m.handlePermissionKey(tea.KeyPressMsg{Code: 's', Text: "s"}) {
+	if _, ok := m.handlePermissionKey(tea.KeyPressMsg{Code: 's', Text: "s"}); !ok {
 		t.Fatal("expected s handled")
 	}
 	if !m.grants.Granted("bash") {
 		t.Fatal("session grant should stick on harness")
 	}
-	if allow := <-replies; !allow {
+	if allow := <-replies; allow.Kind == agent.ReplyDeny {
 		t.Fatal("want allow")
 	}
 
-	replies = make(chan bool, 1)
-	m.perm = &permissionPrompt{name: "bash"}
+	replies = make(chan agent.Reply, 1)
+	m.bottom.perm = newPermissionPrompt("", "bash", "")
 	m.turn.reply = replies
-	if !m.handlePermissionKey(tea.KeyPressMsg{Code: 'd', Text: "d"}) {
+	if _, ok := m.handlePermissionKey(tea.KeyPressMsg{Code: 'd', Text: "d"}); !ok {
 		t.Fatal("expected d handled")
 	}
-	if allow := <-replies; allow {
+	if allow := <-replies; allow.Kind != agent.ReplyDeny {
 		t.Fatal("want deny")
 	}
 }
 
 func TestHandlePermissionKeyEditNoSession(t *testing.T) {
-	replies := make(chan bool, 1)
+	replies := make(chan agent.Reply, 1)
 	m := Model{
 		grants: &permission.Session{},
-		perm:   &permissionPrompt{name: "edit", path: "a.go"},
+		bottom: bottomSlot{perm: newPermissionPrompt("", "edit", "a.go")},
 		turn:   &turnSession{reply: replies, activeTool: -1, cancel: func() {}},
 	}
 	// [s] is not an option for edit — swallowed, no decision.
-	if !m.handlePermissionKey(tea.KeyPressMsg{Code: 's', Text: "s"}) {
+	if _, ok := m.handlePermissionKey(tea.KeyPressMsg{Code: 's', Text: "s"}); !ok {
 		t.Fatal("unknown key still consumed")
 	}
-	if m.perm == nil {
+	if m.bottom.perm == nil {
 		t.Fatal("perm should remain")
 	}
 	if m.grants.Granted("edit") {
@@ -76,10 +76,10 @@ func TestHandlePermissionKeyEditNoSession(t *testing.T) {
 	default:
 	}
 
-	if !m.handlePermissionKey(tea.KeyPressMsg{Code: 'a', Text: "a"}) {
+	if _, ok := m.handlePermissionKey(tea.KeyPressMsg{Code: 'a', Text: "a"}); !ok {
 		t.Fatal("a")
 	}
-	if allow := <-replies; !allow {
+	if allow := <-replies; allow.Kind == agent.ReplyDeny {
 		t.Fatal("want allow")
 	}
 	if m.grants.Granted("edit") || m.grants.Granted("write") {
@@ -89,56 +89,57 @@ func TestHandlePermissionKeyEditNoSession(t *testing.T) {
 
 func TestHandlePermissionKeyNavEnter(t *testing.T) {
 	// edit has Allow / Deny (2 options)
-	replies := make(chan bool, 1)
+	replies := make(chan agent.Reply, 1)
 	m := Model{
 		grants: &permission.Session{},
-		perm:   &permissionPrompt{name: "edit", selected: 0},
+		bottom: bottomSlot{perm: newPermissionPrompt("", "edit", "")},
 		turn:   &turnSession{reply: replies, activeTool: -1, cancel: func() {}},
 	}
-	if !m.handlePermissionKey(tea.KeyPressMsg{Text: "down"}) {
+	if _, ok := m.handlePermissionKey(tea.KeyPressMsg{Text: "down"}); !ok {
 		t.Fatal("down")
 	}
-	if m.perm.selected != 1 {
-		t.Fatalf("selected=%d", m.perm.selected)
+	if m.bottom.perm.list.selected != 1 {
+		t.Fatalf("selected=%d", m.bottom.perm.list.selected)
 	}
-	if !m.handlePermissionKey(tea.KeyPressMsg{Code: tea.KeyEnter, Text: "enter"}) {
+	if _, ok := m.handlePermissionKey(tea.KeyPressMsg{Code: tea.KeyEnter, Text: "enter"}); !ok {
 		t.Fatal("enter")
 	}
-	if allow := <-replies; allow {
+	if allow := <-replies; allow.Kind != agent.ReplyDeny {
 		t.Fatal("want deny from selection")
 	}
 
-	replies = make(chan bool, 1)
-	m.perm = &permissionPrompt{name: "edit", selected: 1}
+	replies = make(chan agent.Reply, 1)
+	m.bottom.perm = newPermissionPrompt("", "edit", "")
+	m.bottom.perm.list.selected = 1
 	m.turn.reply = replies
-	if !m.handlePermissionKey(tea.KeyPressMsg{Text: "up"}) {
+	if _, ok := m.handlePermissionKey(tea.KeyPressMsg{Text: "up"}); !ok {
 		t.Fatal("up")
 	}
-	if m.perm.selected != 0 {
-		t.Fatalf("selected=%d", m.perm.selected)
+	if m.bottom.perm.list.selected != 0 {
+		t.Fatalf("selected=%d", m.bottom.perm.list.selected)
 	}
-	if !m.handlePermissionKey(tea.KeyPressMsg{Code: tea.KeyEnter, Text: "enter"}) {
+	if _, ok := m.handlePermissionKey(tea.KeyPressMsg{Code: tea.KeyEnter, Text: "enter"}); !ok {
 		t.Fatal("enter allow")
 	}
-	if allow := <-replies; !allow {
+	if allow := <-replies; allow.Kind == agent.ReplyDeny {
 		t.Fatal("want allow from selection")
 	}
 }
 
 func TestHandlePermissionKeyIdle(t *testing.T) {
 	m := Model{}
-	if m.handlePermissionKey(tea.KeyPressMsg{Code: 'a', Text: "a"}) {
+	if _, ok := m.handlePermissionKey(tea.KeyPressMsg{Code: 'a', Text: "a"}); ok {
 		t.Fatal("should not handle when idle")
 	}
 }
 
 func TestGapHeightWithPermission(t *testing.T) {
-	m := Model{width: 80, perm: &permissionPrompt{name: "bash"}}
+	m := Model{width: 80, bottom: bottomSlot{perm: newPermissionPrompt("", "bash", "")}}
 	// blank + panel pad + title + 3 options (bash)
 	if h := m.gapHeight(); h < 5 {
 		t.Fatalf("gapHeight=%d, want padded options panel", h)
 	}
-	m.perm = &permissionPrompt{name: "edit"}
+	m.bottom.perm = newPermissionPrompt("", "edit", "")
 	// blank + panel pad + title + 2 options (edit)
 	if h := m.gapHeight(); h < 4 {
 		t.Fatalf("edit gapHeight=%d", h)
@@ -149,10 +150,10 @@ func TestPermissionHidesInput(t *testing.T) {
 	m := testModel()
 	m.width = 80
 	m.height = 24
-	m.perm = &permissionPrompt{name: "bash", label: "bash echo"}
+	m.bottom.perm = newPermissionPrompt("bash echo", "bash", "")
 	m.layout()
 	hAsk := m.viewport.Height()
-	m.perm = nil
+	m.bottom.perm = nil
 	m.layout()
 	hIdle := m.viewport.Height()
 	if hAsk <= hIdle {
@@ -163,12 +164,8 @@ func TestPermissionHidesInput(t *testing.T) {
 func TestRenderPermissionVertical(t *testing.T) {
 	m := Model{
 		width: 80,
-		perm: &permissionPrompt{
-			name:     "edit",
-			label:    "create ashish.md",
-			path:     "ashish.md",
-			selected: 1,
-		},
+		bottom: bottomSlot{
+			perm: newPermissionPrompt("create ashish.md", "edit", "ashish.md")},
 	}
 	out := stripANSI(m.renderPermission(80))
 	if !strings.Contains(out, "Edit ashish.md") {
@@ -193,10 +190,8 @@ func TestRenderPermissionVertical(t *testing.T) {
 func TestRenderPermissionBashOptions(t *testing.T) {
 	m := Model{
 		width: 80,
-		perm: &permissionPrompt{
-			name:  "bash",
-			label: "bash go test",
-		},
+		bottom: bottomSlot{
+			perm: newPermissionPrompt("bash go test", "bash", "")},
 	}
 	out := stripANSI(m.renderPermission(80))
 	for _, want := range []string{"Allow once", "Allow for session", "Deny"} {
@@ -209,11 +204,8 @@ func TestRenderPermissionBashOptions(t *testing.T) {
 func TestRenderPermissionWrite(t *testing.T) {
 	m := Model{
 		width: 80,
-		perm: &permissionPrompt{
-			name:  "write",
-			label: "write a.txt",
-			path:  "a.txt",
-		},
+		bottom: bottomSlot{
+			perm: newPermissionPrompt("write a.txt", "write", "a.txt")},
 	}
 	out := stripANSI(m.renderPermission(80))
 	if !strings.Contains(out, "Write a.txt") {
@@ -227,10 +219,8 @@ func TestRenderPermissionWrite(t *testing.T) {
 func TestRenderPermissionBash(t *testing.T) {
 	m := Model{
 		width: 80,
-		perm: &permissionPrompt{
-			name:  "bash",
-			label: "bash go test",
-		},
+		bottom: bottomSlot{
+			perm: newPermissionPrompt("bash go test", "bash", "")},
 	}
 	out := stripANSI(m.renderPermission(80))
 	if !strings.Contains(out, "Run this ") || !strings.Contains(out, "bash") || !strings.Contains(out, " command?") {
@@ -243,7 +233,7 @@ func TestRenderPermissionBash(t *testing.T) {
 
 func TestSideEffectToolStartOpensApproval(t *testing.T) {
 	diff := "--- a.txt\n+++ a.txt\n@@ -0,0 +1 @@\n+hi\n"
-	replies := make(chan bool, 1)
+	replies := make(chan agent.Reply, 1)
 	m := testModel()
 	m.width = 80
 	m.height = 24
@@ -265,8 +255,8 @@ func TestSideEffectToolStartOpensApproval(t *testing.T) {
 	if strings.TrimSpace(m.messages[0].Out) != strings.TrimSpace(diff) {
 		t.Fatalf("preview should land on tool Out: %q", m.messages[0].Out)
 	}
-	if m.perm == nil || m.perm.name != "edit" || m.perm.path != "a.txt" {
-		t.Fatalf("perm: %+v", m.perm)
+	if m.bottom.perm == nil || m.bottom.perm.name != "edit" || m.bottom.perm.path != "a.txt" {
+		t.Fatalf("perm: %+v", m.bottom.perm)
 	}
 	out := stripANSI(m.renderPermission(80))
 	if strings.Contains(out, "+hi") || strings.Contains(out, "+ hi") {
@@ -290,7 +280,7 @@ func TestSideEffectToolStartOpensApproval(t *testing.T) {
 }
 
 func TestReadToolStartNoDecision(t *testing.T) {
-	replies := make(chan bool, 1)
+	replies := make(chan agent.Reply, 1)
 	m := testModel()
 	m.turn = &turnSession{
 		activeTool: -1,
@@ -299,7 +289,7 @@ func TestReadToolStartNoDecision(t *testing.T) {
 		cancel:     func() {},
 	}
 	_ = m.handleTurnToolStart(turnToolStartMsg{name: "read", label: "read a.go"})
-	if m.perm != nil {
+	if m.bottom.perm != nil {
 		t.Fatal("read should not open modal")
 	}
 	select {
@@ -315,9 +305,8 @@ func TestPermissionOptionAt(t *testing.T) {
 	m := Model{
 		width:    80,
 		viewport: vp,
-		perm: &permissionPrompt{
-			name: "bash",
-		},
+		bottom: bottomSlot{
+			perm: newPermissionPrompt("", "bash", "")},
 	}
 	// gap starts at y=10; blank spacer + panel pad → content at 12.
 	// title=12, options 13/14/15 (Allow once / Allow for session / Deny)
@@ -338,7 +327,7 @@ func TestPermissionOptionAt(t *testing.T) {
 	}
 
 	// edit has only 2 options
-	m.perm = &permissionPrompt{name: "edit"}
+	m.bottom.perm = newPermissionPrompt("", "edit", "")
 	if i := m.permissionOptionAt(2, 14); i != 1 {
 		t.Fatalf("edit deny: got %d", i)
 	}
@@ -350,19 +339,19 @@ func TestPermissionOptionAt(t *testing.T) {
 func TestHandlePermissionClick(t *testing.T) {
 	vp := viewport.New()
 	vp.SetHeight(10)
-	replies := make(chan bool, 1)
+	replies := make(chan agent.Reply, 1)
 	m := Model{
 		width:    80,
 		viewport: vp,
 		grants:   &permission.Session{},
-		perm:     &permissionPrompt{name: "bash"},
+		bottom:   bottomSlot{perm: newPermissionPrompt("", "bash", "")},
 		turn:     &turnSession{reply: replies, activeTool: -1, cancel: func() {}},
 	}
 	// y=15 is Deny for bash (3 options)
-	if !m.handlePermissionClick(tea.MouseClickMsg{X: 2, Y: 15, Button: tea.MouseLeft}) {
+	if _, ok := m.handlePermissionClick(tea.MouseClickMsg{X: 2, Y: 15, Button: tea.MouseLeft}); !ok {
 		t.Fatal("expected click handled")
 	}
-	if allow := <-replies; allow {
+	if allow := <-replies; allow.Kind != agent.ReplyDeny {
 		t.Fatal("want deny")
 	}
 }
@@ -396,7 +385,7 @@ func TestRenderDeniedEdit(t *testing.T) {
 }
 
 func TestSessionGrantSkipsPrompt(t *testing.T) {
-	replies := make(chan bool, 1)
+	replies := make(chan agent.Reply, 1)
 	m := testModel()
 	m.grants.Grant("bash")
 	m.turn = &turnSession{
@@ -406,7 +395,7 @@ func TestSessionGrantSkipsPrompt(t *testing.T) {
 		cancel:     func() {},
 	}
 	_ = m.handleTurnToolStart(turnToolStartMsg{name: "bash", label: "bash echo"})
-	if m.perm != nil {
+	if m.bottom.perm != nil {
 		t.Fatal("should not open modal when granted")
 	}
 	select {
@@ -417,7 +406,7 @@ func TestSessionGrantSkipsPrompt(t *testing.T) {
 }
 
 func TestEditAlwaysPromptsEvenAfterBashGrant(t *testing.T) {
-	replies := make(chan bool, 1)
+	replies := make(chan agent.Reply, 1)
 	m := testModel()
 	m.grants.Grant("bash")
 	m.turn = &turnSession{
@@ -427,8 +416,8 @@ func TestEditAlwaysPromptsEvenAfterBashGrant(t *testing.T) {
 		cancel:     func() {},
 	}
 	_ = m.handleTurnToolStart(turnToolStartMsg{name: "edit", label: "edit a.go", path: "a.go"})
-	if m.perm == nil || m.perm.name != "edit" {
-		t.Fatalf("edit must still prompt: %+v", m.perm)
+	if m.bottom.perm == nil || m.bottom.perm.name != "edit" {
+		t.Fatalf("edit must still prompt: %+v", m.bottom.perm)
 	}
 	select {
 	case <-replies:
@@ -450,7 +439,7 @@ func TestActiveGrantsSurviveMode(t *testing.T) {
 }
 
 func TestReadToolStartSkipsPrompt(t *testing.T) {
-	replies := make(chan bool, 1)
+	replies := make(chan agent.Reply, 1)
 	m := testModel()
 	m.turn = &turnSession{
 		activeTool: -1,
@@ -459,7 +448,7 @@ func TestReadToolStartSkipsPrompt(t *testing.T) {
 		cancel:     func() {},
 	}
 	_ = m.handleTurnToolStart(turnToolStartMsg{name: "read", label: "read a.go"})
-	if m.perm != nil {
+	if m.bottom.perm != nil {
 		t.Fatal("read should not open approval")
 	}
 	select {
@@ -470,16 +459,16 @@ func TestReadToolStartSkipsPrompt(t *testing.T) {
 }
 
 func TestHandlePermissionKeySwallowsUnknown(t *testing.T) {
-	replies := make(chan bool, 1)
+	replies := make(chan agent.Reply, 1)
 	m := Model{
 		grants: &permission.Session{},
-		perm:   &permissionPrompt{name: "bash"},
+		bottom: bottomSlot{perm: newPermissionPrompt("", "bash", "")},
 		turn:   &turnSession{reply: replies, activeTool: -1, cancel: func() {}},
 	}
-	if !m.handlePermissionKey(tea.KeyPressMsg{Text: "/"}) {
+	if _, ok := m.handlePermissionKey(tea.KeyPressMsg{Text: "/"}); !ok {
 		t.Fatal("unknown keys should be consumed while prompt open")
 	}
-	if m.perm == nil {
+	if m.bottom.perm == nil {
 		t.Fatal("perm should remain")
 	}
 	select {
@@ -487,16 +476,16 @@ func TestHandlePermissionKeySwallowsUnknown(t *testing.T) {
 		t.Fatal("should not decide")
 	default:
 	}
-	if m.handlePermissionKey(tea.KeyPressMsg{Text: "esc"}) {
+	if _, ok := m.handlePermissionKey(tea.KeyPressMsg{Text: "esc"}); ok {
 		t.Fatal("esc must fall through to interrupt")
 	}
 }
 
 func TestFinishTurnDeniesOpenApproval(t *testing.T) {
-	replies := make(chan bool, 1)
+	replies := make(chan agent.Reply, 1)
 	m := testModel()
 	m.messages = []Message{{Role: RoleTool, Text: "edit a.go", Tool: "edit"}}
-	m.perm = &permissionPrompt{name: "edit"}
+	m.bottom.perm = newPermissionPrompt("", "edit", "")
 	m.turn = &turnSession{
 		activeTool: 0,
 		ch:         make(chan agent.Event),
@@ -504,13 +493,13 @@ func TestFinishTurnDeniesOpenApproval(t *testing.T) {
 		cancel:     func() {},
 	}
 	m.finishTurn()
-	if m.perm != nil {
+	if m.bottom.perm != nil {
 		t.Fatal("perm should clear")
 	}
 	if m.messages[0].Status != ToolDenied {
 		t.Fatalf("status=%v want denied", m.messages[0].Status)
 	}
-	if allow := <-replies; allow {
+	if allow := <-replies; allow.Kind != agent.ReplyDeny {
 		t.Fatalf("abandon should deny")
 	}
 }

@@ -18,6 +18,7 @@ const (
 	// KindToolStart is a tool call beginning (Text=label, Name=tool).
 	// Path/Detail carry optional preview for the harness. When Gate asks
 	// for a decision, the agent waits on Replies before running the tool.
+	// Args is the raw tool JSON (used by interactive tools like ask_user).
 	KindToolStart
 	// KindToolOut is live tool output so far (Text=snapshot, Name=tool). May be dropped if the UI is behind.
 	KindToolOut
@@ -46,9 +47,39 @@ type Event struct {
 	Message ai.Message // set for KindAssistant / KindTool
 	Usage   ai.Usage   // set for KindAssistant when the provider reports usage
 	Err     error
-	Path    string // KindToolStart: workspace path when relevant
-	Detail  string // KindToolStart: side-effect preview (diff); empty when unused
-	Denied  bool   // KindTool: rejected by harness deny or cancel
+	Path    string          // KindToolStart: workspace path when relevant
+	Detail  string          // KindToolStart: side-effect preview (diff); empty when unused
+	Args    json.RawMessage // KindToolStart: raw tool arguments
+	Denied  bool            // KindTool: rejected by harness deny or cancel
+}
+
+// ReplyKind is an explicit harness decision after a gated KindToolStart.
+type ReplyKind int
+
+const (
+	// ReplyRun allows the tool and executes Tool.Run (zero value; skip-wait default).
+	ReplyRun ReplyKind = iota
+	// ReplyDeny rejects without running.
+	ReplyDeny
+	// ReplyInject skips Tool.Run and uses Result as the tool output (ask_user answers).
+	ReplyInject
+)
+
+// Reply is one harness decision after a gated KindToolStart.
+type Reply struct {
+	Kind   ReplyKind
+	Result string // only for ReplyInject
+}
+
+// RunTool allows the tool to execute normally.
+func RunTool() Reply { return Reply{Kind: ReplyRun} }
+
+// DenyTool rejects the tool call.
+func DenyTool() Reply { return Reply{Kind: ReplyDeny} }
+
+// InjectResult supplies tool output without calling Tool.Run.
+func InjectResult(result string) Reply {
+	return Reply{Kind: ReplyInject, Result: result}
 }
 
 // Config runs a streaming completion with a tool loop.
@@ -57,9 +88,9 @@ type Config struct {
 	Tools    []tools.Tool
 	Root     string
 	MaxTurns int // <=0 means unlimited
-	// Replies is harness-owned: one allow/deny per gated KindToolStart.
-	// true = proceed, false = reject without running. Nil skips waiting.
-	Replies <-chan bool
+	// Replies is harness-owned: one decision per gated KindToolStart.
+	// Nil skips waiting.
+	Replies <-chan Reply
 	// Gate reports whether the harness must decide before this tool runs.
 	// Nil means never wait. Ignored when Replies is nil.
 	Gate func(name string) bool
@@ -166,19 +197,25 @@ func (c Config) execTool(ctx context.Context, call ai.ToolCall, ev chan<- Event)
 		Name:   call.Name,
 		Path:   tools.ArgPath(args),
 		Detail: tools.Preview(c.Tools, call.Name, c.Root, args),
+		Args:   args,
 	}
-	if err := c.awaitReply(ctx, call.Name); err != nil {
+	reply, err := c.awaitReply(ctx, call.Name)
+	if err != nil {
 		return label, denialResult(call, err.Error()), true
 	}
 
-	ctx = tools.WithProgress(ctx, func(s string) {
-		emitToolOut(ev, call.Name, s)
-	})
 	var out string
-	if !json.Valid(args) {
-		out = "error: invalid JSON arguments"
+	if reply.Kind == ReplyInject {
+		out = reply.Result
 	} else {
-		out = tools.Run(ctx, c.Tools, c.Root, call.Name, args)
+		ctx = tools.WithProgress(ctx, func(s string) {
+			emitToolOut(ev, call.Name, s)
+		})
+		if !json.Valid(args) {
+			out = "error: invalid JSON arguments"
+		} else {
+			out = tools.Run(ctx, c.Tools, c.Root, call.Name, args)
+		}
 	}
 	return label, ai.Message{
 		Role:       ai.RoleTool,
@@ -187,20 +224,21 @@ func (c Config) execTool(ctx context.Context, call ai.ToolCall, ev chan<- Event)
 	}, false
 }
 
-// awaitReply waits for a harness allow/deny when Replies is set and Gate asks.
-// Nil Replies or a false/nil Gate skips the wait. false / cancel reject.
-func (c Config) awaitReply(ctx context.Context, name string) error {
+// awaitReply waits for a harness decision when Replies is set and Gate asks.
+// Nil Replies or a false/nil Gate skips the wait (ReplyRun → execute tool).
+// ReplyDeny / cancel reject.
+func (c Config) awaitReply(ctx context.Context, name string) (Reply, error) {
 	if c.Replies == nil || c.Gate == nil || !c.Gate(name) {
-		return nil
+		return RunTool(), nil
 	}
 	select {
-	case allow := <-c.Replies:
-		if !allow {
-			return fmt.Errorf("the user denied this call")
+	case r := <-c.Replies:
+		if r.Kind == ReplyDeny {
+			return Reply{}, fmt.Errorf("the user denied this call")
 		}
-		return nil
+		return r, nil
 	case <-ctx.Done():
-		return fmt.Errorf("cancelled")
+		return Reply{}, fmt.Errorf("cancelled")
 	}
 }
 

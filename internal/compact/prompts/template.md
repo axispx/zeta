@@ -1,31 +1,26 @@
-Output exactly the Markdown structure shown inside <template> and keep the section order unchanged. Do not include the <template> tags in your response.
-<template>
-## Objective
-- [one or two brief sentences describing what the user is trying to accomplish]
+Reply with only this markdown. Keep every heading, in this order. No outer tags or commentary.
 
-## Important Details
-- [constraints/preferences, decisions and why, important facts/assumptions, or "(none)"]
+## Task
+- [what the user wants finished — 1–2 sentences]
 
-## Work State
-### Completed
-- [finished work, verified facts, or changes made; otherwise "(none)"]
+## Settled
+- [decisions, constraints, prefs that must not be re-opened — or "(none)"]
 
-### Active
-- [current work, partial changes, or investigation state; otherwise "(none)"]
+## Facts
+- [confirmed paths, APIs, errors, test/command results worth keeping — or "(none)"]
 
-### Blocked
-- [blockers, failing commands, or unknowns; otherwise "(none)"]
+## Still open
+- [incomplete work, blockers, unanswered questions — or "(none)"]
 
-## Next Move
-1. [immediate concrete action, or "(none)"]
-2. [next action if known, or "(none)"]
+## Resume with
+1. [next concrete step for the continuing agent — or "(none)"]
+2. [optional second step — or "(none)"]
 
-## Relevant Files
-- [file or directory path: why it matters, or "(none)"]
-</template>
+## Paths
+- [`path` — why it matters — or "(none)"]
 
 Rules:
-- Keep every section, even when empty.
-- Use terse bullets, not prose paragraphs.
-- Preserve exact file paths, symbols, commands, error strings, URLs, and identifiers when known.
-- Do not mention the summary process or that context was compacted.
+- Empty sections still appear; use "(none)" for empty bullets/steps.
+- Bullets over paragraphs.
+- Copy paths, symbols, commands, errors, and URLs exactly when known.
+- No meta talk about compaction or this layout.

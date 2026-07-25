@@ -35,14 +35,12 @@ func (m Model) turnStatusLine() string {
 	return lipgloss.JoinVertical(lipgloss.Left, "", status, "")
 }
 
-// gapContent is the gap slot between transcript and input: permission panel,
-// command/model overlay, busy status, or empty (layout uses GapBeforeInput).
-// Priority matches historical overlay-over-busy behavior, with permission first.
+// gapContent is the gap slot between transcript and input: bottom panel
+// (permission / ask / plan), command/model overlay, busy status, or empty.
+// Priority: bottom panel → overlay → busy.
 func (m Model) gapContent() string {
-	if m.perm != nil {
-		if p := m.renderPermission(m.width); p != "" {
-			return p
-		}
+	if p := m.renderBottom(m.width); p != "" {
+		return p
 	}
 	if ov := m.renderOverlay(m.width); ov != "" {
 		return ov

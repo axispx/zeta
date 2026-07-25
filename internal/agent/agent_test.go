@@ -26,7 +26,7 @@ func TestEmitToolOutNonBlocking(t *testing.T) {
 func alwaysGate(string) bool { return true }
 
 func TestExecToolGateDeny(t *testing.T) {
-	replies := make(chan bool, 1)
+	replies := make(chan Reply, 1)
 	c := Config{Tools: tools.Build(), Root: t.TempDir(), Replies: replies, Gate: alwaysGate}
 	ev := make(chan Event, 4)
 	go replyStart(t, ev, replies, false)
@@ -40,14 +40,14 @@ func TestExecToolGateDeny(t *testing.T) {
 }
 
 func TestExecToolGatePathDetail(t *testing.T) {
-	replies := make(chan bool, 1)
+	replies := make(chan Reply, 1)
 	c := Config{Tools: tools.Build(), Root: t.TempDir(), Replies: replies, Gate: alwaysGate}
 	ev := make(chan Event, 4)
 	got := make(chan Event, 1)
 	go func() {
 		start := recvStart(t, ev)
 		got <- start
-		replies <- false
+		replies <- DenyTool()
 	}()
 
 	_, _, _ = c.execTool(t.Context(), ai.ToolCall{
@@ -60,7 +60,7 @@ func TestExecToolGatePathDetail(t *testing.T) {
 }
 
 func TestExecToolGateAllow(t *testing.T) {
-	replies := make(chan bool, 1)
+	replies := make(chan Reply, 1)
 	c := Config{Tools: tools.Build(), Root: t.TempDir(), Replies: replies, Gate: alwaysGate}
 	ev := make(chan Event, 8)
 	go replyStart(t, ev, replies, true)
@@ -73,7 +73,7 @@ func TestExecToolGateAllow(t *testing.T) {
 }
 
 func TestExecToolGateCancelled(t *testing.T) {
-	replies := make(chan bool) // unbuffered; leave unanswered
+	replies := make(chan Reply) // unbuffered; leave unanswered
 	ctx, cancel := context.WithCancel(t.Context())
 	c := Config{Tools: tools.Build(), Root: t.TempDir(), Replies: replies, Gate: alwaysGate}
 	ev := make(chan Event, 4)
@@ -118,7 +118,7 @@ func TestExecToolNilRepliesRuns(t *testing.T) {
 }
 
 func TestExecToolNilGateRuns(t *testing.T) {
-	replies := make(chan bool, 1)
+	replies := make(chan Reply, 1)
 	c := Config{Tools: tools.Build(), Root: t.TempDir(), Replies: replies}
 	ev := make(chan Event, 4)
 	_, _, denied := c.execTool(t.Context(), ai.ToolCall{
@@ -135,7 +135,7 @@ func TestExecToolNilGateRuns(t *testing.T) {
 }
 
 func TestExecToolGateFalseSkipsWait(t *testing.T) {
-	replies := make(chan bool, 1)
+	replies := make(chan Reply, 1)
 	c := Config{
 		Tools: tools.Build(), Root: t.TempDir(), Replies: replies,
 		Gate: func(string) bool { return false },
@@ -166,10 +166,14 @@ func TestExecToolReadOnlyStarts(t *testing.T) {
 	recvKind(t, ev, KindToolStart)
 }
 
-func replyStart(t *testing.T, ev <-chan Event, replies chan<- bool, allow bool) {
+func replyStart(t *testing.T, ev <-chan Event, replies chan<- Reply, allow bool) {
 	t.Helper()
 	_ = recvStart(t, ev)
-	replies <- allow
+	if allow {
+		replies <- RunTool()
+	} else {
+		replies <- DenyTool()
+	}
 }
 
 func recvStart(t *testing.T, ev <-chan Event) Event {
@@ -195,5 +199,24 @@ func recvKind(t *testing.T, ev <-chan Event, want EventKind) {
 		}
 	case <-time.After(time.Second):
 		t.Fatalf("expected kind %v", want)
+	}
+}
+
+func TestExecToolReplyResult(t *testing.T) {
+	replies := make(chan Reply, 1)
+	c := Config{Tools: tools.Build(), Root: t.TempDir(), Replies: replies, Gate: alwaysGate}
+	ev := make(chan Event, 8)
+	go func() {
+		_ = recvStart(t, ev)
+		replies <- InjectResult(`{"answers":{"q":"yes"}}`)
+	}()
+	_, result, denied := c.execTool(t.Context(), ai.ToolCall{
+		ID: "c1", Name: tools.AskUser, Arguments: `{"questions":[{"id":"q","header":"H","question":"Q?","options":[{"label":"a","description":"a"},{"label":"b","description":"b"}]}]}`,
+	}, ev)
+	if denied {
+		t.Fatalf("denied: %q", result.Text)
+	}
+	if result.Text != `{"answers":{"q":"yes"}}` {
+		t.Fatalf("result=%q", result.Text)
 	}
 }

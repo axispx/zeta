@@ -255,7 +255,9 @@ func (m *Model) applySession(sess *session.Session, recs []session.Record, err e
 	m.titlePending = false
 	m.clearCompactState()
 	m.resetPromptHistory()
-	m.perm = nil
+	m.clearBottom()
+	m.pendingPlan = ""
+	m.overlay.clear()
 	m.grants = &permission.Session{}
 	m.tx.invalidate()
 	m.refreshTranscript()
@@ -550,28 +552,12 @@ func (m Model) renderModelOverlay(width int) string {
 
 	innerW, contentW := overlayWidths(width)
 	ink := m.chrome.OverlayInk()
-
-	listH := modelOverlayMaxRows
-	if len(visible) < listH {
-		listH = len(visible)
-	}
-	start, end := windowAround(m.overlay.selected, len(visible), listH)
-
-	active := m.cfg.Active
-	var b strings.Builder
-	for i, e := range visible[start:end] {
-		if i > 0 {
-			b.WriteByte('\n')
-		}
-		idx := start + i
-		hint := ""
-		if e.ID() == active {
-			hint = "active"
-		}
-		b.WriteString(formatAccentRow(e.Name, hint, contentW, idx == m.overlay.selected, e.ID() == active, ink))
-	}
-
-	return m.paintOverlay(b.String(), innerW)
+	// Drop leading newline from shared list helper (overlay has no header above).
+	body := strings.TrimPrefix(
+		renderModelChoiceList(visible, m.overlay.selected, m.cfg.Active, "active", contentW, modelOverlayMaxRows, ink),
+		"\n",
+	)
+	return m.paintOverlay(body, innerW)
 }
 
 // overlayWidths returns panel total width and content width (excludes right pad).

@@ -127,7 +127,7 @@ func TestPromptHistoryIgnoresCompactCheckpoint(t *testing.T) {
 	// After compaction, API history starts with a synthetic user checkpoint.
 	// Up/down must still walk real user prompts from the UI transcript only.
 	m := histModel()
-	cp := compact.CheckpointMessage("## Objective\n- secret summary blob")
+	cp := compact.CheckpointMessage("## Task\n- secret summary blob")
 	m.history = []ai.Message{
 		cp,
 		{Role: ai.RoleUser, Text: "after compact"},

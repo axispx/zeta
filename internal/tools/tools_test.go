@@ -65,19 +65,30 @@ func TestReadEdit(t *testing.T) {
 	}
 }
 
+func TestInteractive(t *testing.T) {
+	if !Interactive(AskUser) {
+		t.Fatal("ask_user must be interactive")
+	}
+	for _, name := range []string{"read", "bash", "edit", "write"} {
+		if Interactive(name) {
+			t.Fatalf("%s must not be interactive", name)
+		}
+	}
+}
+
 func TestInspect(t *testing.T) {
 	ro := Inspect()
-	if len(ro) != 5 {
+	if len(ro) != 6 {
 		t.Fatalf("inspect len: %d", len(ro))
 	}
-	if len(Build()) != 8 {
+	if len(Build()) != 9 {
 		t.Fatal("expected build tools")
 	}
 	names := map[string]bool{}
 	for _, tool := range ro {
 		names[tool.Name()] = true
 	}
-	if names["bash"] || names["edit"] || names["write"] || !names["read"] || !names["grep"] || !names["glob"] || !names["websearch"] || !names["webfetch"] {
+	if names["bash"] || names["edit"] || names["write"] || !names["read"] || !names["grep"] || !names["glob"] || !names["websearch"] || !names["webfetch"] || !names["ask_user"] {
 		t.Fatalf("inspect names: %v", names)
 	}
 }

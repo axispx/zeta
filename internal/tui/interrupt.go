@@ -4,7 +4,7 @@ package tui
 const turnCancelledText = "Cancelled"
 
 // tryInterrupt cancels the topmost interruptible UI/work state.
-// Order: config → picker → overlays → compact → turn.
+// Order: config → picker → bottom panel → overlays → compact → turn.
 // Returns true when something was interrupted (Ctrl+C should not quit yet).
 func (m *Model) tryInterrupt() bool {
 	switch {
@@ -13,6 +13,8 @@ func (m *Model) tryInterrupt() bool {
 		return true
 	case m.picker.active:
 		m.picker.clear()
+		return true
+	case m.interruptBottom():
 		return true
 	case m.overlay.showing():
 		m.dismissOverlay()
