@@ -8,7 +8,7 @@ func TestSideEffect(t *testing.T) {
 			t.Errorf("%s should be side-effect", name)
 		}
 	}
-	for _, name := range []string{"read", "grep", "glob", "websearch", "webfetch", ""} {
+	for _, name := range []string{"read", "grep", "glob", "websearch", "webfetch", "skill", ""} {
 		if SideEffect(name) {
 			t.Errorf("%s should not be side-effect", name)
 		}

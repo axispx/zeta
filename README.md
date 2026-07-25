@@ -86,13 +86,14 @@ If `Shift+Enter` is remapped (common in iTerm), remove that binding or use `Ctrl
 
 Type `/` for autocomplete.
 
-| Command    | Description                 |
-| ---------- | --------------------------- |
-| `/clear`   | Start a new session         |
-| `/compact` | Summarize older context now |
-| `/resume`  | Open a previous session     |
-| `/model`   | Switch model                |
-| `/config`  | Manage providers and models |
+| Command    | Description                                      |
+| ---------- | ------------------------------------------------ |
+| `/clear`   | Start a new session                              |
+| `/compact` | Summarize older context now                      |
+| `/resume`  | Open a previous session                          |
+| `/model`   | Switch model                                     |
+| `/config`  | Manage providers and models                      |
+| `/review`  | Strict code-quality review of the current branch |
 
 Long sessions compact automatically when context runs low; `/compact` does the same on demand.
 

@@ -25,7 +25,8 @@ internal/ai/         OpenAI-compatible streaming + tools
 internal/agent/      tool loop + permission gate
 internal/permission/ allow | deny for side-effect tools
 internal/compact/    context compaction
-internal/tools/      read / edit / write / grep / glob / bash / websearch / webfetch / ask_user
+internal/tools/      read / edit / write / grep / glob / bash / websearch / webfetch / skill / ask_user
+internal/skill/      bundled playbooks (`skills/*/SKILL.md` via go:embed)
 internal/config/     ~/.zeta/config.json
 internal/models/     models.dev catalog → presets
 internal/session/    JSONL under ~/.zeta/sessions/
@@ -33,6 +34,39 @@ internal/plan/       proposed_plan extract + build seed
 internal/paths/      ZETA_HOME
 internal/styles/     lipgloss tokens + banner
 ```
+
+### Bundled skills
+
+First-party playbooks only (no user/repo skill dirs). Bodies live at
+`internal/skill/skills/<name>/SKILL.md`. Metadata is a Go table in
+`internal/skill/skill.go` (`bundled`):
+
+```go
+//go:embed skills/my-skill/SKILL.md
+var mySkillMD string
+
+// in bundled:
+{
+    Name:        "my-skill",
+    Description: "Use when the user asks to …",
+    Slash:       "/my-skill", // empty = tool-only (no palette entry)
+    Content:     mySkillMD,
+},
+```
+
+Rebuild picks up embeds. Every bundled skill is:
+
+- listed in the system prompt catalog
+- loadable by the model via the `skill` tool (build and ask/plan)
+
+Optional `Slash: "/name"` also registers a palette command. Durable history
+stores the user text (token + optional args); on the invoking turn only,
+`requestMsgs` appends the playbook as a developer message. Args after the
+token stay on the user message. Slash tokens must not collide with harness
+commands — `internal/tui` panics at init if a skill claims `/clear`, `/config`,
+etc.
+
+Bundled today: `review` (`/review` — thermo-nuclear code quality review).
 
 ## Versioning
 

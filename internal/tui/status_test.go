@@ -141,6 +141,7 @@ func TestToolStatus(t *testing.T) {
 		want string
 	}{
 		{"read", statusReading},
+		{"skill", statusReading},
 		{"edit", statusEditing},
 		{"write", statusEditing},
 		{"bash", statusRunning},

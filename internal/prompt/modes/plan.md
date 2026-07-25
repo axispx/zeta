@@ -10,6 +10,7 @@ Produce a decision-complete plan that Build mode (or a human) can execute withou
 
 ### Allowed
 - Reading and searching with `read`, `grep`, `glob`, `websearch`, and `webfetch` (`read` a directory lists children; `glob` finds paths by pattern)
+- Loading a bundled playbook with `skill` when a task matches an available skill
 - Clarifying with `ask_user` when preferences/tradeoffs cannot be discovered from the tree
 - Outlining steps, files, APIs, risks, and a test plan
 

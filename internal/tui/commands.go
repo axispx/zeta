@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -12,6 +13,7 @@ import (
 	"github.com/axispx/zeta/internal/permission"
 	"github.com/axispx/zeta/internal/search"
 	"github.com/axispx/zeta/internal/session"
+	"github.com/axispx/zeta/internal/skill"
 	"github.com/axispx/zeta/internal/styles"
 )
 
@@ -20,12 +22,46 @@ type command struct {
 	desc string
 }
 
-var commands = []command{
+// builtinCommands are harness commands (not skill slash bindings).
+var builtinCommands = []command{
 	{"/clear", "start a new session"},
 	{"/compact", "summarize older context"},
 	{"/resume", "open a previous session"},
 	{"/model", "switch model"},
 	{"/config", "manage providers & models"},
+}
+
+// commands is builtins plus slash-bound bundled skills (init-time, fixed).
+// Harness tokens win: a skill slash that collides with a builtin panics at startup.
+var commands []command
+
+func init() {
+	commands = make([]command, 0, len(builtinCommands)+len(skill.All()))
+	seen := make(map[string]struct{}, len(builtinCommands)+len(skill.All()))
+	for _, c := range builtinCommands {
+		commands = append(commands, c)
+		seen[c.name] = struct{}{}
+	}
+	for _, s := range skill.All() {
+		if s.Slash == "" {
+			continue
+		}
+		if _, clash := seen[s.Slash]; clash {
+			panic(fmt.Sprintf("skill slash %q collides with a harness command", s.Slash))
+		}
+		commands = append(commands, command{name: s.Slash, desc: s.Description})
+		seen[s.Slash] = struct{}{}
+	}
+}
+
+func lookupBuiltin(name string) (command, bool) {
+	name = strings.TrimSpace(name)
+	for _, c := range builtinCommands {
+		if c.name == name {
+			return c, true
+		}
+	}
+	return command{}, false
 }
 
 // listSel is shared selection state for overlays.
@@ -228,6 +264,11 @@ func (m *Model) runCommand(name string) tea.Cmd {
 		m.openModelOverlay()
 	case "/config":
 		return m.openConfigDialog()
+	default:
+		// Palette-selected skill slash (exact token). Args go through submitInput.
+		if _, ok := skill.BySlash(name); ok {
+			return m.submit(name)
+		}
 	}
 	return nil
 }
@@ -377,8 +418,12 @@ func (m *Model) submitInput() tea.Cmd {
 	if text == ":q" { // vim
 		return m.requestQuit()
 	}
+	// Skill slash (exact or with args) → chat turn; playbook injected in requestMsgs.
+	if _, ok := skill.MatchSlash(text); ok {
+		return m.submit(text)
+	}
 	if isSlashToken(text) {
-		if _, ok := lookupCommand(text); ok {
+		if _, ok := lookupBuiltin(text); ok {
 			return m.runCommand(text)
 		}
 		m.resetInput()

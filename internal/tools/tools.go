@@ -30,12 +30,12 @@ func ArgPath(raw json.RawMessage) string {
 
 // Build returns the full tool set (build mode).
 func Build() []Tool {
-	return []Tool{readTool{}, editTool{}, writeTool{}, grepTool{}, globTool{}, bashTool{}, websearchTool{}, webfetchTool{}, askUserTool{}}
+	return []Tool{readTool{}, editTool{}, writeTool{}, grepTool{}, globTool{}, bashTool{}, websearchTool{}, webfetchTool{}, skillTool{}, askUserTool{}}
 }
 
 // Inspect returns ask/plan-safe tools (no edits, no shell).
 func Inspect() []Tool {
-	return []Tool{readTool{}, grepTool{}, globTool{}, websearchTool{}, webfetchTool{}, askUserTool{}}
+	return []Tool{readTool{}, grepTool{}, globTool{}, websearchTool{}, webfetchTool{}, skillTool{}, askUserTool{}}
 }
 
 // Defs converts tools to API function definitions.
