@@ -15,65 +15,55 @@ const (
 
 // Open reports whether text has an unclosed plan block (still streaming).
 func Open(text string) bool {
-	start, openN, kind := lastOpen(text)
-	if start < 0 {
-		return false
-	}
-	rest := text[start+openN:]
-	return !hasClose(rest, kind)
+	_, open := lastSpan(text)
+	return open
 }
 
 // Extract returns the last complete plan body.
 // Accepts <proposed_plan>…</proposed_plan> (preferred) or ```proposed_plan … ```.
 // Body is trimmed; empty or unclosed bodies are not ok.
+//
+// Spans pair first-open → first-close of the same kind (left to right). A body
+// that mentions <proposed_plan> (e.g. in an example) does not start a nested
+// span and cannot steal the real closer. When several complete blocks exist,
+// the last non-empty body wins.
 func Extract(text string) (body string, ok bool) {
-	s := text
-	for {
-		start, openN, kind := lastOpen(s)
-		if start < 0 {
-			return "", false
-		}
-		rest := s[start+openN:]
-		end, _ := findClose(rest, kind)
-		if end < 0 {
-			// Unclosed — try an earlier occurrence.
-			s = s[:start]
-			continue
-		}
-		body = strings.TrimSpace(rest[:end])
-		if body == "" {
-			s = s[:start]
-			continue
-		}
-		return body, true
+	body, open := lastSpan(text)
+	if open || body == "" {
+		return "", false
 	}
+	return body, true
 }
 
 // DisplayParts splits assistant text for transcript rendering.
 // Delimiters are never included in the returned strings. ok is true when a plan
 // block is present (complete, or still open at the end while streaming).
 func DisplayParts(text string) (before, planBody, after string, ok bool) {
-	start, openN, kind := lastOpen(text)
-	if start < 0 {
+	sp, ok := lastDisplaySpan(text)
+	if !ok {
 		return text, "", "", false
 	}
-	before = strings.TrimRight(text[:start], " \t")
+	before = strings.TrimRight(text[:sp.openAt], " \t")
 	before = strings.TrimSuffix(before, "\n")
-	rest := text[start+openN:]
-	rest = strings.TrimPrefix(rest, "\n")
 
-	if end, closeN := findClose(rest, kind); end >= 0 {
-		planBody = strings.TrimSpace(rest[:end])
-		after = strings.TrimPrefix(rest[end+closeN:], "\n")
+	bodyStart := sp.openAt + sp.openN
+	if bodyStart < len(text) && text[bodyStart] == '\n' {
+		bodyStart++
+	} else if bodyStart+1 < len(text) && text[bodyStart] == '\r' && text[bodyStart+1] == '\n' {
+		bodyStart += 2
+	}
+
+	if sp.closed {
+		planBody = strings.TrimSpace(text[bodyStart:sp.closeAt])
+		after = text[sp.closeAt+sp.closeN:]
+		after = strings.TrimPrefix(after, "\n")
 		after = strings.TrimLeft(after, " \t")
 		if planBody == "" {
-			// Empty closed block — fall through as if no plan.
 			return text, "", "", false
 		}
 		return before, planBody, after, true
 	}
-	// Unclosed: treat remainder as live plan body (hide the open delimiter).
-	planBody = strings.TrimRight(rest, " \t\n")
+	planBody = strings.TrimRight(text[bodyStart:], " \t\n")
 	if planBody == "" {
 		return before, "", "", false
 	}
@@ -131,39 +121,126 @@ const (
 	delimFence
 )
 
-// lastOpen finds the last plan open delimiter.
-// Returns start index, open delimiter length (through end of open line for fences),
-// and kind. Fence form: ```proposed_plan at line start.
-func lastOpen(s string) (idx, openN int, kind delimKind) {
-	tagI := strings.LastIndex(s, openTag)
-	fenceI, fenceN := lastFenceOpen(s)
-	switch {
-	case tagI < 0 && fenceI < 0:
-		return -1, 0, 0
-	case tagI > fenceI:
-		return tagI, len(openTag), delimTag
-	default:
-		return fenceI, fenceN, delimFence
-	}
+// span is one open→close (or open→EOF) plan region.
+type span struct {
+	openAt  int
+	openN   int
+	closeAt int
+	closeN  int
+	kind    delimKind
+	closed  bool
+	body    string // trimmed; set when closed, or raw remainder when open
 }
 
-// lastFenceOpen returns the index and full open-line length of the last
-// ```proposed_plan fence (backticks at line start; optional trailing spaces on the line).
-func lastFenceOpen(s string) (idx, openN int) {
+// lastSpan walks left-to-right complete spans. Returns the last non-empty
+// complete body, or the trailing unclosed body with open=true.
+func lastSpan(text string) (body string, open bool) {
+	var lastBody string
+	from := 0
+	for {
+		sp, ok := nextSpan(text, from)
+		if !ok {
+			break
+		}
+		if !sp.closed {
+			return strings.TrimSpace(sp.body), true
+		}
+		if sp.body != "" {
+			lastBody = sp.body
+		}
+		from = sp.closeAt + sp.closeN
+	}
+	return lastBody, false
+}
+
+// lastDisplaySpan prefers a trailing unclosed span (live stream); else the last
+// complete span (empty bodies skipped for ok=false via caller).
+func lastDisplaySpan(text string) (span, bool) {
+	var lastClosed span
+	have := false
+	from := 0
+	for {
+		sp, ok := nextSpan(text, from)
+		if !ok {
+			break
+		}
+		if !sp.closed {
+			return sp, true
+		}
+		lastClosed = sp
+		have = true
+		from = sp.closeAt + sp.closeN
+	}
+	if !have {
+		return span{}, false
+	}
+	return lastClosed, true
+}
+
+// nextSpan finds the earliest open at or after from and pairs it with the first
+// same-kind close. Inner occurrences of the open delimiter are body text.
+func nextSpan(text string, from int) (span, bool) {
+	if from < 0 {
+		from = 0
+	}
+	if from > len(text) {
+		return span{}, false
+	}
+	rel := text[from:]
+	tagI := strings.Index(rel, openTag)
+	fenceI, fenceN := firstFenceOpen(rel)
+	var openAt, openN int
+	var kind delimKind
+	switch {
+	case tagI < 0 && fenceI < 0:
+		return span{}, false
+	case tagI >= 0 && (fenceI < 0 || tagI < fenceI):
+		openAt = from + tagI
+		openN = len(openTag)
+		kind = delimTag
+	default:
+		openAt = from + fenceI
+		openN = fenceN
+		kind = delimFence
+	}
+	bodyStart := openAt + openN
+	rest := text[bodyStart:]
+	end, closeN := findClose(rest, kind)
+	if end < 0 {
+		return span{
+			openAt: openAt,
+			openN:  openN,
+			kind:   kind,
+			closed: false,
+			body:   rest,
+		}, true
+	}
+	return span{
+		openAt:  openAt,
+		openN:   openN,
+		closeAt: bodyStart + end,
+		closeN:  closeN,
+		kind:    kind,
+		closed:  true,
+		body:    strings.TrimSpace(rest[:end]),
+	}, true
+}
+
+// firstFenceOpen returns the index and full open-line length of the first
+// ```proposed_plan fence in s (backticks at line start; optional trailing spaces).
+func firstFenceOpen(s string) (idx, openN int) {
 	needle := "```" + fenceLang
-	last, lastN := -1, 0
 	for i := 0; ; {
 		j := strings.Index(s[i:], needle)
 		if j < 0 {
-			return last, lastN
+			return -1, 0
 		}
 		abs := i + j
 		if fenceAtLineStart(s, abs) {
 			after := abs + len(needle)
-			// Language token must end: EOL, whitespace only until EOL (no suffix).
 			n, ok := fenceOpenLen(s, abs, after)
 			if ok {
-				last, lastN = abs, n
+				return abs, n
 			}
 		}
 		i = abs + 1
@@ -207,11 +284,6 @@ func fenceAtLineStart(s string, idx int) bool {
 		}
 	}
 	return true
-}
-
-func hasClose(rest string, kind delimKind) bool {
-	end, _ := findClose(rest, kind)
-	return end >= 0
 }
 
 // findClose returns the body-end index and the close delimiter length.

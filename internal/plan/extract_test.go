@@ -29,9 +29,17 @@ func TestExtract(t *testing.T) {
 		{"empty body", "<proposed_plan>\n\n</proposed_plan>", "", false},
 		{"unclosed", "x <proposed_plan>no close", "", false},
 		{
-			"unclosed then closed",
+			// First open pairs with first close; inner open tags are body text.
+			"open in body is literal",
 			"<proposed_plan>broken\n<proposed_plan>ok</proposed_plan>",
-			"ok",
+			"broken\n<proposed_plan>ok",
+			true,
+		},
+		{
+			// Example text inside a plan must not steal the closer.
+			"example open in body",
+			"<proposed_plan>\nUse <proposed_plan> in docs.\n</proposed_plan>",
+			"Use <proposed_plan> in docs.",
 			true,
 		},
 		{
