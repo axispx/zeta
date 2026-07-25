@@ -15,6 +15,7 @@ import (
 	"github.com/axispx/zeta/internal/ai"
 	"github.com/axispx/zeta/internal/compact"
 	"github.com/axispx/zeta/internal/config"
+	"github.com/axispx/zeta/internal/image"
 	"github.com/axispx/zeta/internal/permission"
 	"github.com/axispx/zeta/internal/prompt"
 	"github.com/axispx/zeta/internal/session"
@@ -63,14 +64,16 @@ type Model struct {
 	overlay       filterOverlay
 	picker        pickerState
 	config        configDialog
-	chrome        styles.Chrome   // terminal-derived panels; zero until BackgroundColorMsg
-	promptHist    promptHistory   // up/down recall of prior user turns
-	spinner       spinner.Model   // animated while a turn is in flight
-	tx            transcriptCache // frozen settled transcript; tail re-renders only
-	paint         streamPaint     // throttled live redraw; gen survives turn boundaries
-	sel           transcriptSel   // app-level transcript drag selection
-	copyFlash     bool            // brief "Copied" in the gap after a successful copy
-	copyFlashGen  int             // invalidates stale flash timers
+	chrome        styles.Chrome       // terminal-derived panels; zero until BackgroundColorMsg
+	promptHist    promptHistory       // up/down recall of prior user turns
+	spinner       spinner.Model       // animated while a turn is in flight
+	tx            transcriptCache     // frozen settled transcript; tail re-renders only
+	paint         streamPaint         // throttled live redraw; gen survives turn boundaries
+	sel           transcriptSel       // app-level transcript drag selection
+	copyFlash     bool                // brief "Copied" in the gap after a successful copy
+	copyFlashGen  int                 // invalidates stale flash timers
+	pendingImages map[int]image.Ref   // draft images keyed by stable [Image N] id
+	nextImageN    int                 // last allocated token number (never renumbered)
 }
 
 // Options controls how the TUI starts a session.
@@ -322,6 +325,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.MouseWheelMsg:
 		m.handleSelectionMouse(msg) // cancel drag; fall through to viewport scroll
 
+	case tea.PasteMsg:
+		if m.config.active || m.picker.active || m.inputBlocked() || m.compacting {
+			break
+		}
+		// Path attach only; plain text falls through to the textarea.
+		if m.handleBracketPaste(msg.Content) {
+			return m, nil
+		}
+
 	case tea.KeyPressMsg:
 		switch {
 		case msg.String() == "ctrl+c":
@@ -364,6 +376,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case m.handlePromptHistoryKey(msg):
 			return m, nil
+		case isPasteKey(msg):
+			if !m.inputBlocked() {
+				m.handleClipboardPaste()
+				return m, nil
+			}
 		// Plain Enter only. Never steal shift/alt/ctrl+enter — those are newlines.
 		case msg.Code == tea.KeyEnter && msg.Mod == 0:
 			return m, m.submitInput()
@@ -383,6 +400,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		before := m.textarea.Value()
 		m.textarea, taCmd = m.textarea.Update(msg)
 		m.notePromptEdit(before)
+		if m.textarea.Value() != before {
+			m.syncPendingImages()
+		}
 		m.syncTextareaStyles()
 		if m.textarea.Height() != prevH {
 			m.refreshTranscript()
@@ -395,11 +415,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // submit appends the user turn, starts a streaming completion, and refreshes.
 // When the transcript is near the context limit, auto-compacts first.
-func (m *Model) submit(text string) tea.Cmd {
-	user := Message{Role: RoleUser, Text: text}
+// text/imgs come from parseComposer (inline [Image N] tokens stripped from text).
+func (m *Model) submit(text string, imgs []image.Ref) tea.Cmd {
+	display := userDisplayText(text, imgs)
+
+	user := Message{Role: RoleUser, Text: display}
 	m.messages = append(m.messages, user)
-	m.history = append(m.history, ai.Message{Role: ai.RoleUser, Text: text})
-	m.persist(session.Record{Role: session.RoleUser, Text: text})
+	m.history = append(m.history, ai.Message{Role: ai.RoleUser, Text: text, Images: imgs})
+	m.persist(session.Record{Role: session.RoleUser, Text: text, Images: imgs})
 	m.resetInput()
 	m.refreshTranscript()
 
@@ -418,10 +441,14 @@ func (m *Model) submit(text string) tea.Cmd {
 		return nil
 	}
 
-	if m.shouldAutoCompact() {
-		return m.runCompact(compactAuto, text)
+	titlePrompt := text
+	if titlePrompt == "" && len(imgs) > 0 {
+		titlePrompt = transcriptLabel(imgs[0], 1)
 	}
-	return m.beginTurn(text)
+	if m.shouldAutoCompact() {
+		return m.runCompact(compactAuto, titlePrompt)
+	}
+	return m.beginTurn(titlePrompt)
 }
 
 // beginTurn starts the agent loop for the current history.
@@ -636,7 +663,11 @@ func (m *Model) persist(rec session.Record) {
 func recordFromAPI(m ai.Message) session.Record {
 	switch m.Role {
 	case ai.RoleUser:
-		return session.Record{Role: session.RoleUser, Text: m.Text}
+		return session.Record{
+			Role:   session.RoleUser,
+			Text:   m.Text,
+			Images: m.Images,
+		}
 	case ai.RoleAssistant:
 		rec := session.Record{Role: session.RoleAgent, Text: m.Text}
 		for _, tc := range m.ToolCalls {
@@ -671,7 +702,7 @@ func loadSession(recs []session.Record) (ui []Message, history []ai.Message) {
 	for _, r := range recs {
 		switch r.Role {
 		case session.RoleUser:
-			ui = append(ui, Message{Role: RoleUser, Text: r.Text})
+			ui = append(ui, Message{Role: RoleUser, Text: userDisplayFromSession(r.Text, r.Images)})
 		case session.RoleAgent:
 			if r.Text != "" {
 				ui = append(ui, Message{Role: RoleAgent, Text: r.Text, framePlan: r.FramePlan})

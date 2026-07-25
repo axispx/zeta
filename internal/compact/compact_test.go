@@ -9,6 +9,17 @@ import (
 	"github.com/axispx/zeta/internal/ai"
 )
 
+func TestEstimateWithImages(t *testing.T) {
+	plain := ai.Message{Role: ai.RoleUser, Text: "hi"}
+	with := ai.Message{Role: ai.RoleUser, Text: "hi", Images: []ai.Image{{URL: "data:image/png;base64,AAAA", MIME: "image/png"}}}
+	if Estimate([]ai.Message{with}) <= Estimate([]ai.Message{plain}) {
+		t.Fatal("images should add token fudge")
+	}
+	if Estimate([]ai.Message{with}) < imageTokenFudge {
+		t.Fatal("expected at least image fudge")
+	}
+}
+
 func TestEstimateTokens(t *testing.T) {
 	if got := EstimateTokens(""); got != 0 {
 		t.Fatalf("empty: %d", got)

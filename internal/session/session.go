@@ -10,6 +10,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/axispx/zeta/internal/image"
 	"github.com/axispx/zeta/internal/paths"
 )
 
@@ -34,17 +35,21 @@ type ToolCall struct {
 	Arguments string `json:"arguments"`
 }
 
+// ImageRef is an image on a user turn (data: URL embedded; OpenCode-style).
+type ImageRef = image.Ref
+
 // Record is a chat turn loaded from the transcript (message events only).
 type Record struct {
 	Role       string     `json:"role"`
 	Text       string     `json:"text"`
 	TS         string     `json:"ts"`
+	Images     []ImageRef `json:"images,omitempty"` // user turns only
 	ToolCallID string     `json:"tool_call_id,omitempty"`
 	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
-	Label      string     `json:"label,omitempty"` // UI label for tool rows
-	Tool       string     `json:"tool,omitempty"`  // tool name for RoleTool
+	Label      string     `json:"label,omitempty"`  // UI label for tool rows
+	Tool       string     `json:"tool,omitempty"`   // tool name for RoleTool
 	Denied     bool       `json:"denied,omitempty"` // tool call rejected by policy/user
-	Tail       int        `json:"tail,omitempty"`  // RoleCompact: API messages retained after checkpoint
+	Tail       int        `json:"tail,omitempty"`   // RoleCompact: API messages retained after checkpoint
 	// FramePlan: Plan-mode ingest snapshot; UI frames <proposed_plan> when set.
 	// Not re-derived from current mode on resume.
 	FramePlan bool `json:"frame_plan,omitempty"`
@@ -58,6 +63,7 @@ type event struct {
 	Role       string     `json:"role,omitempty"`
 	Text       string     `json:"text,omitempty"`
 	TS         string     `json:"ts,omitempty"`
+	Images     []ImageRef `json:"images,omitempty"`
 	ToolCallID string     `json:"tool_call_id,omitempty"`
 	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
 	Label      string     `json:"label,omitempty"`
@@ -148,6 +154,7 @@ func (s *Session) Append(rec Record) error {
 		Role:       rec.Role,
 		Text:       rec.Text,
 		TS:         rec.TS,
+		Images:     rec.Images,
 		ToolCallID: rec.ToolCallID,
 		ToolCalls:  rec.ToolCalls,
 		Label:      rec.Label,
@@ -220,7 +227,8 @@ func load(abs, path string) (*Session, []Record, error) {
 	}
 	var out []Record
 	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
+	// data: image URLs can be large (base64).
+	sc.Buffer(make([]byte, 0, 64*1024), image.MaxJSONLLine)
 	lineNo := 0
 	for sc.Scan() {
 		lineNo++
@@ -245,6 +253,7 @@ func load(abs, path string) (*Session, []Record, error) {
 				Role:       evt.Role,
 				Text:       evt.Text,
 				TS:         evt.TS,
+				Images:     evt.Images,
 				ToolCallID: evt.ToolCallID,
 				ToolCalls:  evt.ToolCalls,
 				Label:      evt.Label,

@@ -11,6 +11,7 @@ import (
 	"github.com/openai/openai-go/v3/shared"
 
 	"github.com/axispx/zeta/internal/config"
+	"github.com/axispx/zeta/internal/image"
 )
 
 // Role is an OpenAI chat message role.
@@ -38,10 +39,14 @@ type Tool struct {
 	Parameters  map[string]any
 }
 
+// Image is a multimodal image on a user message (data: URL + MIME).
+type Image = image.Ref
+
 // Message is one turn in an API conversation.
 type Message struct {
 	Role       Role
 	Text       string
+	Images     []Image    // user messages only; data: URLs
 	ToolCalls  []ToolCall // assistant messages that request tools
 	ToolCallID string     // tool result messages
 }
@@ -276,7 +281,11 @@ func toAPIMessages(msgs []Message) ([]openai.ChatCompletionMessageParamUnion, er
 	for _, m := range msgs {
 		switch m.Role {
 		case RoleUser:
-			apiMsgs = append(apiMsgs, openai.UserMessage(m.Text))
+			um, err := userParam(m)
+			if err != nil {
+				return nil, err
+			}
+			apiMsgs = append(apiMsgs, um)
 		case RoleAssistant:
 			apiMsgs = append(apiMsgs, assistantParam(m))
 		case RoleSystem, RoleDeveloper:
@@ -289,6 +298,29 @@ func toAPIMessages(msgs []Message) ([]openai.ChatCompletionMessageParamUnion, er
 		}
 	}
 	return apiMsgs, nil
+}
+
+func userParam(m Message) (openai.ChatCompletionMessageParamUnion, error) {
+	if len(m.Images) == 0 {
+		return openai.UserMessage(m.Text), nil
+	}
+	parts := make([]openai.ChatCompletionContentPartUnionParam, 0, 1+len(m.Images))
+	if m.Text != "" {
+		parts = append(parts, openai.TextContentPart(m.Text))
+	}
+	for _, img := range m.Images {
+		url := strings.TrimSpace(img.URL)
+		if !strings.HasPrefix(url, "data:") {
+			return openai.ChatCompletionMessageParamUnion{}, fmt.Errorf("image: missing data URL")
+		}
+		parts = append(parts, openai.ImageContentPart(openai.ChatCompletionContentPartImageImageURLParam{
+			URL: url,
+		}))
+	}
+	if len(parts) == 0 {
+		return openai.UserMessage(""), nil
+	}
+	return openai.UserMessage(parts), nil
 }
 
 func assistantParam(m Message) openai.ChatCompletionMessageParamUnion {

@@ -2,7 +2,17 @@ package tui
 
 import (
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/axispx/zeta/internal/image"
 )
+
+// composerDraft is the live input state (text + image slots). Used to stash
+// the draft while browsing session prompt history with ↑/↓.
+type composerDraft struct {
+	Text   string
+	Images map[int]image.Ref
+	NextN  int
+}
 
 // promptHistory recalls prior user turns into the input.
 // Walks the UI transcript (m.messages), not the API history — compaction
@@ -11,12 +21,12 @@ import (
 // at == -1 is the live draft; otherwise at indexes messages at a RoleUser row.
 type promptHistory struct {
 	at    int
-	draft string
+	draft composerDraft // live stash while browsing
 }
 
 func (h *promptHistory) reset() {
 	h.at = -1
-	h.draft = ""
+	h.draft = composerDraft{}
 }
 
 func (h *promptHistory) live() bool { return h.at < 0 }
@@ -53,6 +63,9 @@ func (m *Model) notePromptEdit(before string) {
 // handlePromptHistoryKey navigates session prompt history with up/down or ctrl+p/n.
 // Returns true when the key was consumed (including no-op at history edges).
 // Shell-style: only leaves the draft when the cursor is on the first/last line.
+//
+// Recalled turns use display text only (image labels). Live draft image slots
+// are stashed/restored so ↑ then ↓ does not drop in-progress attachments.
 func (m *Model) handlePromptHistoryKey(msg tea.KeyPressMsg) bool {
 	key := msg.String()
 	older := key == "up" || key == "ctrl+p"
@@ -80,9 +93,10 @@ func (m *Model) handlePromptHistoryKey(msg tea.KeyPressMsg) bool {
 			return !h.live()
 		}
 		if h.live() {
-			h.draft = m.textarea.Value()
+			h.draft = m.snapshotComposer()
 		}
 		h.at = next
+		m.clearPendingImages()
 		m.setPromptValue(m.messages[next].Text)
 		return true
 	}
@@ -96,11 +110,12 @@ func (m *Model) handlePromptHistoryKey(msg tea.KeyPressMsg) bool {
 	}
 	next := stepUserMessage(m.messages, h.at, +1)
 	if next < 0 {
-		m.setPromptValue(h.draft)
+		m.applyComposer(h.draft)
 		h.reset()
 		return true
 	}
 	h.at = next
+	m.clearPendingImages()
 	m.setPromptValue(m.messages[next].Text)
 	return true
 }

@@ -8,6 +8,7 @@ import (
 
 	"github.com/axispx/zeta/internal/ai"
 	"github.com/axispx/zeta/internal/compact"
+	"github.com/axispx/zeta/internal/image"
 )
 
 func histModel(prompts ...string) Model {
@@ -86,7 +87,7 @@ func TestPromptHistoryNavigate(t *testing.T) {
 	if m.textarea.Value() != "second" {
 		t.Fatalf("want second, got %q", m.textarea.Value())
 	}
-	if m.promptHist.draft != "draft" || m.promptHist.at != 2 {
+	if m.promptHist.draft.Text != "draft" || m.promptHist.at != 2 {
 		t.Fatalf("browse = %+v", m.promptHist)
 	}
 
@@ -118,7 +119,7 @@ func TestPromptHistoryNavigate(t *testing.T) {
 	if m.textarea.Value() != "draft" {
 		t.Fatalf("want draft restored, got %q", m.textarea.Value())
 	}
-	if !m.promptHist.live() || m.promptHist.draft != "" {
+	if !m.promptHist.live() || m.promptHist.draft.Text != "" {
 		t.Fatalf("want live, got %+v", m.promptHist)
 	}
 }
@@ -185,8 +186,8 @@ func TestPromptHistoryMultilineBoundary(t *testing.T) {
 	if m.textarea.Value() != "old" {
 		t.Fatalf("want old, got %q", m.textarea.Value())
 	}
-	if m.promptHist.draft != "line1\nline2" {
-		t.Fatalf("draft = %q", m.promptHist.draft)
+	if m.promptHist.draft.Text != "line1\nline2" {
+		t.Fatalf("draft = %q", m.promptHist.draft.Text)
 	}
 
 	// Down from first line of a multiline recall should pass through.
@@ -225,10 +226,36 @@ func TestResetPromptHistory(t *testing.T) {
 	m.textarea.SetValue("x")
 	_ = m.handlePromptHistoryKey(histKey("up"))
 	m.resetInput()
-	if !m.promptHist.live() || m.promptHist.draft != "" {
+	if !m.promptHist.live() || m.promptHist.draft.Text != "" {
 		t.Fatalf("prompts=%+v", m.promptHist)
 	}
 	if m.textarea.Value() != "" {
 		t.Fatalf("input = %q", m.textarea.Value())
+	}
+}
+
+func TestPromptHistoryDraftImagesRoundTrip(t *testing.T) {
+	const dataURL = "data:image/png;base64,iVBORw0KGgo="
+	m := histModel("prior")
+	m.insertImageAttach(image.Ref{URL: dataURL, MIME: "image/png", Name: "draft.png"})
+	draftVal := m.textarea.Value()
+
+	if !m.handlePromptHistoryKey(histKey("up")) {
+		t.Fatal("up should recall prior")
+	}
+	if m.textarea.Value() != "prior" {
+		t.Fatalf("recalled=%q", m.textarea.Value())
+	}
+	if len(m.pendingImages) != 0 {
+		t.Fatal("pending should clear while browsing text-only entry")
+	}
+	if !m.handlePromptHistoryKey(histKey("down")) {
+		t.Fatal("down should restore draft")
+	}
+	if m.textarea.Value() != draftVal {
+		t.Fatalf("restored draft=%q want %q", m.textarea.Value(), draftVal)
+	}
+	if len(m.pendingImages) != 1 || m.pendingImages[1].URL != dataURL {
+		t.Fatalf("pending not restored: %+v", m.pendingImages)
 	}
 }

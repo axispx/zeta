@@ -12,7 +12,11 @@ func RebuildAPIHistory(log []session.Record) []ai.Message {
 	for _, r := range log {
 		switch r.Role {
 		case session.RoleUser:
-			hist = append(hist, ai.Message{Role: ai.RoleUser, Text: r.Text})
+			hist = append(hist, ai.Message{
+				Role:   ai.RoleUser,
+				Text:   r.Text,
+				Images: r.Images,
+			})
 		case session.RoleAgent:
 			asst := ai.Message{Role: ai.RoleAssistant, Text: r.Text}
 			for _, tc := range r.ToolCalls {

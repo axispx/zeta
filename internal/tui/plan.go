@@ -214,7 +214,7 @@ func (m *Model) beginBuildFromPlan(body, title, modelID string) tea.Cmd {
 	m.startNewSession()
 
 	m.noteSystem("Building with " + m.cfg.ModelName() + " · " + title)
-	return m.submit(plan.BuildPrompt(body))
+	return m.submit(plan.BuildPrompt(body), nil)
 }
 
 // handlePlanClick selects an approval option under the cursor.

@@ -52,6 +52,25 @@ func TestRebuildAPIHistoryEmptyTail(t *testing.T) {
 	}
 }
 
+func TestRebuildAPIHistoryImages(t *testing.T) {
+	log := []session.Record{
+		{
+			Role: session.RoleUser,
+			Text: "see this",
+			Images: []session.ImageRef{
+				{URL: "data:image/png;base64,AAAA", MIME: "image/png", Name: "a.png"},
+			},
+		},
+	}
+	hist := RebuildAPIHistory(log)
+	if len(hist) != 1 {
+		t.Fatalf("hist=%+v", hist)
+	}
+	if hist[0].Text != "see this" || len(hist[0].Images) != 1 || hist[0].Images[0].URL != "data:image/png;base64,AAAA" {
+		t.Fatalf("msg=%+v", hist[0])
+	}
+}
+
 func TestRebuildAPIHistoryNoCompact(t *testing.T) {
 	log := []session.Record{
 		{Role: session.RoleUser, Text: "hi"},

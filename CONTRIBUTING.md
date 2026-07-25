@@ -31,8 +31,11 @@ internal/models/     models.dev catalog → presets
 internal/session/    JSONL under ~/.zeta/sessions/
 internal/plan/       proposed_plan extract + build seed
 internal/paths/      ZETA_HOME
+internal/image/      path normalize, sniff, data: URLs, clipboard (temp only)
 internal/styles/     lipgloss tokens + banner
 ```
+
+Images attach as inline `data:` URLs on user turns in session JSONL (no `attachments/` side store). Composer ↑/↓ walks the session UI transcript (not a separate history file).
 
 ## Versioning
 

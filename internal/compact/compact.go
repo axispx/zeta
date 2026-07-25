@@ -88,10 +88,17 @@ func Estimate(msgs []ai.Message) int {
 	return total
 }
 
+// imageTokenFudge is a flat per-image token estimate (vision models vary widely).
+const imageTokenFudge = 1_000
+
 func estimateMsg(m ai.Message) int {
 	n := EstimateTokens(m.Text) + EstimateTokens(string(m.Role)) + EstimateTokens(m.ToolCallID)
 	for _, tc := range m.ToolCalls {
 		n += EstimateTokens(tc.ID) + EstimateTokens(tc.Name) + EstimateTokens(tc.Arguments)
+	}
+	for _, img := range m.Images {
+		// data URLs are large; charge fudge plus a coarse byte-based estimate.
+		n += imageTokenFudge + len(img.URL)/4
 	}
 	// per-message overhead for role framing
 	return n + 4
@@ -354,6 +361,9 @@ func serialize(msgs []ai.Message) string {
 			}
 			b.WriteString("[User]\n")
 			b.WriteString(m.Text)
+			if n := len(m.Images); n > 0 {
+				b.WriteString(fmt.Sprintf("\n[%d image attachment(s)]", n))
+			}
 		case ai.RoleAssistant:
 			b.WriteString("[Assistant]")
 			if m.Text != "" {

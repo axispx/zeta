@@ -141,6 +141,7 @@ func (m *Model) resetInput() {
 	m.textarea.SetHeight(inputMinHeight)
 	m.syncTextareaStyles()
 	m.resetPromptHistory()
+	m.clearPendingImages()
 }
 
 func (m *Model) applyClient() {
@@ -370,14 +371,22 @@ func (m *Model) submitInput() tea.Cmd {
 	if m.overlay.mode == overlayCommands && m.overlay.showing() {
 		return m.runCommand(m.overlay.cmds[m.overlay.selected].name)
 	}
-	text := strings.TrimSpace(m.textarea.Value())
-	if text == "" {
+	text, imgs := m.parseComposer()
+	if text == "" && len(imgs) == 0 {
 		return nil
 	}
 	if text == ":q" { // vim
 		return m.requestQuit()
 	}
 	if isSlashToken(text) {
+		if len(imgs) > 0 {
+			m.messages = append(m.messages, Message{
+				Role: RoleSystem,
+				Text: "slash commands cannot include images",
+			})
+			m.refreshTranscript()
+			return nil
+		}
 		if _, ok := lookupCommand(text); ok {
 			return m.runCommand(text)
 		}
@@ -387,7 +396,7 @@ func (m *Model) submitInput() tea.Cmd {
 		m.refreshTranscript()
 		return nil
 	}
-	return m.submit(text)
+	return m.submit(text, imgs)
 }
 
 func clipBottomLines(s string, n int) string {

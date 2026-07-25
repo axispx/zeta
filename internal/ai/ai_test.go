@@ -1,6 +1,10 @@
 package ai
 
-import "testing"
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+)
 
 func TestReasoningFromRaw(t *testing.T) {
 	tests := []struct {
@@ -25,6 +29,54 @@ func TestReasoningFromRaw(t *testing.T) {
 				t.Fatalf("reasoningFromRaw(%q) = %q, want %q", tt.raw, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestToAPIMessagesMultimodal(t *testing.T) {
+	dataURL := "data:image/png;base64,iVBORw0KGgo="
+	msgs, err := toAPIMessages([]Message{
+		{Role: RoleUser, Text: "look", Images: []Image{{URL: dataURL, MIME: "image/png", Name: "a.png"}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) != 1 || msgs[0].OfUser == nil {
+		t.Fatalf("msgs=%#v", msgs)
+	}
+	parts := msgs[0].OfUser.Content.OfArrayOfContentParts
+	if len(parts) != 2 {
+		t.Fatalf("parts=%d", len(parts))
+	}
+	if parts[0].OfText == nil || parts[0].OfText.Text != "look" {
+		t.Fatalf("text part=%#v", parts[0])
+	}
+	if parts[1].OfImageURL == nil {
+		t.Fatal("expected image part")
+	}
+	if parts[1].OfImageURL.ImageURL.URL != dataURL {
+		t.Fatalf("url=%q", parts[1].OfImageURL.ImageURL.URL)
+	}
+
+	_, err = toAPIMessages([]Message{
+		{Role: RoleUser, Text: "x", Images: []Image{{URL: "", MIME: "image/png"}}},
+	})
+	if err == nil {
+		t.Fatal("expected empty URL error")
+	}
+	_, err = toAPIMessages([]Message{
+		{Role: RoleUser, Text: "x", Images: []Image{{URL: "/tmp/a.png", MIME: "image/png"}}},
+	})
+	if err == nil {
+		t.Fatal("expected non-data URL error")
+	}
+
+	plain, err := toAPIMessages([]Message{{Role: RoleUser, Text: "hi"}})
+	if err != nil || plain[0].OfUser == nil {
+		t.Fatalf("plain: %#v err=%v", plain, err)
+	}
+	b, _ := json.Marshal(plain[0].OfUser.Content)
+	if !strings.Contains(string(b), "hi") {
+		t.Fatalf("content=%s", b)
 	}
 }
 
