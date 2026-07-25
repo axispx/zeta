@@ -61,7 +61,7 @@ func TestRenderToolGroupBashSplits(t *testing.T) {
 		{Role: RoleTool, Text: "bash go test ./...", Tool: "bash"},
 		{Role: RoleTool, Text: "bash ls", Tool: "bash"},
 		{Role: RoleTool, Text: `grep "x" .`, Tool: "grep"},
-		{Role: RoleTool, Text: "edit c.go", Tool: "edit", Out: "--- c.go\n+++ c.go\n@@ -1 +1 @@\n-old\n+new\n"},
+		{Role: RoleTool, Text: "edit c.go", Tool: "edit", Status: ToolOK, Out: "--- c.go\n+++ c.go\n@@ -1 +1 @@\n-old\n+new\n"},
 		{Role: RoleTool, Text: "bash pwd", Tool: "bash"},
 		{Role: RoleTool, Text: "read d.go", Tool: "read"},
 	}
@@ -102,10 +102,11 @@ func TestRenderToolClusterSingleShowsVerb(t *testing.T) {
 
 func TestRenderEditCall(t *testing.T) {
 	m := Message{
-		Role: RoleTool,
-		Text: "edit hello.txt",
-		Tool: "edit",
-		Out:  "--- hello.txt\n+++ hello.txt\n@@ -1,3 +1,3 @@\n one\n-two\n+TWO\n three\n",
+		Role:   RoleTool,
+		Text:   "edit hello.txt",
+		Tool:   "edit",
+		Status: ToolOK,
+		Out:    "--- hello.txt\n+++ hello.txt\n@@ -1,3 +1,3 @@\n one\n-two\n+TWO\n three\n",
 	}
 	out := renderEditCall(m)
 	plain := stripANSI(out)
@@ -135,23 +136,40 @@ func TestRenderEditCall(t *testing.T) {
 }
 
 func TestRenderEditCallNoDiff(t *testing.T) {
-	out := stripANSI(renderEditCall(Message{Role: RoleTool, Text: "edit x", Tool: "edit"}))
+	out := stripANSI(renderEditCall(Message{Role: RoleTool, Text: "edit x", Tool: "edit", Status: ToolOK}))
 	if out != "Edited  x" {
 		t.Fatalf("got %q", out)
 	}
 	// Empty-file create / no-op: tool returns "" — never prose in Out.
-	out = stripANSI(renderEditCall(Message{Role: RoleTool, Text: "create empty.txt", Tool: "edit", Out: ""}))
+	out = stripANSI(renderEditCall(Message{Role: RoleTool, Text: "create empty.txt", Tool: "edit", Status: ToolOK, Out: ""}))
 	if out != "Created  empty.txt" {
 		t.Fatalf("empty create: %q", out)
 	}
 }
 
+func TestRenderEditCallPendingVerbs(t *testing.T) {
+	cases := []struct {
+		text, want string
+	}{
+		{"edit a.go", "Editing  a.go"},
+		{"create a.go", "Creating  a.go"},
+		{"write a.go", "Writing  a.go"},
+	}
+	for _, tc := range cases {
+		out := stripANSI(renderEditCall(Message{Role: RoleTool, Text: tc.text, Tool: "edit"}))
+		if !strings.HasPrefix(out, tc.want) {
+			t.Fatalf("%q: got %q, want prefix %q", tc.text, out, tc.want)
+		}
+	}
+}
+
 func TestRenderEditCallCreated(t *testing.T) {
 	out := stripANSI(renderEditCall(Message{
-		Role: RoleTool,
-		Text: "create hello.txt",
-		Tool: "edit",
-		Out:  "--- hello.txt\n+++ hello.txt\n@@ -0,0 +1 @@\n+hi\n",
+		Role:   RoleTool,
+		Text:   "create hello.txt",
+		Tool:   "edit",
+		Status: ToolOK,
+		Out:    "--- hello.txt\n+++ hello.txt\n@@ -0,0 +1 @@\n+hi\n",
 	}))
 	if !strings.HasPrefix(out, "Created  hello.txt  +1\n") {
 		t.Fatalf("got %q", out)
@@ -160,10 +178,11 @@ func TestRenderEditCallCreated(t *testing.T) {
 
 func TestRenderEditCallBasename(t *testing.T) {
 	out := stripANSI(renderEditCall(Message{
-		Role: RoleTool,
-		Text: "edit /Users/ashish/Developer/zeta/CONTRIBUTORS.md",
-		Tool: "edit",
-		Out:  "--- a\n+++ b\n@@ -1,2 +1,3 @@\n a\n-b\n+c\n+d\n",
+		Role:   RoleTool,
+		Text:   "edit /Users/ashish/Developer/zeta/CONTRIBUTORS.md",
+		Tool:   "edit",
+		Status: ToolOK,
+		Out:    "--- a\n+++ b\n@@ -1,2 +1,3 @@\n a\n-b\n+c\n+d\n",
 	}))
 	first, _, _ := strings.Cut(out, "\n")
 	if first != "Edited  CONTRIBUTORS.md  +2  -1" {
@@ -185,6 +204,18 @@ func TestRenderBashLineEmptyCommand(t *testing.T) {
 	out := renderShellCall(Message{Role: RoleTool, Text: "bash", Tool: "bash"})
 	if out != "$" {
 		t.Fatalf("empty bash: %q", out)
+	}
+}
+
+func TestRenderShellCallFullCommand(t *testing.T) {
+	cmd := "go test ./...\n-count=1"
+	out := renderShellCall(Message{
+		Role: RoleTool,
+		Text: "bash " + cmd,
+		Tool: "bash",
+	})
+	if !strings.HasPrefix(out, "$ "+cmd) {
+		t.Fatalf("want full command: %q", out)
 	}
 }
 

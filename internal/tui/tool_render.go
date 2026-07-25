@@ -29,7 +29,7 @@ func viewFor(name string) toolView {
 	switch name {
 	case "bash":
 		return toolView{keepOut: true, segment: "bash", busy: statusRunning, renderRun: renderShellRun}
-	case "edit":
+	case "edit", "write":
 		return toolView{keepOut: true, segment: "edit", busy: statusEditing, renderRun: renderEditRun}
 	case "read":
 		return toolView{busy: statusReading}
@@ -66,7 +66,8 @@ func toolRunAt(msgs []Message, i int) []Message {
 }
 
 // renderToolGroup collapses a consecutive tool run into compact blocks.
-// Shell calls render as "$ cmd". Edits render as "Edited/Created  path" + colored diff.
+// Shell calls render as "$ cmd". Edits render as "Editing/Creating …" while
+// open, then "Edited/Created/Wrote" once done, plus a colored diff.
 // A blank line separates segment kinds; consecutive shell lines stack tightly.
 func renderToolGroup(msgs []Message, width, topMargin int) string {
 	var b strings.Builder
@@ -129,10 +130,11 @@ func renderEditRun(msgs []Message) string {
 	return b.String()
 }
 
-// renderEditCall formats an edit as "Edited|Created  file  +N -M" plus a colored unified diff.
-// Message.Out is the unified diff body (tool result). Verb/path come from Message.Text.
+// renderEditCall formats an edit as "Editing|Creating|…" while open, then
+// "Edited|Created|Wrote" once done, plus a colored unified diff.
+// Message.Out is the unified diff body (preview or tool result). Verb/path come from Message.Text.
 func renderEditCall(m Message) string {
-	verb, name := editLabel(m.Text)
+	verb, name := editLabel(m.Text, m.Status != ToolRunning)
 	adds, dels, colored := formatUnifiedDiff(m.Out)
 
 	var b strings.Builder
@@ -140,6 +142,11 @@ func renderEditCall(m Message) string {
 	if name != "" && name != "." {
 		b.WriteString("  ")
 		b.WriteString(styles.DiffFile.Render(name))
+	}
+	if m.Status == ToolDenied {
+		b.WriteString("  ")
+		b.WriteString(styles.SystemMsg.Render("denied"))
+		return b.String()
 	}
 	if adds > 0 {
 		b.WriteString("  ")
@@ -157,12 +164,27 @@ func renderEditCall(m Message) string {
 }
 
 // editLabel derives the UI verb and basename from the tool Summary label.
-func editLabel(text string) (verb, name string) {
+// Progressive while the call is open; past tense after it finishes.
+func editLabel(text string, done bool) (verb, name string) {
 	head, path, _ := strings.Cut(strings.TrimSpace(text), " ")
-	if head == "create" {
-		return "Created", filepath.Base(path)
+	base := filepath.Base(path)
+	switch head {
+	case "create":
+		if done {
+			return "Created", base
+		}
+		return "Creating", base
+	case "write":
+		if done {
+			return "Wrote", base
+		}
+		return "Writing", base
+	default:
+		if done {
+			return "Edited", base
+		}
+		return "Editing", base
 	}
-	return "Edited", filepath.Base(path)
 }
 
 // renderShellCall formats a shell Summary as "$ cmd" plus the last few output lines.
@@ -172,6 +194,9 @@ func renderShellCall(m Message) string {
 	line := "$"
 	if cmd != "" {
 		line = "$ " + cmd
+	}
+	if m.Status == ToolDenied {
+		return line + "  " + styles.SystemMsg.Render("denied")
 	}
 	tail := lastNonEmptyLines(stripOKExit(m.Out), maxBashOutLines)
 	if tail == "" {

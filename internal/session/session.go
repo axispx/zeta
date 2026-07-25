@@ -43,6 +43,7 @@ type Record struct {
 	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
 	Label      string     `json:"label,omitempty"` // UI label for tool rows
 	Tool       string     `json:"tool,omitempty"`  // tool name for RoleTool
+	Denied     bool       `json:"denied,omitempty"` // tool call rejected by policy/user
 	Tail       int        `json:"tail,omitempty"`  // RoleCompact: API messages retained after checkpoint
 }
 
@@ -58,6 +59,7 @@ type event struct {
 	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
 	Label      string     `json:"label,omitempty"`
 	Tool       string     `json:"tool,omitempty"`
+	Denied     bool       `json:"denied,omitempty"`
 	Tail       int        `json:"tail,omitempty"`
 }
 
@@ -146,6 +148,7 @@ func (s *Session) Append(rec Record) error {
 		ToolCalls:  rec.ToolCalls,
 		Label:      rec.Label,
 		Tool:       rec.Tool,
+		Denied:     rec.Denied,
 		Tail:       rec.Tail,
 	}); err != nil {
 		return err
@@ -241,6 +244,7 @@ func load(abs, path string) (*Session, []Record, error) {
 				ToolCalls:  evt.ToolCalls,
 				Label:      evt.Label,
 				Tool:       evt.Tool,
+				Denied:     evt.Denied,
 				Tail:       evt.Tail,
 			})
 		default:

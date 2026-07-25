@@ -64,7 +64,7 @@ func agentMDStyle() ansi.StyleConfig {
 	s.H5 = ansi.StyleBlock{}
 	s.H6 = ansi.StyleBlock{}
 
-	// Codex-style hyphen bullets; OpenCode-style bracket checkboxes.
+	// Hyphen bullets; bracket checkboxes for tasks.
 	s.Item = ansi.StylePrimitive{BlockPrefix: "- ", Color: &blue}
 	s.Enumeration = ansi.StylePrimitive{BlockPrefix: ". ", Color: &blue}
 	s.Task = ansi.StyleTask{

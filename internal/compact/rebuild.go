@@ -32,7 +32,6 @@ func RebuildAPIHistory(log []session.Record) []ai.Message {
 				ToolCallID: r.ToolCallID,
 			})
 		case session.RoleCompact:
-			// Tail == 0 is a legacy record: re-derive via Select(DefaultKeep).
 			tail := retainedTail(hist, r.Tail)
 			hist = append([]ai.Message{CheckpointMessage(r.Text)}, tail...)
 		}
@@ -40,17 +39,16 @@ func RebuildAPIHistory(log []session.Record) []ai.Message {
 	return TrimIncomplete(hist)
 }
 
-// retainedTail returns the messages kept after a compact checkpoint.
-// When tailCount > 0 it is an explicit suffix of before (durable wire format).
-// When tailCount == 0 (legacy), re-derive via Select(DefaultKeep).
+// retainedTail returns the last tailCount messages of before (clamped).
+// TailCount 0 means no retained messages — only the checkpoint remains.
 func retainedTail(before []ai.Message, tailCount int) []ai.Message {
-	if tailCount > 0 {
-		if tailCount > len(before) {
-			tailCount = len(before)
-		}
-		return append([]ai.Message(nil), before[len(before)-tailCount:]...)
+	if tailCount <= 0 {
+		return nil
 	}
-	return Select(before, DefaultKeep).Tail
+	if tailCount > len(before) {
+		tailCount = len(before)
+	}
+	return append([]ai.Message(nil), before[len(before)-tailCount:]...)
 }
 
 // TrimIncomplete drops a trailing partial tool round so the API transcript

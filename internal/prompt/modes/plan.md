@@ -14,7 +14,7 @@ Create a clear, decision-complete plan the user (or Build mode) can implement wi
 - Outlining steps, files, APIs, risks, and test plan
 
 ### Not allowed
-- Editing files or running shell commands (`edit` and `bash` are unavailable in Plan mode)
+- Editing files or running shell commands (`edit`, `write`, and `bash` are unavailable in Plan mode)
 - Presenting patches/diffs as if applied
 - Claiming you made changes
 - Writing final production code

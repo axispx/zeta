@@ -142,6 +142,7 @@ func TestToolStatus(t *testing.T) {
 	}{
 		{"read", statusReading},
 		{"edit", statusEditing},
+		{"write", statusEditing},
 		{"bash", statusRunning},
 		{"grep", statusSearching},
 		{"glob", statusSearching},

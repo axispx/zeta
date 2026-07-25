@@ -70,14 +70,14 @@ func TestInspect(t *testing.T) {
 	if len(ro) != 5 {
 		t.Fatalf("inspect len: %d", len(ro))
 	}
-	if len(Build()) != 7 {
+	if len(Build()) != 8 {
 		t.Fatal("expected build tools")
 	}
 	names := map[string]bool{}
 	for _, tool := range ro {
 		names[tool.Name()] = true
 	}
-	if names["bash"] || names["edit"] || !names["read"] || !names["grep"] || !names["glob"] || !names["websearch"] || !names["webfetch"] {
+	if names["bash"] || names["edit"] || names["write"] || !names["read"] || !names["grep"] || !names["glob"] || !names["websearch"] || !names["webfetch"] {
 		t.Fatalf("inspect names: %v", names)
 	}
 }
@@ -111,6 +111,19 @@ func TestSummary(t *testing.T) {
 	}
 	if got := (bashTool{}).Summary(mustRaw(t, map[string]any{"command": "go test ./..."})); got != "bash go test ./..." {
 		t.Fatal(got)
+	}
+	long := strings.Repeat("x", 100) + "\nsecond"
+	if got := (bashTool{}).Summary(mustRaw(t, map[string]any{"command": long})); got != "bash "+long {
+		t.Fatalf("bash should keep full command: %q", got)
+	}
+}
+
+func TestArgPath(t *testing.T) {
+	if got := ArgPath(mustRaw(t, map[string]any{"path": " a/b.go ", "content": "x"})); got != "a/b.go" {
+		t.Fatalf("got %q", got)
+	}
+	if got := ArgPath(mustRaw(t, map[string]any{"command": "echo"})); got != "" {
+		t.Fatalf("bash args: %q", got)
 	}
 }
 

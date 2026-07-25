@@ -17,12 +17,22 @@ const (
 	RoleTool
 )
 
+// ToolStatus is the lifecycle of a RoleTool row.
+type ToolStatus int
+
+const (
+	ToolRunning ToolStatus = iota // call in flight (or awaiting permission)
+	ToolOK                        // finished successfully
+	ToolDenied                    // rejected by policy/user or cancelled
+)
+
 // Message is one turn in the chat transcript.
 type Message struct {
-	Role Role
-	Text string
-	Tool string // tool name for RoleTool
-	Out  string // live/final tool output (bash stdout / edit unified diff)
+	Role   Role
+	Text   string
+	Tool   string     // tool name for RoleTool
+	Out    string     // live/final tool output (bash stdout / edit unified diff)
+	Status ToolStatus // RoleTool lifecycle; zero value is ToolRunning
 
 	// Cached markdown render for RoleAgent (keyed by source text + width).
 	md       string

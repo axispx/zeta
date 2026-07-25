@@ -9,6 +9,7 @@ import (
 
 	"github.com/axispx/zeta/internal/ai"
 	"github.com/axispx/zeta/internal/config"
+	"github.com/axispx/zeta/internal/permission"
 	"github.com/axispx/zeta/internal/search"
 	"github.com/axispx/zeta/internal/session"
 	"github.com/axispx/zeta/internal/styles"
@@ -254,6 +255,8 @@ func (m *Model) applySession(sess *session.Session, recs []session.Record, err e
 	m.titlePending = false
 	m.clearCompactState()
 	m.resetPromptHistory()
+	m.perm = nil
+	m.grants = &permission.Session{}
 	m.tx.invalidate()
 	m.refreshTranscript()
 }

@@ -8,6 +8,7 @@ import (
 
 	"github.com/axispx/zeta/internal/agent"
 	"github.com/axispx/zeta/internal/ai"
+	"github.com/axispx/zeta/internal/permission"
 	"github.com/axispx/zeta/internal/prompt"
 	"github.com/axispx/zeta/internal/tools"
 	"github.com/axispx/zeta/internal/workspace"
@@ -28,9 +29,10 @@ type streamPaint struct {
 type turnSession struct {
 	cancel     context.CancelFunc
 	ch         <-chan agent.Event
-	streaming  bool   // true while receiving assistant deltas
-	thinking   string // live reasoning tail; only while thinkingPhase
-	activeTool int    // index of open tool row in Model.messages; -1 if none
+	reply      chan<- bool // harness → agent; true=allow, false=deny; one per gated start
+	streaming  bool        // true while receiving assistant deltas
+	thinking   string      // live reasoning tail; only while thinkingPhase
+	activeTool int         // index of open tool row in Model.messages; -1 if none
 }
 
 // thinkingPhase is true before answer deltas or an open tool (pre-answer reasoning).
@@ -76,8 +78,10 @@ type turnAssistantMsg struct {
 	usage   ai.Usage
 }
 type turnToolStartMsg struct {
-	label string
-	name  string
+	label  string
+	name   string
+	path   string
+	detail string
 }
 type turnToolOutMsg struct {
 	text string
@@ -87,6 +91,7 @@ type turnToolMsg struct {
 	label   string
 	name    string
 	message ai.Message
+	denied  bool
 }
 type turnDoneMsg struct{}
 type turnErrMsg struct{ err error }
@@ -141,47 +146,59 @@ func requestMsgs(ws workspace.Context, mode prompt.Mode, history []ai.Message) [
 	return append(out, history...)
 }
 
-func waitTurnEvent(ch <-chan agent.Event) tea.Cmd {
+func waitTurn(t *turnSession) tea.Cmd {
 	return func() tea.Msg {
-		evt, ok := <-ch
+		evt, ok := <-t.ch
 		if !ok {
 			return turnDoneMsg{}
 		}
-		switch evt.Kind {
-		case agent.KindDelta:
-			return turnDeltaMsg{text: evt.Text}
-		case agent.KindReasoning:
-			return turnReasoningMsg{text: evt.Text}
-		case agent.KindAssistant:
-			return turnAssistantMsg{message: evt.Message, usage: evt.Usage}
-		case agent.KindToolStart:
-			return turnToolStartMsg{label: evt.Text, name: evt.Name}
-		case agent.KindToolOut:
-			return turnToolOutMsg{text: evt.Text, name: evt.Name}
-		case agent.KindTool:
-			return turnToolMsg{label: evt.Text, name: evt.Name, message: evt.Message}
-		case agent.KindDone:
-			return turnDoneMsg{}
-		case agent.KindErr:
-			return turnErrMsg{err: evt.Err}
-		default:
-			return turnDoneMsg{}
-		}
+		return turnEventMsg(evt)
 	}
 }
 
-func startTurn(client *ai.Client, ws workspace.Context, mode prompt.Mode, history []ai.Message) (*turnSession, tea.Cmd) {
+func turnEventMsg(evt agent.Event) tea.Msg {
+	switch evt.Kind {
+	case agent.KindDelta:
+		return turnDeltaMsg{text: evt.Text}
+	case agent.KindReasoning:
+		return turnReasoningMsg{text: evt.Text}
+	case agent.KindAssistant:
+		return turnAssistantMsg{message: evt.Message, usage: evt.Usage}
+	case agent.KindToolStart:
+		return turnToolStartMsg{label: evt.Text, name: evt.Name, path: evt.Path, detail: evt.Detail}
+	case agent.KindToolOut:
+		return turnToolOutMsg{text: evt.Text, name: evt.Name}
+	case agent.KindTool:
+		return turnToolMsg{label: evt.Text, name: evt.Name, message: evt.Message, denied: evt.Denied}
+	case agent.KindDone:
+		return turnDoneMsg{}
+	case agent.KindErr:
+		return turnErrMsg{err: evt.Err}
+	default:
+		return turnDoneMsg{}
+	}
+}
+
+func startTurn(client *ai.Client, ws workspace.Context, mode prompt.Mode, history []ai.Message, grants *permission.Session) (*turnSession, tea.Cmd) {
 	ctx, cancel := context.WithCancel(context.Background())
+	replies := make(chan bool, 1)
 	cfg := agent.Config{
-		Client: client,
-		Tools:  toolsForMode(mode),
-		Root:   ws.Abs,
+		Client:  client,
+		Tools:   toolsForMode(mode),
+		Root:    ws.Abs,
+		Replies: replies,
+		// Harness policy: only side-effect tools without a session grant block.
+		Gate: func(name string) bool {
+			return permission.NeedsDecision(grants, name)
+		},
 	}
 	ch := cfg.Run(ctx, requestMsgs(ws, mode, history))
-	return &turnSession{
+	t := &turnSession{
 		cancel:     cancel,
 		ch:         ch,
+		reply:      replies,
 		streaming:  false, // set true on first delta; false = Waiting chrome / settled md
 		activeTool: -1,
-	}, waitTurnEvent(ch)
+	}
+	return t, waitTurn(t)
 }

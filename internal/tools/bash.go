@@ -59,12 +59,6 @@ func (bashTool) Summary(raw json.RawMessage) string {
 	if cmd == "" {
 		return "bash"
 	}
-	if i := strings.IndexByte(cmd, '\n'); i >= 0 {
-		cmd = cmd[:i] + "…"
-	}
-	if len(cmd) > 80 {
-		cmd = cmd[:80] + "…"
-	}
 	return "bash " + cmd
 }
 

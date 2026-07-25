@@ -21,8 +21,7 @@ func (c *Client) SessionTitle(ctx context.Context, prompt string) (string, error
 	return cleanTitle(text), nil
 }
 
-// titleSystemPrompt steers a short session-list label (inspired by OpenCode's
-// title agent, but written for zeta).
+// titleSystemPrompt steers a short session-list label.
 const titleSystemPrompt = `You name chats for a session picker. Output ONLY the title — one line, nothing else.
 
 Rules:

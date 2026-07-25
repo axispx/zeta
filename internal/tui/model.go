@@ -15,6 +15,7 @@ import (
 	"github.com/axispx/zeta/internal/ai"
 	"github.com/axispx/zeta/internal/compact"
 	"github.com/axispx/zeta/internal/config"
+	"github.com/axispx/zeta/internal/permission"
 	"github.com/axispx/zeta/internal/prompt"
 	"github.com/axispx/zeta/internal/session"
 	"github.com/axispx/zeta/internal/styles"
@@ -56,6 +57,8 @@ type Model struct {
 	compacting    bool // true while a compact LLM call is in flight (manual or auto)
 	compactCancel context.CancelFunc
 	mode          prompt.Mode
+	grants        *permission.Session // "allow for session"; reset on /clear
+	perm          *permissionPrompt
 	overlay       filterOverlay
 	picker        pickerState
 	config        configDialog
@@ -119,6 +122,7 @@ func New(cfg config.Config, opts Options) (Model, error) {
 		textarea: ta,
 		ws:       ws,
 		spinner:  spinner.New(spinner.WithSpinner(spinner.MiniDot)),
+		grants:   &permission.Session{},
 	}
 	m.promptHist.reset()
 	applyTextareaStyles(&m.textarea, nil)
@@ -276,6 +280,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.handleTurnErr(msg.err)
 		return m, nil
 
+	case tea.MouseClickMsg:
+		if m.handlePermissionClick(msg) {
+			return m, nil
+		}
+
+	case tea.MouseMotionMsg:
+		if m.handlePermissionMotion(msg) {
+			return m, nil
+		}
+
 	case tea.KeyPressMsg:
 		switch {
 		case msg.String() == "ctrl+c":
@@ -288,6 +302,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		case m.picker.active:
 			return m, m.handlePickerKey(msg)
+		case m.handlePermissionKey(msg):
+			return m, nil
 		case m.overlay.mode == overlayModels:
 			if cmd, ok := m.handleOverlayKey(msg); ok {
 				return m, cmd
@@ -322,7 +338,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	prevH := m.textarea.Height()
-	if !m.picker.active {
+	if !m.picker.active && m.perm == nil {
 		before := m.textarea.Value()
 		m.textarea, taCmd = m.textarea.Update(msg)
 		m.notePromptEdit(before)
@@ -374,7 +390,7 @@ func (m *Model) beginTurn(titlePrompt string) tea.Cmd {
 	}
 	var cmds []tea.Cmd
 	var turnCmd tea.Cmd
-	m.turn, turnCmd = startTurn(m.client, m.ws, m.mode, m.history)
+	m.turn, turnCmd = startTurn(m.client, m.ws, m.mode, m.history, m.grants)
 	// Busy gap grows (GapBeforeInput → busyStatusRows); shrink transcript now.
 	m.layoutPreservingBottom()
 	cmds = append(cmds, turnCmd, m.spinner.Tick)
@@ -396,7 +412,7 @@ func (m *Model) handleTurnDelta(msg turnDeltaMsg) tea.Cmd {
 		m.messages = append(m.messages, Message{Role: RoleAgent, Text: msg.text})
 	}
 	// Ingest every token; paint at most every streamPaintEvery.
-	return tea.Batch(m.requestStreamPaint(), waitTurnEvent(m.turn.ch))
+	return tea.Batch(m.requestStreamPaint(), waitTurn(m.turn))
 }
 
 // handleTurnReasoning appends pre-answer reasoning for the live tail.
@@ -406,9 +422,9 @@ func (m *Model) handleTurnReasoning(msg turnReasoningMsg) tea.Cmd {
 		return nil
 	}
 	if !m.turn.acceptReasoning(msg.text) {
-		return waitTurnEvent(m.turn.ch)
+		return waitTurn(m.turn)
 	}
-	return tea.Batch(m.requestStreamPaint(), waitTurnEvent(m.turn.ch))
+	return tea.Batch(m.requestStreamPaint(), waitTurn(m.turn))
 }
 
 func (m *Model) handleTurnAssistant(msg turnAssistantMsg) tea.Cmd {
@@ -424,7 +440,7 @@ func (m *Model) handleTurnAssistant(msg turnAssistantMsg) tea.Cmd {
 		m.contextTokens = n
 	}
 	m.persist(recordFromAPI(msg.message))
-	return waitTurnEvent(m.turn.ch)
+	return waitTurn(m.turn)
 }
 
 func (m *Model) handleTurnToolStart(msg turnToolStartMsg) tea.Cmd {
@@ -432,10 +448,31 @@ func (m *Model) handleTurnToolStart(msg turnToolStartMsg) tea.Cmd {
 		return nil
 	}
 	m.turn.endStreaming()
-	m.messages = append(m.messages, newToolMessage(msg.label, msg.name))
+	label := msg.label
+	if label == "" {
+		label = msg.name
+	}
+	m.messages = append(m.messages, newToolMessage(label, msg.name))
 	m.turn.activeTool = len(m.messages) - 1
+	if detail := strings.TrimSpace(msg.detail); detail != "" {
+		m.messages[m.turn.activeTool].Out = detail
+	}
 	m.refreshTranscript()
-	return waitTurnEvent(m.turn.ch)
+
+	// Agent only waits when Gate is true. Match NeedsDecision — do not send
+	// a Decision the agent isn't awaiting.
+	if !permission.NeedsDecision(m.grants, msg.name) {
+		return waitTurn(m.turn)
+	}
+	m.perm = &permissionPrompt{
+		label: label,
+		name:  msg.name,
+		path:  msg.path,
+	}
+	if m.ready {
+		m.layoutPreservingBottom()
+	}
+	return waitTurn(m.turn)
 }
 
 func (m *Model) handleTurnToolOut(msg turnToolOutMsg) tea.Cmd {
@@ -444,9 +481,9 @@ func (m *Model) handleTurnToolOut(msg turnToolOutMsg) tea.Cmd {
 	}
 	if i := m.turn.activeTool; i >= 0 && i < len(m.messages) && m.messages[i].Tool == msg.name {
 		m.messages[i].Out = msg.text
-		return tea.Batch(m.requestStreamPaint(), waitTurnEvent(m.turn.ch))
+		return tea.Batch(m.requestStreamPaint(), waitTurn(m.turn))
 	}
-	return waitTurnEvent(m.turn.ch)
+	return waitTurn(m.turn)
 }
 
 func (m *Model) handleTurnTool(msg turnToolMsg) tea.Cmd {
@@ -455,14 +492,19 @@ func (m *Model) handleTurnTool(msg turnToolMsg) tea.Cmd {
 	}
 	m.history = append(m.history, msg.message)
 	if i := m.turn.activeTool; i >= 0 && i < len(m.messages) && m.messages[i].Tool == msg.name {
-		if toolHasOut(m.messages[i].Tool) {
-			m.messages[i].Out = msg.message.Text
+		if msg.denied {
+			m.messages[i].Status = ToolDenied
+		} else {
+			m.messages[i].Status = ToolOK
+			if toolHasOut(m.messages[i].Tool) {
+				m.messages[i].Out = msg.message.Text
+			}
 		}
 	}
 	m.turn.activeTool = -1
-	m.persist(toolRecord(msg.message, msg.label, msg.name))
+	m.persist(toolRecord(msg.message, msg.label, msg.name, msg.denied))
 	m.refreshTranscript()
-	return waitTurnEvent(m.turn.ch)
+	return waitTurn(m.turn)
 }
 
 // ensureTitle requests an AI title once for an untitled session.
@@ -494,6 +536,12 @@ func (m *Model) finishTurn() {
 		return
 	}
 	m.cancelStreamPaint() // invalidate pending ticks (gen is on Model)
+	// Deny any open ask so the agent unblocks on the same path as user deny.
+	m.abandonPermission()
+	// Cancel mid-tool: close out the open row — late KindTool is dropped.
+	if i := m.turn.activeTool; i >= 0 && i < len(m.messages) && m.messages[i].Status == ToolRunning {
+		m.messages[i].Status = ToolDenied
+	}
 	m.turn.cancel()
 	m.turn = nil
 	m.history = compact.TrimIncomplete(m.history)
@@ -558,10 +606,11 @@ func recordFromAPI(m ai.Message) session.Record {
 	}
 }
 
-func toolRecord(m ai.Message, label, name string) session.Record {
+func toolRecord(m ai.Message, label, name string, denied bool) session.Record {
 	rec := recordFromAPI(m)
 	rec.Label = label
 	rec.Tool = name
+	rec.Denied = denied
 	return rec
 }
 
@@ -580,13 +629,13 @@ func loadSession(recs []session.Record) (ui []Message, history []ai.Message) {
 			if label == "" {
 				label = "tool"
 			}
-			tool := r.Tool
-			if tool == "" {
-				// Older sessions stored only the Summary label.
-				tool = firstWord(label)
+			uiMsg := newToolMessage(label, r.Tool)
+			if r.Denied {
+				uiMsg.Status = ToolDenied
+			} else {
+				uiMsg.Status = ToolOK
 			}
-			uiMsg := newToolMessage(label, tool)
-			if toolHasOut(tool) {
+			if toolHasOut(r.Tool) && uiMsg.Status == ToolOK {
 				uiMsg.Out = r.Text
 			}
 			ui = append(ui, uiMsg)
@@ -598,14 +647,6 @@ func loadSession(recs []session.Record) (ui []Message, history []ai.Message) {
 		}
 	}
 	return ui, compact.RebuildAPIHistory(recs)
-}
-
-func firstWord(s string) string {
-	s = strings.TrimSpace(s)
-	if i := strings.IndexByte(s, ' '); i >= 0 {
-		return s[:i]
-	}
-	return s
 }
 
 // layout sizes chrome regions. m.showScrollbar reserves one column for the transcript scrollbar.
@@ -621,8 +662,11 @@ func (m *Model) layout() {
 		inputH = inputMinHeight
 	}
 
-	// gap + input body + margin below + footer (cwd/model)
-	chromeH := m.gapHeight() + inputH + styles.InputChromeV + styles.InputMarginB + 1
+	// gap + footer; input chrome is hidden while a permission prompt is open.
+	chromeH := m.gapHeight() + 1 // footer
+	if m.perm == nil {
+		chromeH += inputH + styles.InputChromeV + styles.InputMarginB
+	}
 	th := m.height - chromeH
 	if th < minTranscriptH {
 		th = minTranscriptH
@@ -715,14 +759,19 @@ func (m Model) View() tea.View {
 		return m.programView(m.config.View(m.chrome, w, w, h))
 	}
 
-	// gap is one layout slot: busy status, command overlay, or blank.
+	// gap is one layout slot: permission panel, busy status, command overlay, or blank.
 	// layout() already sized the transcript for gapHeight().
-	gap := m.turnStatusLine()
-	if ov := m.renderOverlay(m.width); ov != "" {
-		gap = ov
-	}
+	gap := m.gapContent()
+	input := m.renderInput()
+	footer := m.renderFooter()
+	return m.programView(stackMainChrome(m.mainView(), gap, input, footer))
+}
 
-	// Inset by InputMarginH each side (matches transcript ContentInset).
+// renderInput returns the input box, or "" when a permission prompt replaces it.
+func (m Model) renderInput() string {
+	if m.perm != nil {
+		return ""
+	}
 	inputW := m.width - 2*styles.InputMarginH
 	if inputW < minInputInnerW+styles.InputChromeH {
 		inputW = minInputInnerW + styles.InputChromeH
@@ -732,22 +781,27 @@ func (m Model) View() tea.View {
 		inputH = inputMinHeight
 	}
 	input := m.chrome.InputBox().Width(inputW).Height(inputH + styles.InputPadV).Render(m.textarea.View())
-	input = lipgloss.NewStyle().
+	return lipgloss.NewStyle().
 		Margin(0, styles.InputMarginH, styles.InputMarginB, styles.InputMarginH).
 		Render(input)
+}
+
+func (m Model) renderFooter() string {
 	footerW := m.width - 2*styles.InputMarginH
 	if footerW < 1 {
 		footerW = 1
 	}
-	footer := lipgloss.NewStyle().
+	return lipgloss.NewStyle().
 		Margin(0, styles.InputMarginH).
 		Render(inputFooter(footerW, m.ws, m.cfg, m.mode, m.contextTokens))
-
-	return m.programView(stackMainChrome(m.mainView(), gap, input, footer))
 }
 
 // stackMainChrome places transcript, gap row (status/overlay/blank), input, and footer.
+// Omit input when empty (permission prompt replaces it).
 func stackMainChrome(main, gap, input, footer string) string {
+	if input == "" {
+		return lipgloss.JoinVertical(lipgloss.Left, main, gap, footer)
+	}
 	return lipgloss.JoinVertical(lipgloss.Left, main, gap, input, footer)
 }
 
@@ -758,7 +812,7 @@ func (m Model) programView(content string) tea.View {
 	v.ReportFocus = true
 	// Enables shift+enter and other modified keys on supporting terminals.
 	v.KeyboardEnhancements.ReportEventTypes = true
-	// Bubble Tea v2 maps WindowTitle → OSC 2 (same idea as opencode's setTerminalTitle).
+	// Bubble Tea v2 maps WindowTitle → OSC 2.
 	v.WindowTitle = terminalTitle(m.sess)
 	return v
 }

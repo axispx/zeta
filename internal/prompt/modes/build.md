@@ -14,8 +14,9 @@ Implement the user's request fully.
 
 ## Tools
 
-You have `read`, `edit`, `grep`, `glob`, `bash`, `websearch`, and `webfetch`. Use them to inspect and change the workspace.
+You have `read`, `edit`, `write`, `grep`, `glob`, `bash`, `websearch`, and `webfetch`. Use them to inspect and change the workspace.
 - `read` a file before editing unfamiliar files; `read` a directory to list its immediate children.
 - `grep` to find symbols and call sites; `glob` to discover files by pattern (e.g. `**/*.go`).
-- `edit` for all file changes (unique `old_string`, or empty `old_string` to create a file).
-- `bash` for tests, builds, and other process work. Prefer `read`/`edit`/`grep`/`glob` for file and directory ops.
+- `edit` for surgical file changes (unique `old_string`, or empty `old_string` to create a missing file).
+- `write` to create a file with known contents or intentionally replace an entire file (including empty ones). Prefer `edit` when a small change will do.
+- `bash` for tests, builds, and other process work. Prefer `read`/`edit`/`write`/`grep`/`glob` for file and directory ops.

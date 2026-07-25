@@ -39,27 +39,16 @@ func TestRebuildAPIHistoryWithTail(t *testing.T) {
 	}
 }
 
-func TestRebuildAPIHistoryLegacyNoTail(t *testing.T) {
-	// Tail==0 falls back to Select(DefaultKeep).
-	old := session.Record{Role: session.RoleUser, Text: strings.Repeat("old ", 500)}
-	recent := session.Record{Role: session.RoleUser, Text: "recent"}
-	pre := []ai.Message{
-		{Role: ai.RoleUser, Text: old.Text},
-		{Role: ai.RoleUser, Text: recent.Text},
-	}
-	wantTail := Select(pre, DefaultKeep).Tail
+func TestRebuildAPIHistoryEmptyTail(t *testing.T) {
+	// Tail 0 keeps only the checkpoint.
 	log := []session.Record{
-		old, recent,
+		{Role: session.RoleUser, Text: strings.Repeat("old ", 500)},
+		{Role: session.RoleUser, Text: "recent"},
 		{Role: session.RoleCompact, Text: "## Objective\n- x", Tail: 0},
 	}
 	hist := RebuildAPIHistory(log)
-	if len(hist) != 1+len(wantTail) {
-		t.Fatalf("hist len=%d want %d", len(hist), 1+len(wantTail))
-	}
-	for i, m := range wantTail {
-		if hist[1+i].Text != m.Text {
-			t.Fatalf("tail[%d]=%q want %q", i, hist[1+i].Text, m.Text)
-		}
+	if len(hist) != 1 || !IsCheckpoint(hist[0]) {
+		t.Fatalf("hist=%+v", hist)
 	}
 }
 

@@ -12,6 +12,7 @@ import (
 	"github.com/axispx/zeta/internal/ai"
 	"github.com/axispx/zeta/internal/compact"
 	"github.com/axispx/zeta/internal/config"
+	"github.com/axispx/zeta/internal/permission"
 	"github.com/axispx/zeta/internal/session"
 )
 
@@ -22,6 +23,7 @@ func testModel() Model {
 		width:    80,
 		height:   24,
 		ready:    true,
+		grants:   &permission.Session{},
 	}
 }
 
@@ -73,21 +75,15 @@ func TestLoadSessionRebuildsAfterCompact(t *testing.T) {
 	}
 }
 
-func TestLoadSessionLegacyCompactNoTail(t *testing.T) {
-	old := session.Record{Role: session.RoleUser, Text: strings.Repeat("old ", 500)}
-	recent := session.Record{Role: session.RoleUser, Text: "recent"}
-	pre := []ai.Message{
-		{Role: ai.RoleUser, Text: old.Text},
-		{Role: ai.RoleUser, Text: recent.Text},
-	}
-	wantTail := compact.Select(pre, compact.DefaultKeep).Tail
+func TestLoadSessionCompactEmptyTail(t *testing.T) {
 	recs := []session.Record{
-		old, recent,
-		{Role: session.RoleCompact, Text: "## Objective\n- x"}, // Tail=0 legacy
+		{Role: session.RoleUser, Text: strings.Repeat("old ", 500)},
+		{Role: session.RoleUser, Text: "recent"},
+		{Role: session.RoleCompact, Text: "## Objective\n- x", Tail: 0},
 	}
 	_, hist := loadSession(recs)
-	if len(hist) != 1+len(wantTail) {
-		t.Fatalf("hist len=%d want %d", len(hist), 1+len(wantTail))
+	if len(hist) != 1 || !compact.IsCheckpoint(hist[0]) {
+		t.Fatalf("hist=%+v", hist)
 	}
 }
 
@@ -102,6 +98,23 @@ func TestLoadSessionNoCompact(t *testing.T) {
 	}
 	if hist[0].Role != ai.RoleUser || hist[1].Role != ai.RoleAssistant {
 		t.Fatalf("hist roles: %+v", hist)
+	}
+}
+
+func TestLoadSessionDeniedTool(t *testing.T) {
+	recs := []session.Record{
+		{Role: session.RoleTool, Text: "rejected: the user denied this call", Label: "bash echo", Tool: "bash", Denied: true},
+		{Role: session.RoleTool, Text: "ok", Label: "edit a.go", Tool: "edit", Denied: false},
+	}
+	ui, _ := loadSession(recs)
+	if len(ui) != 2 {
+		t.Fatalf("ui=%d", len(ui))
+	}
+	if ui[0].Status != ToolDenied || ui[0].Out != "" {
+		t.Fatalf("denied: %+v", ui[0])
+	}
+	if ui[1].Status != ToolOK || ui[1].Out == "" {
+		t.Fatalf("allowed edit should keep Out: %+v", ui[1])
 	}
 }
 

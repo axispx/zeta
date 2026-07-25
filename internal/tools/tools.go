@@ -19,9 +19,18 @@ type Tool interface {
 	Run(ctx context.Context, root string, args json.RawMessage) (string, error)
 }
 
+// ArgPath returns the "path" JSON argument for edit/write-style tools, or "".
+func ArgPath(raw json.RawMessage) string {
+	var a struct {
+		Path string `json:"path"`
+	}
+	_ = json.Unmarshal(raw, &a)
+	return strings.TrimSpace(a.Path)
+}
+
 // Build returns the full tool set (build mode).
 func Build() []Tool {
-	return []Tool{readTool{}, editTool{}, grepTool{}, globTool{}, bashTool{}, websearchTool{}, webfetchTool{}}
+	return []Tool{readTool{}, editTool{}, writeTool{}, grepTool{}, globTool{}, bashTool{}, websearchTool{}, webfetchTool{}}
 }
 
 // Inspect returns ask/plan-safe tools (no edits, no shell).
