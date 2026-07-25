@@ -2,7 +2,7 @@
 
 Anti vibe-coding AI agent for your terminal.
 
-Use any OpenAI-compatible provider (DeepSeek, xAI, custom endpoints, and more). Providers and models come from [models.dev](https://models.dev).
+Use any OpenAI-compatible provider — OpenAI, xAI, DeepSeek, Kimi, and more, plus custom endpoints. Providers and models come from [models.dev](https://models.dev).
 
 ## Features
 
