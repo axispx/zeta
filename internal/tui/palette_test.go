@@ -19,7 +19,10 @@ func TestClipBottomLines(t *testing.T) {
 }
 
 func TestFormatPaletteRow(t *testing.T) {
-	items := []command{{"/clear", "start a new session"}, {"/resume", "open a previous session"}}
+	items := []command{
+		{name: "/clear", desc: "start a new session"},
+		{name: "/resume", desc: "open a previous session"},
+	}
 	nameW := paletteNameWidth(items)
 	ink := styles.PlainOverlayInk()
 

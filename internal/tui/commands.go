@@ -17,18 +17,21 @@ import (
 	"github.com/axispx/zeta/internal/styles"
 )
 
+// command is a slash-palette entry. skill marks a bundled playbook binding
+// (fill-into-input); harness commands run immediately via runCommand.
 type command struct {
-	name string
-	desc string
+	name  string
+	desc  string
+	skill bool
 }
 
 // builtinCommands are harness commands (not skill slash bindings).
 var builtinCommands = []command{
-	{"/clear", "start a new session"},
-	{"/compact", "summarize older context"},
-	{"/resume", "open a previous session"},
-	{"/model", "switch model"},
-	{"/config", "manage providers & models"},
+	{name: "/clear", desc: "start a new session"},
+	{name: "/compact", desc: "summarize older context"},
+	{name: "/resume", desc: "open a previous session"},
+	{name: "/model", desc: "switch model"},
+	{name: "/config", desc: "manage providers & models"},
 }
 
 // commands is builtins plus slash-bound bundled skills (init-time, fixed).
@@ -49,19 +52,9 @@ func init() {
 		if _, clash := seen[s.Slash]; clash {
 			panic(fmt.Sprintf("skill slash %q collides with a harness command", s.Slash))
 		}
-		commands = append(commands, command{name: s.Slash, desc: s.Description})
+		commands = append(commands, command{name: s.Slash, desc: s.Description, skill: true})
 		seen[s.Slash] = struct{}{}
 	}
-}
-
-func lookupBuiltin(name string) (command, bool) {
-	name = strings.TrimSpace(name)
-	for _, c := range builtinCommands {
-		if c.name == name {
-			return c, true
-		}
-	}
-	return command{}, false
 }
 
 // listSel is shared selection state for overlays.
@@ -264,13 +257,19 @@ func (m *Model) runCommand(name string) tea.Cmd {
 		m.openModelOverlay()
 	case "/config":
 		return m.openConfigDialog()
-	default:
-		// Palette-selected skill slash (exact token). Args go through submitInput.
-		if _, ok := skill.BySlash(name); ok {
-			return m.submit(name)
-		}
 	}
 	return nil
+}
+
+// fillSkillSlash puts a skill token in the input (trailing space for args) and
+// dismisses the command overlay without submitting.
+func (m *Model) fillSkillSlash(name string) {
+	m.overlay.clear()
+	m.textarea.SetValue(name + " ")
+	m.textarea.MoveToEnd()
+	if m.ready {
+		m.layoutPreservingBottom()
+	}
 }
 
 func (m *Model) openConfigDialog() tea.Cmd {
@@ -385,7 +384,12 @@ func (m *Model) handleOverlayKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 			return nil, true
 		}
 		if key == "tab" {
-			m.textarea.SetValue(m.overlay.cmds[m.overlay.selected].name)
+			cmd := m.overlay.cmds[m.overlay.selected]
+			if cmd.skill {
+				m.fillSkillSlash(cmd.name)
+			} else {
+				m.textarea.SetValue(cmd.name)
+			}
 			return nil, true
 		}
 		return nil, false
@@ -409,7 +413,13 @@ func (m *Model) submitInput() tea.Cmd {
 		return nil
 	}
 	if m.overlay.mode == overlayCommands && m.overlay.showing() {
-		return m.runCommand(m.overlay.cmds[m.overlay.selected].name)
+		cmd := m.overlay.cmds[m.overlay.selected]
+		// Skills always fill so the user can add args; second Enter submits.
+		if cmd.skill {
+			m.fillSkillSlash(cmd.name)
+			return nil
+		}
+		return m.runCommand(cmd.name)
 	}
 	text := strings.TrimSpace(m.textarea.Value())
 	if text == "" {
@@ -423,7 +433,7 @@ func (m *Model) submitInput() tea.Cmd {
 		return m.submit(text)
 	}
 	if isSlashToken(text) {
-		if _, ok := lookupBuiltin(text); ok {
+		if c, ok := lookupCommand(text); ok && !c.skill {
 			return m.runCommand(text)
 		}
 		m.resetInput()
