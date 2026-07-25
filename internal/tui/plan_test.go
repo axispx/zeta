@@ -75,6 +75,12 @@ func TestNoteProducedPlan(t *testing.T) {
 	if m.pendingPlan == "" || !strings.Contains(m.pendingPlan, "Do it.") {
 		t.Fatalf("pending=%q", m.pendingPlan)
 	}
+	// Markdown fence form (common model mistake).
+	m.pendingPlan = ""
+	m.noteProducedPlan("```proposed_plan\n## Fence plan\nbody here\n```")
+	if m.pendingPlan == "" || !strings.Contains(m.pendingPlan, "body here") {
+		t.Fatalf("fence pending=%q", m.pendingPlan)
+	}
 	m.mode = prompt.ModeBuild
 	m.pendingPlan = ""
 	m.noteProducedPlan("<proposed_plan>\n## X\ny\n</proposed_plan>")

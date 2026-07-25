@@ -34,6 +34,27 @@ func TestExtract(t *testing.T) {
 			"ok",
 			true,
 		},
+		{
+			// Models often emit ```proposed_plan instead of <proposed_plan>.
+			"markdown fence",
+			"intro\n```proposed_plan\n## Fence\nbody\n```\noutro",
+			"## Fence\nbody",
+			true,
+		},
+		{
+			"fence last wins over earlier tag",
+			"<proposed_plan>old</proposed_plan>\n```proposed_plan\nnew fence\n```",
+			"new fence",
+			true,
+		},
+		{
+			"tag last wins over earlier fence",
+			"```proposed_plan\nold fence\n```\n<proposed_plan>new tag</proposed_plan>",
+			"new tag",
+			true,
+		},
+		{"fence empty", "```proposed_plan\n\n```", "", false},
+		{"fence unclosed", "x\n```proposed_plan\nno close", "", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -102,5 +123,26 @@ func TestDisplayParts(t *testing.T) {
 	}
 	if Open("x\n<proposed_plan>y</proposed_plan>") {
 		t.Fatal("closed should not be Open")
+	}
+
+	// Markdown fence form (model mistake).
+	before, body, after, ok = DisplayParts("Hi.\n\n```proposed_plan\n## F\nb\n```\nBye.")
+	if !ok {
+		t.Fatal("fence: expected ok")
+	}
+	if body != "## F\nb" {
+		t.Fatalf("fence body=%q", body)
+	}
+	if strings.Contains(before+body+after, "```") || strings.Contains(before+body+after, "proposed_plan") {
+		t.Fatalf("fence delimiters leaked: before=%q body=%q after=%q", before, body, after)
+	}
+	if strings.TrimSpace(after) != "Bye." {
+		t.Fatalf("fence after=%q", after)
+	}
+	if !Open("x\n```proposed_plan\npartial") {
+		t.Fatal("expected fence Open")
+	}
+	if Open("x\n```proposed_plan\ny\n```") {
+		t.Fatal("closed fence should not be Open")
 	}
 }

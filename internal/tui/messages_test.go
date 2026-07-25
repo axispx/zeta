@@ -40,6 +40,24 @@ func TestRenderAgentLiveFramesOpenPlan(t *testing.T) {
 	}
 }
 
+func TestRenderAgentFramesFencePlan(t *testing.T) {
+	// Models often emit ```proposed_plan instead of <proposed_plan>.
+	msg := &Message{
+		Role: RoleAgent,
+		Text: "Intro.\n\n```proposed_plan\n## Fix auth\n\n- step one\n```",
+	}
+	out := stripANSI(msg.renderBody(80, lipgloss.NewStyle(), false))
+	if strings.Contains(out, "```") || strings.Contains(out, "proposed_plan") {
+		t.Fatalf("fence leaked: %q", out)
+	}
+	if !strings.Contains(out, "Fix auth") || !strings.Contains(out, "step one") {
+		t.Fatalf("missing plan body: %q", out)
+	}
+	if !strings.Contains(out, "┃") {
+		t.Fatalf("expected plan frame border, got %q", out)
+	}
+}
+
 func TestToolRunAtGroupsTools(t *testing.T) {
 	msgs := []Message{
 		{Role: RoleUser, Text: "hi"},
