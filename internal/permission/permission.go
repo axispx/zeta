@@ -15,7 +15,14 @@ func NeedsDecision(grants *Session, tool string) bool {
 	return SideEffect(tool) && !grants.Granted(tool)
 }
 
-// Class groups side-effect tools that share a session grant.
+// SessionGrantable reports whether "allow for session" is offered for this tool.
+// File mutations (edit/write) always require a per-call review.
+func SessionGrantable(tool string) bool {
+	c, ok := ClassOf(tool)
+	return ok && c != ClassEdit
+}
+
+// Class groups side-effect tools for harness UI (prompt copy) and session grants.
 type Class int
 
 const (
@@ -23,7 +30,7 @@ const (
 	ClassEdit
 )
 
-// ClassOf maps a side-effect tool to its grant class.
+// ClassOf maps a side-effect tool to its UI/grant class.
 func ClassOf(tool string) (Class, bool) {
 	switch tool {
 	case "bash":
@@ -45,6 +52,7 @@ const (
 )
 
 // Session holds "allow for session" grants (harness-owned).
+// Only SessionGrantable tools can be stored; edit/write are never granted.
 type Session struct {
 	mu sync.Mutex
 	ok map[Class]bool
@@ -52,7 +60,7 @@ type Session struct {
 
 // Granted reports whether the tool's class was previously allowed for the session.
 func (s *Session) Granted(tool string) bool {
-	if s == nil {
+	if s == nil || !SessionGrantable(tool) {
 		return false
 	}
 	c, ok := ClassOf(tool)
@@ -64,9 +72,10 @@ func (s *Session) Granted(tool string) bool {
 	return s.ok[c]
 }
 
-// Grant allows the tool's class for the rest of the session.
+// Grant allows the tool's class for the rest of the session when SessionGrantable.
+// No-op for edit/write and unknown tools.
 func (s *Session) Grant(tool string) {
-	if s == nil {
+	if s == nil || !SessionGrantable(tool) {
 		return
 	}
 	c, ok := ClassOf(tool)

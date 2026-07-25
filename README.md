@@ -12,7 +12,7 @@ make install # ~/.local/bin/zeta
 
 **Keys:** `enter` send · `up`/`down` / `ctrl+p`/`ctrl+n` prompt history · `shift+tab` cycle mode (build / ask / plan) · `shift+enter` / `ctrl+j` / `alt+enter` newline · `esc` / `ctrl+c` cancel turn (or quit when idle) · mouse / pgup/pgdn scroll
 
-**Permissions (build):** bash, edit, and write prompt before running — vertical `[a]` allow once · `[s]` allow for session · `[d]` deny (clickable; ↑/↓+enter; esc cancel). Ask/plan stay read-only (no prompt).
+**Permissions (build):** bash, edit, and write prompt before running — bash: `[a]` allow once · `[s]` allow for session · `[d]` deny; edit/write: `[a]` allow · `[d]` deny (every call; no session grant). Clickable; ↑/↓+enter; esc cancel. Ask/plan stay read-only (no prompt).
 
 **Commands:** type `/` for autocomplete · `/clear` new session · `/compact` summarize older context · `/resume` pick a previous session · `/model` switch model · `/config` manage providers & models
 
@@ -30,7 +30,7 @@ cmd/zeta/            entry
 internal/tui/        bubbletea v2 model (viewport + dynamic textarea)
 internal/ai/         OpenAI-compatible streaming client + tool calls
 internal/agent/      tool loop + permission gate
-internal/permission/ ask | allow | deny per tool class
+internal/permission/ allow | deny for side-effect tools
 internal/compact/    context compaction (checkpoint + recent tail)
 internal/tools/      read / edit / write / grep / glob / bash / websearch / webfetch
 internal/config/     ~/.zeta/config.json

@@ -22,10 +22,20 @@ type permOption struct {
 	decide permission.Decision
 }
 
-var permOptions = []permOption{
-	{"a", "Allow once", permission.AllowOnce},
-	{"s", "Allow for session", permission.AllowSession},
-	{"d", "Deny", permission.Deny},
+// permOptionsFor returns the approval choices for a tool.
+// bash offers session grant; edit/write stay once-only so every diff is reviewed.
+func permOptionsFor(tool string) []permOption {
+	if permission.SessionGrantable(tool) {
+		return []permOption{
+			{"a", "Allow once", permission.AllowOnce},
+			{"s", "Allow for session", permission.AllowSession},
+			{"d", "Deny", permission.Deny},
+		}
+	}
+	return []permOption{
+		{"a", "Allow", permission.AllowOnce},
+		{"d", "Deny", permission.Deny},
+	}
 }
 
 // permissionPrompt is the modal approval surface (replaces the input while open).
@@ -35,7 +45,14 @@ type permissionPrompt struct {
 	label    string
 	name     string
 	path     string
-	selected int // index into permOptions
+	selected int // index into options()
+}
+
+func (p *permissionPrompt) options() []permOption {
+	if p == nil {
+		return nil
+	}
+	return permOptionsFor(p.name)
 }
 
 // sendDecision delivers allow/deny to the agent. Non-blocking: on cancel the
@@ -79,6 +96,7 @@ func (m *Model) handlePermissionKey(msg tea.KeyPressMsg) bool {
 	if m.perm == nil {
 		return false
 	}
+	opts := m.perm.options()
 	switch msg.String() {
 	case "esc":
 		return false
@@ -87,17 +105,17 @@ func (m *Model) handlePermissionKey(msg tea.KeyPressMsg) bool {
 			m.perm.selected--
 		}
 	case "down", "ctrl+n":
-		if m.perm.selected < len(permOptions)-1 {
+		if m.perm.selected < len(opts)-1 {
 			m.perm.selected++
 		}
 	case "enter":
 		i := m.perm.selected
-		if i < 0 || i >= len(permOptions) {
+		if i < 0 || i >= len(opts) {
 			i = 0
 		}
-		m.decidePermission(permOptions[i].decide)
+		m.decidePermission(opts[i].decide)
 	default:
-		for _, opt := range permOptions {
+		for _, opt := range opts {
 			if msg.String() == opt.key {
 				m.decidePermission(opt.decide)
 				return true
@@ -113,8 +131,11 @@ func (m *Model) handlePermissionClick(msg tea.MouseClickMsg) bool {
 		return false
 	}
 	if i := m.permissionOptionAt(msg.X, msg.Y); i >= 0 {
-		m.decidePermission(permOptions[i].decide)
-		return true
+		opts := m.perm.options()
+		if i < len(opts) {
+			m.decidePermission(opts[i].decide)
+			return true
+		}
 	}
 	return false
 }
@@ -145,7 +166,8 @@ func (m Model) permissionOptionAt(x, y int) int {
 	rel := y - m.viewport.Height() - 1 - 1
 	titleH := lipgloss.Height(m.renderPermissionTitle(contentW, ink))
 	idx := rel - titleH
-	if idx < 0 || idx >= len(permOptions) {
+	opts := m.perm.options()
+	if idx < 0 || idx >= len(opts) {
 		return -1
 	}
 	return idx
@@ -157,15 +179,16 @@ func (m Model) renderPermission(width int) string {
 	}
 	innerW, contentW := overlayWidths(width)
 	ink := m.chrome.OverlayInk()
+	opts := m.perm.options()
 
 	var b strings.Builder
 	b.WriteString(m.renderPermissionTitle(contentW, ink))
 
 	sel := m.perm.selected
-	if sel < 0 || sel >= len(permOptions) {
+	if sel < 0 || sel >= len(opts) {
 		sel = 0
 	}
-	for i, opt := range permOptions {
+	for i, opt := range opts {
 		b.WriteByte('\n')
 		label := "[" + opt.key + "] " + opt.label
 		b.WriteString(formatAccentRow(label, "", contentW, i == sel, false, ink))

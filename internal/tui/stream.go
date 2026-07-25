@@ -187,7 +187,8 @@ func startTurn(client *ai.Client, ws workspace.Context, mode prompt.Mode, histor
 		Tools:   toolsForMode(mode),
 		Root:    ws.Abs,
 		Replies: replies,
-		// Harness policy: only side-effect tools without a session grant block.
+		// Harness policy: side-effect tools without a session grant block.
+		// edit/write are never session-grantable (always prompt).
 		Gate: func(name string) bool {
 			return permission.NeedsDecision(grants, name)
 		},

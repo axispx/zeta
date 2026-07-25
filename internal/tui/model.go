@@ -57,7 +57,7 @@ type Model struct {
 	compacting    bool // true while a compact LLM call is in flight (manual or auto)
 	compactCancel context.CancelFunc
 	mode          prompt.Mode
-	grants        *permission.Session // "allow for session"; reset on /clear
+	grants        *permission.Session // "allow for session" (bash only); reset on /clear
 	perm          *permissionPrompt
 	overlay       filterOverlay
 	picker        pickerState
