@@ -1,4 +1,5 @@
 @README.md
+@CONTRIBUTING.md
 
 ## Versioning
 

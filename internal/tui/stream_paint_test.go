@@ -1,11 +1,91 @@
 package tui
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/axispx/zeta/internal/ai"
+	"github.com/axispx/zeta/internal/prompt"
+	"github.com/axispx/zeta/internal/session"
 )
+
+func TestTurnDeltaSetsFramePlanInPlanMode(t *testing.T) {
+	m := testModel()
+	m.mode = prompt.ModePlan
+	m.turn = &turnSession{
+		cancel:     func() {},
+		ch:         closedAgentEvents(),
+		activeTool: -1,
+	}
+	next, _ := m.Update(turnDeltaMsg{text: "hi"})
+	m = next.(Model)
+	if len(m.messages) != 1 || !m.messages[0].framePlan {
+		t.Fatalf("plan mode agent row should set framePlan: %+v", m.messages)
+	}
+
+	m2 := testModel()
+	m2.mode = prompt.ModeBuild
+	m2.turn = &turnSession{
+		cancel:     func() {},
+		ch:         closedAgentEvents(),
+		activeTool: -1,
+	}
+	next, _ = m2.Update(turnDeltaMsg{text: "hi"})
+	m2 = next.(Model)
+	if len(m2.messages) != 1 || m2.messages[0].framePlan {
+		t.Fatalf("build mode must not set framePlan: %+v", m2.messages)
+	}
+}
+
+func TestAssistantPersistsFramePlan(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("ZETA_HOME", home)
+	proj := filepath.Join(t.TempDir(), "proj")
+
+	for _, tc := range []struct {
+		mode prompt.Mode
+		want bool
+	}{
+		{prompt.ModePlan, true},
+		{prompt.ModeBuild, false},
+		{prompt.ModeAsk, false},
+	} {
+		t.Run(tc.mode.String(), func(t *testing.T) {
+			sess, err := session.New(proj)
+			if err != nil {
+				t.Fatal(err)
+			}
+			m := testModel()
+			m.sess = sess
+			m.mode = tc.mode
+			m.turn = &turnSession{
+				cancel:     func() {},
+				ch:         closedAgentEvents(),
+				activeTool: -1,
+			}
+			next, _ := m.Update(turnAssistantMsg{
+				message: ai.Message{Role: ai.RoleAssistant, Text: "hello"},
+			})
+			m = next.(Model)
+
+			_, recs, err := session.OpenID(proj, sess.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(recs) != 1 {
+				t.Fatalf("recs=%+v", recs)
+			}
+			if recs[0].FramePlan != tc.want {
+				t.Fatalf("FramePlan=%v want %v", recs[0].FramePlan, tc.want)
+			}
+			ui, _ := loadSession(recs)
+			if len(ui) != 1 || ui[0].framePlan != tc.want {
+				t.Fatalf("ui framePlan want %v, ui=%+v", tc.want, ui)
+			}
+		})
+	}
+}
 
 func TestRequestStreamPaintCoalesces(t *testing.T) {
 	m := testModel()

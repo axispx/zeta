@@ -407,6 +407,13 @@ func (m *Model) beginTurn(titlePrompt string) tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
+// planFraming is true when this turn is Plan mode. Mode is frozen while a turn
+// runs, so the same snapshot is used for the live agent row and JSONL persist.
+// Stored on the message so framing survives later mode switches and resume.
+func (m *Model) planFraming() bool {
+	return m.mode == prompt.ModePlan
+}
+
 func (m *Model) handleTurnDelta(msg turnDeltaMsg) tea.Cmd {
 	if m.turn == nil {
 		return nil
@@ -416,7 +423,11 @@ func (m *Model) handleTurnDelta(msg turnDeltaMsg) tea.Cmd {
 	if n > 0 && m.messages[n-1].Role == RoleAgent {
 		m.messages[n-1].Text += msg.text
 	} else {
-		m.messages = append(m.messages, Message{Role: RoleAgent, Text: msg.text})
+		m.messages = append(m.messages, Message{
+			Role:      RoleAgent,
+			Text:      msg.text,
+			framePlan: m.planFraming(),
+		})
 	}
 	// Ingest every token; paint at most every streamPaintEvery.
 	return tea.Batch(m.requestStreamPaint(), waitTurn(m.turn))
@@ -446,9 +457,11 @@ func (m *Model) handleTurnAssistant(msg turnAssistantMsg) tea.Cmd {
 	if n := msg.usage.ContextTokens(); n > 0 {
 		m.contextTokens = n
 	}
-	// Single encoding: full assistant text (including <proposed_plan>) on the
-	// agent row for UI, JSONL, and API history.
-	m.persist(recordFromAPI(msg.message))
+	// Full assistant text (including <proposed_plan>) on the agent row for UI,
+	// JSONL, and API history. FramePlan snapshots planFraming at ingest.
+	rec := recordFromAPI(msg.message)
+	rec.FramePlan = m.planFraming()
+	m.persist(rec)
 	m.noteProducedPlan(msg.message.Text)
 	return waitTurn(m.turn)
 }
@@ -627,7 +640,7 @@ func loadSession(recs []session.Record) (ui []Message, history []ai.Message) {
 			ui = append(ui, Message{Role: RoleUser, Text: r.Text})
 		case session.RoleAgent:
 			if r.Text != "" {
-				ui = append(ui, Message{Role: RoleAgent, Text: r.Text})
+				ui = append(ui, Message{Role: RoleAgent, Text: r.Text, framePlan: r.FramePlan})
 			}
 		case session.RoleTool:
 			label := r.Label

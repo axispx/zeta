@@ -11,8 +11,9 @@ import (
 
 func TestRenderAgentSettledFramesPlan(t *testing.T) {
 	msg := &Message{
-		Role: RoleAgent,
-		Text: "Intro.\n\n<proposed_plan>\n## Fix auth\n\n- step one\n</proposed_plan>",
+		Role:      RoleAgent,
+		Text:      "Intro.\n\n<proposed_plan>\n## Fix auth\n\n- step one\n</proposed_plan>",
+		framePlan: true,
 	}
 	out := stripANSI(msg.renderBody(80, lipgloss.NewStyle(), false))
 	if strings.Contains(out, "<proposed_plan>") {
@@ -28,8 +29,9 @@ func TestRenderAgentSettledFramesPlan(t *testing.T) {
 
 func TestRenderAgentLiveFramesOpenPlan(t *testing.T) {
 	msg := &Message{
-		Role: RoleAgent,
-		Text: "Intro.\n\n<proposed_plan>\n## Fix auth\npartial",
+		Role:      RoleAgent,
+		Text:      "Intro.\n\n<proposed_plan>\n## Fix auth\npartial",
+		framePlan: true,
 	}
 	out := stripANSI(msg.renderBody(80, lipgloss.NewStyle(), true))
 	if strings.Contains(out, "<proposed_plan>") {
@@ -40,11 +42,25 @@ func TestRenderAgentLiveFramesOpenPlan(t *testing.T) {
 	}
 }
 
+func TestRenderAgentIgnoresPlanWithoutFrameFlag(t *testing.T) {
+	// Build/Ask rows must not re-parse tags just because text mentions them.
+	text := "Wrap plans in <proposed_plan> and </proposed_plan> tags."
+	msg := &Message{Role: RoleAgent, Text: text}
+	out := stripANSI(msg.renderBody(80, lipgloss.NewStyle(), false))
+	if strings.Contains(out, "┃") {
+		t.Fatalf("framed plan tags without framePlan: %q", out)
+	}
+	if !strings.Contains(out, "<proposed_plan>") || !strings.Contains(out, "</proposed_plan>") {
+		t.Fatalf("dropped tags: %q", out)
+	}
+}
+
 func TestRenderAgentFramesFencePlan(t *testing.T) {
 	// Models often emit ```proposed_plan instead of <proposed_plan>.
 	msg := &Message{
-		Role: RoleAgent,
-		Text: "Intro.\n\n```proposed_plan\n## Fix auth\n\n- step one\n```",
+		Role:      RoleAgent,
+		Text:      "Intro.\n\n```proposed_plan\n## Fix auth\n\n- step one\n```",
+		framePlan: true,
 	}
 	out := stripANSI(msg.renderBody(80, lipgloss.NewStyle(), false))
 	if strings.Contains(out, "```") || strings.Contains(out, "proposed_plan") {

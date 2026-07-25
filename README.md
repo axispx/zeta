@@ -1,65 +1,111 @@
 # Zeta
 
-Command-line AI coding agent.
+Anti vibe-coding AI agent for your terminal.
 
-## Run
+Use any OpenAI-compatible provider (DeepSeek, xAI, custom endpoints, and more). Providers and models come from [models.dev](https://models.dev).
+
+## Features
+
+- **Build / Ask / Plan** — implement with tools, read-only Q&A, or plan first then approve into Build
+- **Permission prompts** — shell and file changes ask before running (Build mode)
+- **Local sessions** — chat history stays on your machine; resume anytime with `/resume`
+- **Auto-compaction** — long chats summarize older context when the model window fills up
+- **Multi-provider** — API keys and models managed in-app with `/config`
+
+## Install
 
 ```bash
-make run     # go run
-make build   # bin/zeta
-make install # ~/.local/bin/zeta
+curl -fsSL https://zeta.asy.sh/install.sh | sh
 ```
 
-**Keys:** `enter` send · `up`/`down` / `ctrl+p`/`ctrl+n` prompt history · `shift+tab` cycle mode (build / ask / plan) · `shift+enter` / `ctrl+j` / `alt+enter` newline · `esc` / `ctrl+c` cancel turn (or quit when idle) · mouse / pgup/pgdn scroll
+Then run `zeta` from a project directory.
 
-**Permissions (build):** bash, edit, and write prompt before running — bash: `[a]` allow once · `[s]` allow for session · `[d]` deny; edit/write: `[a]` allow · `[d]` deny (every call; no session grant). Clickable; ↑/↓+enter; esc cancel. Ask/plan stay read-only (no prompt).
+## Quick start
 
-**Commands:** type `/` for autocomplete · `/clear` new session · `/compact` summarize older context · `/resume` pick a previous session · `/model` switch model · `/config` manage providers & models
+1. Start Zeta in the repo you care about.
+2. Run **`/config`**, add a provider API key (or a custom endpoint).
+3. Switch models with **`/model`** if you want.
+4. Type a prompt and press **Enter**.
 
-**Context:** long sessions auto-compact before a turn when estimated tokens approach the model context window (keeps a recent tail + summary checkpoint). `/compact` forces the same path manually.
+Each launch opens a **new session**. Use `/resume` to continue an earlier one.
 
-**Modes:** `build` implements with tools (`read` / `edit` / `write` / `grep` / `glob` / `bash` / `websearch` / `webfetch` / `ask_user`) · `ask` Q&A with read-only tools · `plan` plans with read-only tools (`ask_user` for clarifying questions). When a plan is ready (`<proposed_plan>`), approve / revise / discard; approve opens a build-model picker, clears context, switches to Build, and starts implementing.
+## Modes
 
-**Ask user:** in plan (and other modes), the agent can call `ask_user` with 2–4 options (recommended first); the UI adds **Other** freeform (≤5 rows). ↑/↓ · enter · 1–9 · type for Other · esc cancel.
+Cycle modes with **Shift+Tab**.
 
-`shift+enter` needs a terminal that can disambiguate modified keys (Kitty keyboard protocol / CSI-u). Ghostty, Kitty, iTerm2 3.5+, Alacritty, WezTerm (`enable_kitty_keyboard = true`).
-If `shift+enter` is remapped in the terminal (common iTerm “send text” setups), fix or remove that binding so the app sees the real key.
+| Mode      | What it does                                                                                                                                                    |
+| --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Build** | Writes code and runs commands. Shell and file edits ask for permission first.                                                                                   |
+| **Ask**   | Questions only — reads the codebase, no edits.                                                                                                                  |
+| **Plan**  | Plans without changing files. When ready: approve, revise, or discard. Approve picks a build model, clears context, switches to Build, and starts implementing. |
 
-## Layout
+## Keyboard shortcuts
 
-```
-cmd/zeta/            entry
-internal/tui/        bubbletea v2 model (viewport + dynamic textarea)
-internal/ai/         OpenAI-compatible streaming client + tool calls
-internal/agent/      tool loop + permission gate
-internal/permission/ allow | deny for side-effect tools
-internal/compact/    context compaction (checkpoint + recent tail)
-internal/tools/      read / edit / write / grep / glob / bash / websearch / webfetch / ask_user
-internal/config/     ~/.zeta/config.json
-internal/models/     models.dev catalog cache → provider presets
-internal/session/    JSONL transcripts under ~/.zeta/sessions/
-internal/plan/       proposed_plan extract/display + build seed text
-internal/paths/      ZETA_HOME resolution
-internal/styles/     lipgloss tokens + banner
-```
+| Key                                    | Action                                      |
+| -------------------------------------- | ------------------------------------------- |
+| `Enter`                                | Send                                        |
+| `↑` / `↓` or `Ctrl+P` / `Ctrl+N`       | Prompt history                              |
+| `Shift+Tab`                            | Cycle mode (build → ask → plan)             |
+| `Shift+Enter` / `Ctrl+J` / `Alt+Enter` | Newline                                     |
+| `Esc` / `Ctrl+C`                       | Cancel the current turn (or quit when idle) |
+| Mouse / `PgUp` / `PgDn`                | Scroll                                      |
 
-## Home
+### Permissions (Build)
 
-Everything lives under `~/.zeta` (override with `ZETA_HOME`):
+When the agent wants to run a shell command or change a file:
 
-```
-~/.zeta/
-  config.json
-  sessions/<cwd-key>/
-    index.json            # [{id, name, created, updated}, ...] for pickers
-    <id>.jsonl            # typed events: session + message
-```
+| Action       | Keys                                                         |
+| ------------ | ------------------------------------------------------------ |
+| Shell        | `[a]` allow once · `[s]` allow for this session · `[d]` deny |
+| Edit / write | `[a]` allow · `[d]` deny (every time)                        |
 
-Launching Zeta always starts a fresh empty session. Prior sessions are available via `/resume`. A session's JSONL and index entry are created on the first message; after that prompt, the model generates a short session title for the picker.
+You can also click, or use `↑`/`↓` + Enter. `Esc` cancels. Ask and Plan never ask for permission.
 
-## Config
+### Choosing options
 
-Path: `$ZETA_HOME/config.json` (default `~/.zeta/config.json`).
+Sometimes the agent asks a multiple-choice question (plus freeform **Other**):
+
+| Key       | Action         |
+| --------- | -------------- |
+| `↑` / `↓` | Move           |
+| `Enter`   | Confirm        |
+| `1`–`9`   | Jump to option |
+| Type      | Fill **Other** |
+| `Esc`     | Cancel         |
+
+### Terminal notes
+
+`Shift+Enter` works best in terminals that report modified keys (Kitty keyboard protocol): Ghostty, Kitty, iTerm2 3.5+, Alacritty, WezTerm (`enable_kitty_keyboard = true`).
+
+If `Shift+Enter` is remapped (common in iTerm), remove that binding or use `Ctrl+J` / `Alt+Enter` for newlines.
+
+## Commands
+
+Type `/` for autocomplete.
+
+| Command    | Description                 |
+| ---------- | --------------------------- |
+| `/clear`   | Start a new session         |
+| `/compact` | Summarize older context now |
+| `/resume`  | Open a previous session     |
+| `/model`   | Switch model                |
+| `/config`  | Manage providers and models |
+
+Long sessions compact automatically when context runs low; `/compact` does the same on demand.
+
+## Configuration
+
+Use **`/config`** in the app. Settings live at `~/.zeta/config.json` (or `$ZETA_HOME/config.json`).
+
+In `/config`:
+
+- **Configured** — turn models on/off for providers you already set up
+- **Providers** — add a catalog provider (API key, then enable models; `Ctrl+A` toggles all)
+- **Custom** — your own OpenAI-compatible endpoint
+
+Optional: set a preferred build model after plan approve with `"defaults": { "build": "provider/model" }` in the config file.
+
+Example shape (prefer the UI over hand-editing):
 
 ```json
 {
@@ -70,43 +116,41 @@ Path: `$ZETA_HOME/config.json` (default `~/.zeta/config.json`).
       "base_url": "https://api.deepseek.com/v1",
       "api_key": "sk-...",
       "models": {
-        "deepseek-v4-flash": { "name": "V4 Flash", "context_window": 1000000 },
-        "deepseek-v4-pro": { "name": "V4 Pro", "context_window": 1000000 }
-      }
-    },
-    "xai": {
-      "name": "xAI",
-      "base_url": "https://api.x.ai/v1",
-      "api_key": "...",
-      "models": {
-        "grok-3": { "name": "Grok 3", "context_window": 131072 },
-        "grok-3-mini": { "name": "Grok 3 Mini", "context_window": 131072 }
+        "deepseek-v4-flash": { "name": "V4 Flash", "context_window": 1000000 }
       }
     }
   }
 }
 ```
 
-- **`active`** — active model as `provider_id/model_id`
-- **`defaults`** — optional `{ "build": "provider/model" }`; remembered when you approve a plan
-- **`providers`** — map of provider id → `{ "name", "api_key", "base_url", "models" }`
-- **`models`** — map of model id → `{ "name": "...", "context_window": N, "disabled": true? }`
-- **`context_window`** — required; max tokens for that model (used for the footer context %). DeepSeek V4 is 1M; see [pricing](https://api-docs.deepseek.com/quick_start/pricing/).
-- **`disabled`** — optional; when true the model stays configured but is hidden from `/model` (catalog providers use this for toggle).
-- **`custom`** — optional; when true the provider is a user-defined endpoint (rename / add / edit / remove models). Catalog providers omit this and only allow enable/disable + API key updates.
-
-Use `/config` to configure providers. The list is loaded from [models.dev](https://models.dev) (cached under `$ZETA_HOME/cache/models.json`, 5‑minute TTL) and filtered to OpenAI-compatible APIs. If models.dev is unreachable, the existing cache is kept and reused. **Configured** opens model activation; new **Providers** ask for an API key first, then let you enable models (`ctrl+a` toggles all). **Custom** is for your own endpoint.
-
 ## Web search
 
-`websearch` uses Exa hosted MCP by default (no key required; shared free quota). Set `ZETA_WEBSEARCH_PROVIDER=parallel` to use Parallel instead.
+When the agent searches the web, **Exa** is used by default (shared free quota, no key required). Optional env vars:
 
-`webfetch` fetches a URL directly (HTML → markdown by default). Blocks private/loopback addresses.
+| Variable                  | Purpose                                                             |
+| ------------------------- | ------------------------------------------------------------------- |
+| `EXA_API_KEY`             | Your own Exa quota ([dashboard](https://dashboard.exa.ai/api-keys)) |
+| `PARALLEL_API_KEY`        | Parallel search quota                                               |
+| `ZETA_WEBSEARCH_PROVIDER` | `exa` (default) or `parallel`                                       |
 
-Optional env vars:
+Fetching a URL is separate and works without those keys. Private/loopback addresses are blocked.
 
-- `EXA_API_KEY` — use your Exa quota ([dashboard](https://dashboard.exa.ai/api-keys))
-- `PARALLEL_API_KEY` — use your Parallel quota
-- `ZETA_WEBSEARCH_PROVIDER=exa|parallel` — select search provider (default: exa)
+## Where data lives
 
-On search rate limit, the tool returns a message pointing at those keys.
+Everything is under `~/.zeta` (override with `ZETA_HOME`):
+
+```
+~/.zeta/
+  config.json
+  sessions/…   # your chat history
+```
+
+Sessions appear after the first message; Zeta generates a short title for the `/resume` picker.
+
+## Contributing
+
+Development setup and project layout: [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## License
+
+[MIT](LICENSE)

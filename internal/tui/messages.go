@@ -37,6 +37,10 @@ type Message struct {
 	Out    string     // live/final tool output (bash stdout / edit unified diff)
 	Status ToolStatus // RoleTool lifecycle; zero value is ToolRunning
 
+	// framePlan: Plan-mode ingest snapshot. Framing does not follow later mode
+	// switches. Raw Text still holds tags for API/JSONL; render splits only when true.
+	framePlan bool
+
 	// Cached markdown render for RoleAgent (keyed by source text + width).
 	// For plan-framed rows the cache stores the full composed output under m.Text.
 	md       string
@@ -78,32 +82,32 @@ func (m *Message) renderBody(width int, userMsg lipgloss.Style, live bool) strin
 	}
 }
 
-// renderAgent paints assistant text. <proposed_plan> blocks are framed (tags
-// hidden) for both live streaming and settled rows — single encoding on the
-// agent message.
+// renderAgent paints assistant text. framePlan gates plan framing; otherwise
+// raw markdown (tags stay ordinary text).
 //
 // Settled renders cache the full composed string under m.Text so multi-segment
 // plan rows (before / frame / after) do not thrash a single-segment cache.
 func (m *Message) renderAgent(width int, live bool) string {
-	before, body, after, ok := plan.DisplayParts(m.Text)
-	if !ok {
-		if live {
-			return m.streamingMarkdown(m.Text, width)
+	if m.framePlan {
+		if before, body, after, ok := plan.DisplayParts(m.Text); ok {
+			if !live {
+				if m.md != "" && m.mdWidth == width && m.mdSource == m.Text {
+					return m.md
+				}
+				out := composeAgentPlan(before, body, after, width, false, nil)
+				m.md = out
+				m.mdWidth = width
+				m.mdSource = m.Text
+				return out
+			}
+			// Live: compose each paint; streamingMarkdown may use md for the after tail only.
+			return composeAgentPlan(before, body, after, width, true, m)
 		}
-		return m.cachedMarkdown(m.Text, width)
 	}
-	if !live {
-		if m.md != "" && m.mdWidth == width && m.mdSource == m.Text {
-			return m.md
-		}
-		out := composeAgentPlan(before, body, after, width, false, nil)
-		m.md = out
-		m.mdWidth = width
-		m.mdSource = m.Text
-		return out
+	if live {
+		return m.streamingMarkdown(m.Text, width)
 	}
-	// Live: compose each paint; streamingMarkdown may use md for the after tail only.
-	return composeAgentPlan(before, body, after, width, true, m)
+	return m.cachedMarkdown(m.Text, width)
 }
 
 // composeAgentPlan builds framed plan output. When live and msg is non-nil,

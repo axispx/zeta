@@ -45,6 +45,9 @@ type Record struct {
 	Tool       string     `json:"tool,omitempty"`  // tool name for RoleTool
 	Denied     bool       `json:"denied,omitempty"` // tool call rejected by policy/user
 	Tail       int        `json:"tail,omitempty"`  // RoleCompact: API messages retained after checkpoint
+	// FramePlan: Plan-mode ingest snapshot; UI frames <proposed_plan> when set.
+	// Not re-derived from current mode on resume.
+	FramePlan bool `json:"frame_plan,omitempty"`
 }
 
 // event is one JSONL line: session header or a message.
@@ -61,6 +64,7 @@ type event struct {
 	Tool       string     `json:"tool,omitempty"`
 	Denied     bool       `json:"denied,omitempty"`
 	Tail       int        `json:"tail,omitempty"`
+	FramePlan  bool       `json:"frame_plan,omitempty"`
 }
 
 // Session is an append-only JSONL transcript for one chat.
@@ -150,6 +154,7 @@ func (s *Session) Append(rec Record) error {
 		Tool:       rec.Tool,
 		Denied:     rec.Denied,
 		Tail:       rec.Tail,
+		FramePlan:  rec.FramePlan,
 	}); err != nil {
 		return err
 	}
@@ -246,6 +251,7 @@ func load(abs, path string) (*Session, []Record, error) {
 				Tool:       evt.Tool,
 				Denied:     evt.Denied,
 				Tail:       evt.Tail,
+				FramePlan:  evt.FramePlan,
 			})
 		default:
 			return nil, nil, fmt.Errorf("session %s:%d: unknown event type %q", filepath.Base(path), lineNo, evt.Type)

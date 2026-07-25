@@ -93,13 +93,24 @@ func TestLoadSessionKeepsPlanTagsOnAgent(t *testing.T) {
 	text := "Here.\n\n<proposed_plan>\n## T\nbody\n</proposed_plan>"
 	ui, hist := loadSession([]session.Record{
 		{Role: session.RoleUser, Text: "plan please"},
-		{Role: session.RoleAgent, Text: text},
+		{Role: session.RoleAgent, Text: text, FramePlan: true},
 	})
-	if len(ui) != 2 || ui[1].Role != RoleAgent || ui[1].Text != text {
+	if len(ui) != 2 || ui[1].Role != RoleAgent || ui[1].Text != text || !ui[1].framePlan {
 		t.Fatalf("ui=%+v", ui)
 	}
 	if len(hist) != 2 || hist[1].Text != text {
 		t.Fatalf("hist=%+v", hist)
+	}
+}
+
+func TestLoadSessionFramePlanDefaultFalse(t *testing.T) {
+	// Old sessions without frame_plan must not frame mention-of-tags text.
+	text := "Wrap in <proposed_plan> and </proposed_plan>."
+	ui, _ := loadSession([]session.Record{
+		{Role: session.RoleAgent, Text: text},
+	})
+	if len(ui) != 1 || ui[0].framePlan {
+		t.Fatalf("expected framePlan=false, ui=%+v", ui)
 	}
 }
 
