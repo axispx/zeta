@@ -18,15 +18,20 @@ type transcriptCache struct {
 func (c *transcriptCache) invalidate() { *c = transcriptCache{} }
 
 // setTranscriptContent paints the viewport: cached prefix + fresh tail + thinking.
+// Stick-to-bottom only when already at the bottom so stream paints don't yank
+// the user back down after they scroll up (pgup / mouse wheel).
 func (m *Model) setTranscriptContent() {
 	m.syncPrefix()
+	atBottom := m.viewport.AtBottom()
 	var b strings.Builder
 	b.WriteString(joinBlocks(m.tx.prefix, m.renderMessages(m.tx.frozen, len(m.messages))))
 	if m.turn != nil && m.turn.thinking != "" {
 		writeThinkingTail(&b, m.turn.thinking, m.contentW)
 	}
 	m.viewport.SetContent(b.String())
-	m.viewport.GotoBottom()
+	if atBottom {
+		m.viewport.GotoBottom()
+	}
 }
 
 // syncPrefix makes tx.prefix == render(messages[0:liveFrom]).

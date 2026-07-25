@@ -220,3 +220,53 @@ func TestTranscriptCacheManyDeltasStablePrefix(t *testing.T) {
 		t.Fatal("missing streamed xs")
 	}
 }
+
+// Stream paints must not yank scroll position after the user leaves the bottom.
+func TestStreamPaintPreservesScrollWhenNotAtBottom(t *testing.T) {
+	m := testModel()
+	m.width = 80
+	m.height = 20
+	m.contentW = 60
+	m.viewport.SetWidth(60)
+	m.viewport.SetHeight(8)
+
+	var lines []string
+	for i := 0; i < 40; i++ {
+		lines = append(lines, fmt.Sprintf("history line %02d", i))
+	}
+	m.messages = []Message{
+		{Role: RoleAgent, Text: strings.Join(lines, "\n")},
+		{Role: RoleUser, Text: "go"},
+	}
+	m.setTranscriptContent()
+	if !m.viewport.AtBottom() {
+		t.Fatal("expected initial stick-to-bottom")
+	}
+
+	m.viewport.ScrollUp(6)
+	if m.viewport.AtBottom() {
+		t.Fatal("expected scrolled away from bottom")
+	}
+	wantOff := m.viewport.YOffset()
+
+	m.turn = &turnSession{streaming: true, activeTool: -1}
+	m.messages = append(m.messages, Message{Role: RoleAgent, Text: ""})
+	for i := 0; i < 20; i++ {
+		m.messages[len(m.messages)-1].Text += "streamed token "
+		m.setTranscriptContent()
+		if m.viewport.AtBottom() {
+			t.Fatalf("delta %d yanked to bottom", i)
+		}
+		if got := m.viewport.YOffset(); got != wantOff {
+			t.Fatalf("delta %d YOffset=%d, want %d", i, got, wantOff)
+		}
+	}
+
+	// Returning to the bottom resumes follow-on-stream.
+	m.viewport.GotoBottom()
+	m.messages[len(m.messages)-1].Text += "\n" + strings.Repeat("more\n", 10)
+	m.setTranscriptContent()
+	if !m.viewport.AtBottom() {
+		t.Fatal("expected stick-to-bottom after user returns to bottom")
+	}
+}
