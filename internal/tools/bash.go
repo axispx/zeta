@@ -14,10 +14,10 @@ import (
 )
 
 const (
+	// Capture cap (silent). Higher than maxToolBytes so spill can retain more than the preview.
 	maxBashBytes         = 200 * 1024
 	defaultBashTimeoutMs = 120_000
 	maxBashTimeoutMs     = 600_000
-	truncNoteBash        = "\n\n[truncated: showing first %d bytes]"
 )
 
 type bashTool struct{}
@@ -116,9 +116,6 @@ func (bashTool) Run(ctx context.Context, root string, raw json.RawMessage) (stri
 	err = cmd.Run()
 
 	out := buf.String()
-	if buf.truncated {
-		out += fmt.Sprintf(truncNoteBash, maxBashBytes)
-	}
 
 	status := "exit: 0"
 	if runCtx.Err() == context.DeadlineExceeded {

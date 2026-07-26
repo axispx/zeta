@@ -73,8 +73,9 @@ func (websearchTool) Run(ctx context.Context, _ string, raw json.RawMessage) (st
 	if err != nil {
 		return "", err
 	}
+	// Silent capture cap (UTF-8 safe); model-facing policy is limitToolOutput.
 	if len(text) > maxWebSearchBytes {
-		text = text[:maxWebSearchBytes] + "\n\n[truncated]"
+		text = cutUTF8Prefix(text, maxWebSearchBytes)
 	}
 	return text, nil
 }

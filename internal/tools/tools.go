@@ -93,7 +93,7 @@ func Run(ctx context.Context, ts []Tool, root, name string, args json.RawMessage
 	if err != nil {
 		return "error: " + err.Error()
 	}
-	return out
+	return limitToolOutput(out)
 }
 
 // resolvePath joins root with a relative path and rejects escapes.
@@ -129,12 +129,9 @@ func displayPath(root, abs string) string {
 }
 
 const (
+	// Per-tool capture limits only (silent). Model-facing size/line policy is limitToolOutput.
 	maxReadBytes   = 200 * 1024
 	maxReadLines   = 2000
 	maxGrepLines   = 200
-	maxGrepBytes   = 100 * 1024
 	maxGlobResults = 500
-	truncNoteRead  = "\n\n[truncated: showing first %d lines / %d bytes]"
-	truncNoteGrep  = "\n\n[truncated: showing first %d lines]"
-	truncNoteGlob  = "\n\n[truncated: showing first %d matches]"
 )

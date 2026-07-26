@@ -122,8 +122,9 @@ func (webfetchTool) Run(ctx context.Context, _ string, raw json.RawMessage) (str
 	}
 
 	out := formatBody(body, mime, format, u.String())
+	// Silent capture cap (UTF-8 safe); model-facing policy is limitToolOutput.
 	if len(out) > maxWebFetchOutput {
-		out = out[:maxWebFetchOutput] + "\n\n[truncated]"
+		out = cutUTF8Prefix(out, maxWebFetchOutput)
 	}
 	return out, nil
 }

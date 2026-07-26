@@ -89,18 +89,9 @@ func (grepTool) Run(ctx context.Context, root string, raw json.RawMessage) (stri
 	if len(lines) == 0 {
 		return "no matches", nil
 	}
-	truncated := false
+	// Silent capture cap; model-facing size/line policy is limitToolOutput.
 	if len(lines) > maxGrepLines {
 		lines = lines[:maxGrepLines]
-		truncated = true
 	}
-	joined := strings.Join(lines, "\n")
-	if len(joined) > maxGrepBytes {
-		joined = joined[:maxGrepBytes]
-		truncated = true
-	}
-	if truncated {
-		joined += fmt.Sprintf(truncNoteGrep, maxGrepLines)
-	}
-	return joined, nil
+	return strings.Join(lines, "\n"), nil
 }

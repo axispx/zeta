@@ -3,11 +3,14 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+	"unicode/utf8"
 )
 
 func TestResolvePath(t *testing.T) {
@@ -322,6 +325,212 @@ func TestUserShell(t *testing.T) {
 	}
 }
 
+func TestTruncateLongLines(t *testing.T) {
+	if got := truncateLongLines("short"); got != "short" {
+		t.Fatalf("short: %q", got)
+	}
+	if got := truncateLongLines(""); got != "" {
+		t.Fatalf("empty: %q", got)
+	}
+
+	long := strings.Repeat("a", maxLineBytes+100)
+	got := truncateLongLines(long)
+	if !strings.HasSuffix(got, maxLineSuffix) {
+		t.Fatalf("missing suffix: %q", got[len(got)-40:])
+	}
+	if !strings.HasPrefix(got, strings.Repeat("a", maxLineBytes)) {
+		t.Fatalf("prefix wrong")
+	}
+	if len(got) != maxLineBytes+len(maxLineSuffix) {
+		t.Fatalf("len=%d want %d", len(got), maxLineBytes+len(maxLineSuffix))
+	}
+
+	// Multi-line: only long lines are cut.
+	multi := long + "\nshort\n" + long
+	lines := strings.Split(truncateLongLines(multi), "\n")
+	if len(lines) != 3 {
+		t.Fatalf("lines: %d", len(lines))
+	}
+	if lines[1] != "short" {
+		t.Fatalf("middle: %q", lines[1])
+	}
+	if !strings.HasSuffix(lines[0], maxLineSuffix) || !strings.HasSuffix(lines[2], maxLineSuffix) {
+		t.Fatalf("ends not truncated: %q / %q", lines[0][len(lines[0])-30:], lines[2][len(lines[2])-30:])
+	}
+
+	// Trailing newline preserved.
+	if got := truncateLongLines("a\n"); got != "a\n" {
+		t.Fatalf("trailing nl: %q", got)
+	}
+
+	// UTF-8: do not split a multi-byte rune.
+	prefix := strings.Repeat("x", maxLineBytes-1)
+	midRune := prefix + "界" + strings.Repeat("y", 50)
+	got = cutLine(midRune)
+	if !utf8.ValidString(got) {
+		t.Fatalf("invalid utf8 after cut")
+	}
+	if !strings.HasSuffix(got, maxLineSuffix) {
+		t.Fatalf("utf8 suffix: %q", got)
+	}
+}
+
+func TestMiddleTruncate(t *testing.T) {
+	// Many short lines → line omit in the middle.
+	var b strings.Builder
+	for i := 0; i < 100; i++ {
+		fmt.Fprintf(&b, "LINE-%03d\n", i)
+	}
+	got := middleTruncate(b.String(), 10*1024, 10)
+	if !strings.Contains(got, "lines omitted") {
+		t.Fatalf("want line omit: %q", got)
+	}
+	if !strings.Contains(got, "LINE-000") || !strings.Contains(got, "LINE-099") {
+		t.Fatalf("want head and tail: %q", got)
+	}
+	if strings.Contains(got, "LINE-050") {
+		t.Fatalf("middle should be gone: %q", got)
+	}
+
+	// Byte budget with head+tail.
+	blob := strings.Repeat("A", 200) + "MID" + strings.Repeat("Z", 200)
+	got = middleTruncate(blob, 80, 1000)
+	if !strings.Contains(got, "bytes omitted") {
+		t.Fatalf("want byte omit: %q", got)
+	}
+	if !strings.HasPrefix(got, "AAAA") || !strings.Contains(got, "ZZZZ") {
+		t.Fatalf("want A head and Z tail: %q", got)
+	}
+	if strings.Contains(got, "MID") {
+		t.Fatalf("MID should be omitted: %q", got)
+	}
+	if !utf8.ValidString(got) {
+		t.Fatal("invalid utf8")
+	}
+	if len(got) > 80 {
+		t.Fatalf("over budget: %d", len(got))
+	}
+}
+
+func TestLimitToolOutputSpill(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("ZETA_HOME", home)
+
+	var b strings.Builder
+	for i := 0; i < 4000; i++ {
+		fmt.Fprintf(&b, "pad line %05d xxxxxxxxxxxxxxxxxxxxxxxxxxxx\n", i)
+	}
+	full := b.String()
+	if len(full) <= maxToolBytes {
+		t.Fatalf("fixture too small: %d", len(full))
+	}
+
+	got := limitToolOutput(full)
+	if !strings.Contains(got, "[truncated:") {
+		t.Fatalf("missing trunc note: %q", got[max(0, len(got)-200):])
+	}
+	if !strings.Contains(got, "line-capped output") {
+		t.Fatalf("want line-capped wording: %q", got[max(0, len(got)-300):])
+	}
+	if !strings.Contains(got, "saved to") {
+		t.Fatalf("missing spill path: %q", got[max(0, len(got)-300):])
+	}
+	if !strings.Contains(got, "omitted") {
+		t.Fatalf("want middle omit marker: %q", got[:min(200, len(got))])
+	}
+	if len(got) >= len(full) {
+		t.Fatalf("preview not smaller: in=%d out=%d", len(full), len(got))
+	}
+	// Spill file exists and holds line-capped content.
+	dir := filepath.Join(home, "cache", "tool-output")
+	ents, err := os.ReadDir(dir)
+	if err != nil || len(ents) == 0 {
+		t.Fatalf("spill dir: err=%v ents=%v", err, ents)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, ents[0].Name()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(data) < maxToolBytes {
+		t.Fatalf("spill too small: %d", len(data))
+	}
+	// Under budget path unchanged.
+	if got := limitToolOutput("tiny"); got != "tiny" {
+		t.Fatalf("short: %q", got)
+	}
+}
+
+func TestSpillPruneOld(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("ZETA_HOME", home)
+	dir := filepath.Join(home, "cache", "tool-output")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	oldPath := filepath.Join(dir, "old.txt")
+	if err := os.WriteFile(oldPath, []byte("stale"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	oldTime := time.Now().Add(-spillMaxAge - time.Hour)
+	if err := os.Chtimes(oldPath, oldTime, oldTime); err != nil {
+		t.Fatal(err)
+	}
+
+	path := spillToolOutput(strings.Repeat("x\n", maxToolBytes))
+	if path == "" {
+		t.Fatal("spill failed")
+	}
+	if _, err := os.Stat(oldPath); !os.IsNotExist(err) {
+		t.Fatalf("old spill should be pruned: err=%v", err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("new spill missing: %v", err)
+	}
+}
+
+func TestRunTruncatesLongLines(t *testing.T) {
+	t.Setenv("ZETA_HOME", t.TempDir())
+	root := t.TempDir()
+	long := strings.Repeat("z", maxLineBytes+500)
+	path := filepath.Join(root, "long.txt")
+	if err := os.WriteFile(path, []byte(long+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out := Run(context.Background(), Build(), root, "read", mustRaw(t, map[string]any{"path": "long.txt"}))
+	if strings.HasPrefix(out, "error:") {
+		t.Fatal(out)
+	}
+	if !strings.Contains(out, maxLineSuffix) {
+		t.Fatalf("expected line truncation marker in read: %q", out[:min(120, len(out))])
+	}
+
+	out = Run(context.Background(), Build(), root, "bash", mustRaw(t, map[string]any{
+		"command": "cat long.txt",
+	}))
+	if strings.HasPrefix(out, "error:") {
+		t.Fatal(out)
+	}
+	if !strings.Contains(out, maxLineSuffix) {
+		t.Fatalf("expected line truncation in bash: %q", out[:min(120, len(out))])
+	}
+	if !strings.Contains(out, "exit: 0") {
+		t.Fatalf("missing exit: %q", out[max(0, len(out)-60):])
+	}
+}
+
+func TestRunErrorBypassesLimit(t *testing.T) {
+	t.Setenv("ZETA_HOME", t.TempDir())
+	root := t.TempDir()
+	out := Run(context.Background(), Build(), root, "read", mustRaw(t, map[string]any{"path": "missing-nope.txt"}))
+	if !strings.HasPrefix(out, "error:") {
+		t.Fatalf("want error prefix: %q", out)
+	}
+	if strings.Contains(out, "saved to") || strings.Contains(out, "omitted") {
+		t.Fatalf("errors must not be spilled/limited: %q", out)
+	}
+}
+
 func TestCappedBuffer(t *testing.T) {
 	c := &cappedBuffer{limit: 8}
 	n, err := c.Write([]byte("hello world"))
@@ -337,20 +546,49 @@ func TestCappedBuffer(t *testing.T) {
 	}
 }
 
-func TestBashTruncation(t *testing.T) {
+func TestBashLongLineCapture(t *testing.T) {
+	t.Setenv("ZETA_HOME", t.TempDir())
 	root := t.TempDir()
-	// Emit more than maxBashBytes via a compact shell loop.
+	// Continuous stream larger than capture cap (no newlines → line-capped in limitToolOutput).
 	out := Run(context.Background(), Build(), root, "bash", mustRaw(t, map[string]any{
 		"command": "dd if=/dev/zero bs=1024 count=300 2>/dev/null | tr '\\0' a",
 	}))
 	if strings.HasPrefix(out, "error:") {
 		t.Fatal(out)
 	}
-	if !strings.Contains(out, "[truncated:") {
-		t.Fatalf("expected truncation note: %q", out[:min(120, len(out))])
+	if !strings.Contains(out, maxLineSuffix) {
+		t.Fatalf("expected line truncation: %q", out[:min(200, len(out))])
 	}
 	if !strings.Contains(out, "exit: 0") {
-		t.Fatalf("exit: %q", out[len(out)-40:])
+		t.Fatalf("exit: %q", out[max(0, len(out)-40):])
+	}
+	// No dual per-tool capture note.
+	if strings.Contains(out, "capture stopped") {
+		t.Fatalf("capture notes must stay silent: %q", out[max(0, len(out)-120):])
+	}
+}
+
+func TestBashManyLinesSpill(t *testing.T) {
+	t.Setenv("ZETA_HOME", t.TempDir())
+	root := t.TempDir()
+	out := Run(context.Background(), Build(), root, "bash", mustRaw(t, map[string]any{
+		"command": "i=0; while [ $i -lt 5000 ]; do echo \"log line $i padding padding padding\"; i=$((i+1)); done",
+	}))
+	if strings.HasPrefix(out, "error:") {
+		t.Fatal(out)
+	}
+	if !strings.Contains(out, "[truncated:") {
+		t.Fatalf("expected trunc footer: len=%d head=%q", len(out), out[:min(120, len(out))])
+	}
+	if !strings.Contains(out, "omitted") {
+		t.Fatalf("expected middle omit: %q", out[:min(200, len(out))])
+	}
+	if !strings.Contains(out, "saved to") {
+		t.Fatalf("expected spill path: %q", out[max(0, len(out)-300):])
+	}
+	// Tail of model preview should still surface exit status (appended after stdout).
+	if !strings.Contains(out, "exit: 0") {
+		t.Fatalf("exit: %q", out[max(0, len(out)-80):])
 	}
 }
 

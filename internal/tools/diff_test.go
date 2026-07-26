@@ -18,20 +18,33 @@ func TestUnifiedDiff(t *testing.T) {
 	}
 }
 
-func TestTruncateDiff(t *testing.T) {
-	if got := truncateDiff("short"); got != "short" {
-		t.Fatalf("got %q", got)
+func TestLargeDiffLimitedViaRun(t *testing.T) {
+	t.Setenv("ZETA_HOME", t.TempDir())
+	root := t.TempDir()
+	// Build a large replace so the edit tool returns a big unified diff.
+	var old, neu strings.Builder
+	for i := 0; i < 3000; i++ {
+		old.WriteString("line of original content that is long enough pad\n")
+		neu.WriteString("line of changed content that is long enough pad\n")
 	}
-	var b strings.Builder
-	for b.Len() < maxDiffBytes+100 {
-		b.WriteString("+line of content that pads the diff output\n")
+	// Write old via create then replace whole file.
+	_ = Run(t.Context(), Build(), root, "edit", mustRaw(t, map[string]any{
+		"path": "big.txt", "old_string": "", "new_string": old.String(),
+	}))
+	out := Run(t.Context(), Build(), root, "edit", mustRaw(t, map[string]any{
+		"path": "big.txt", "old_string": old.String(), "new_string": neu.String(),
+	}))
+	if strings.HasPrefix(out, "error:") {
+		t.Fatal(out)
 	}
-	got := truncateDiff(b.String())
-	if len(got) >= len(b.String()) {
-		t.Fatalf("expected truncation: in=%d out=%d", len(b.String()), len(got))
+	if !strings.Contains(out, "[truncated:") {
+		t.Fatalf("expected trunc footer, len=%d head=%q", len(out), out[:min(120, len(out))])
 	}
-	if !strings.Contains(got, "[truncated:") {
-		t.Fatalf("missing trunc note: %q", got[max(0, len(got)-80):])
+	if !strings.Contains(out, "omitted") {
+		t.Fatalf("expected middle omit: %q", out[:min(200, len(out))])
+	}
+	if !strings.Contains(out, "saved to") {
+		t.Fatalf("expected spill path: %q", out[max(0, len(out)-300):])
 	}
 }
 

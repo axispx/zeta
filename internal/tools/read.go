@@ -100,18 +100,17 @@ func (readTool) Run(ctx context.Context, root string, raw json.RawMessage) (stri
 		end = start + args.Limit
 	}
 
-	truncated := false
 	if end-start > maxReadLines {
 		end = start + maxReadLines
-		truncated = true
 	}
 
 	var b strings.Builder
 	nbytes := 0
 	for i := start; i < end; i++ {
-		line := fmt.Sprintf("%6d|%s\n", i+1, lines[i])
+		// Cap per-line before the capture budget so one minified line cannot
+		// exhaust maxReadBytes alone. limitToolOutput also cuts lines for the model.
+		line := fmt.Sprintf("%6d|%s\n", i+1, cutLine(lines[i]))
 		if nbytes+len(line) > maxReadBytes {
-			truncated = true
 			break
 		}
 		b.WriteString(line)
@@ -120,9 +119,6 @@ func (readTool) Run(ctx context.Context, root string, raw json.RawMessage) (stri
 	out := strings.TrimSuffix(b.String(), "\n")
 	if out == "" && len(lines) == 0 {
 		out = "[empty file]"
-	}
-	if truncated {
-		out += fmt.Sprintf(truncNoteRead, maxReadLines, maxReadBytes)
 	}
 	return out, nil
 }

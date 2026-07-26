@@ -86,9 +86,9 @@ func (globTool) Run(ctx context.Context, root string, raw json.RawMessage) (stri
 	if len(matches) == 0 {
 		return "no matches", nil
 	}
+	// Silent capture cap; model-facing size/line policy is limitToolOutput.
 	if len(matches) > maxGlobResults {
 		matches = matches[:maxGlobResults]
-		return strings.Join(matches, "\n") + fmt.Sprintf(truncNoteGlob, maxGlobResults), nil
 	}
 	return strings.Join(matches, "\n"), nil
 }
