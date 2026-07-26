@@ -71,11 +71,9 @@ var (
 	Transcript = lipgloss.NewStyle().
 			Padding(0, ContentInset)
 
-	ScrollTrack = lipgloss.NewStyle().
-			Foreground(Dim)
-
 	ScrollThumb = lipgloss.NewStyle().
-			Bold(true)
+			Foreground(Dim).
+			Faint(true)
 
 	// Selection highlights drag-selected transcript cells (app-level copy).
 	Selection = lipgloss.NewStyle().

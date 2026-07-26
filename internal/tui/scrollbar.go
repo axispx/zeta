@@ -17,7 +17,7 @@ func renderScrollbar(height, total, yOffset int) string {
 
 	track := make([]string, height)
 	for i := range track {
-		track[i] = styles.ScrollTrack.Render("│")
+		track[i] = " "
 	}
 
 	// Thumb size ∝ visible/total, at least 1 row.
