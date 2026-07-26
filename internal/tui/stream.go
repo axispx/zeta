@@ -33,6 +33,7 @@ type turnSession struct {
 	ch         <-chan agent.Event
 	reply      chan<- agent.Reply // harness → agent; one decision per gated start
 	streaming  bool               // true while receiving assistant deltas
+	pending    *agent.Event       // set when coalesce peeks a non-matching event
 	thinking   string             // live reasoning tail; only while thinkingPhase
 	activeTool int                // index of open tool row in Model.messages; -1 if none
 }
@@ -163,11 +164,53 @@ func requestMsgs(ws workspace.Context, mode prompt.Mode, history []ai.Message) [
 
 func waitTurn(t *turnSession) tea.Cmd {
 	return func() tea.Msg {
-		evt, ok := <-t.ch
+		evt, ok := recvTurnEvent(t)
 		if !ok {
 			return turnDoneMsg{}
 		}
 		return turnEventMsg(evt)
+	}
+}
+
+func recvTurnEvent(t *turnSession) (agent.Event, bool) {
+	// take the pending event if it exists
+	if t.pending != nil {
+		evt := *t.pending
+		t.pending = nil
+		return evt, true
+	}
+
+	// first event is always blocking
+	// or prioritize take pending one above
+	evt, ok := <-t.ch
+	if !ok {
+		return agent.Event{}, false
+	}
+
+	// we only coalesce on delta/reasoning text
+	if evt.Kind != agent.KindDelta && evt.Kind != agent.KindReasoning {
+		return evt, true
+	}
+
+	for {
+		select {
+		case next, ok := <-t.ch:
+			// channel closed; return what we have from above
+			if !ok {
+				return evt, true
+			}
+
+			if next.Kind == evt.Kind {
+				evt.Text += next.Text
+				continue
+			}
+
+			// overshoot: stash exactly one
+			t.pending = &next
+			return evt, true
+		default:
+			return evt, true
+		}
 	}
 }
 

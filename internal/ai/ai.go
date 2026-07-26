@@ -115,7 +115,7 @@ func New(p config.Provider, model string) *Client {
 // The returned channel is closed when the stream finishes (after a final Done
 // or Err event, or on cancel).
 func (c *Client) Stream(ctx context.Context, msgs []Message, tools []Tool) <-chan Event {
-	out := make(chan Event)
+	out := make(chan Event, 16)
 	go func() {
 		defer close(out)
 		c.stream(ctx, msgs, tools, out)
