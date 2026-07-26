@@ -115,6 +115,7 @@ func New(cfg config.Config, opts Options) (Model, error) {
 
 	vp := viewport.New()
 	vp.MouseWheelEnabled = true
+	vp.MouseWheelDelta = 5 // bubbles default is 3
 	// SoftWrap: overflow lines become extra display rows (not truncated). Required so
 	// YOffset/TotalLineCount and drag selection share one display-line space with
 	// wrapContentLines (scrollbar + select both count wrapped rows).
