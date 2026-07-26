@@ -270,3 +270,58 @@ func TestStreamPaintPreservesScrollWhenNotAtBottom(t *testing.T) {
 		t.Fatal("expected stick-to-bottom after user returns to bottom")
 	}
 }
+
+// After scroll up then back down, stream paints should keep following the bottom.
+func TestRepaintTranscriptResumesStickAfterScroll(t *testing.T) {
+	m := testModel()
+	m.width = 80
+	m.height = 24
+
+	var lines []string
+	for i := 0; i < 60; i++ {
+		lines = append(lines, fmt.Sprintf("history line %02d", i))
+	}
+	m.messages = []Message{
+		{Role: RoleAgent, Text: strings.Join(lines, "\n")},
+		{Role: RoleUser, Text: "go"},
+	}
+	m.repaintTranscript()
+	if !m.showScrollbar {
+		t.Fatal("expected overflow scrollbar")
+	}
+	if !m.viewport.AtBottom() {
+		t.Fatal("expected initial stick-to-bottom")
+	}
+
+	m.viewport.ScrollUp(8)
+	if m.viewport.AtBottom() {
+		t.Fatal("expected scrolled away from bottom")
+	}
+	wantOff := m.viewport.YOffset()
+
+	m.turn = &turnSession{streaming: true, activeTool: -1}
+	m.messages = append(m.messages, Message{Role: RoleAgent, Text: ""})
+	for i := 0; i < 15; i++ {
+		m.messages[len(m.messages)-1].Text += "streamed token "
+		m.repaintTranscript()
+		if m.viewport.AtBottom() {
+			t.Fatalf("delta %d yanked to bottom", i)
+		}
+		if got := m.viewport.YOffset(); got != wantOff {
+			t.Fatalf("delta %d YOffset=%d, want %d", i, got, wantOff)
+		}
+		if !m.showScrollbar {
+			t.Fatalf("delta %d dropped scrollbar", i)
+		}
+	}
+
+	// Scroll back to bottom — subsequent paints must keep following.
+	m.viewport.GotoBottom()
+	for i := 0; i < 15; i++ {
+		m.messages[len(m.messages)-1].Text += "\nmore line"
+		m.repaintTranscript()
+		if !m.viewport.AtBottom() {
+			t.Fatalf("delta %d lost stick-to-bottom after return", i)
+		}
+	}
+}

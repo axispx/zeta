@@ -799,18 +799,29 @@ func (m *Model) refreshTranscript() {
 }
 
 // repaintTranscript lays out and paints without touching the paint throttle.
+//
+// Remember if we were at the bottom before painting. Toggling the scrollbar
+// changes wrap width, which can make AtBottom lie mid-paint — so only flip the
+// bar when needed, then scroll back down if we started at the bottom.
 func (m *Model) repaintTranscript() {
-	m.showScrollbar = false
-	m.layout()
 	if len(m.messages) == 0 {
+		m.showScrollbar = false
+		m.layout()
 		m.viewport.SetContent("")
 		return
 	}
+
+	stickBottom := m.viewport.AtBottom()
+	m.layout()
 	m.setTranscriptContent()
-	if m.viewport.TotalLineCount() > m.viewport.Height() {
-		m.showScrollbar = true
+	needBar := m.viewport.TotalLineCount() > m.viewport.Height()
+	if needBar != m.showScrollbar {
+		m.showScrollbar = needBar
 		m.layout()
 		m.setTranscriptContent()
+	}
+	if stickBottom {
+		m.viewport.GotoBottom()
 	}
 }
 
