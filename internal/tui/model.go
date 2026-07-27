@@ -428,10 +428,28 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(taCmd, vpCmd)
 }
 
+// rejectSubmit reports why a turn could not be sent. The message is shown but
+// not persisted: the turn never happened, so it should not survive a resume.
+func (m *Model) rejectSubmit(reason string) tea.Cmd {
+	m.messages = append(m.messages, Message{Role: RoleError, Text: reason})
+	m.refreshTranscript()
+	return nil
+}
+
 // submit appends the user turn, starts a streaming completion, and refreshes.
 // When the transcript is near the context limit, auto-compacts first.
 // text/imgs come from parseComposer (inline [Image N] tokens stripped from text).
 func (m *Model) submit(text string, imgs []image.Ref) tea.Cmd {
+	// Refuse before committing anything: a turn that cannot be sent must stay
+	// out of history and off disk, and its text stays in the composer so the
+	// user can retry it after /config instead of retyping.
+	if m.client == nil {
+		return m.rejectSubmit("no provider configured, run /config to connect one")
+	}
+	if err := m.ensureFreshClient(); err != nil {
+		return m.rejectSubmit("oauth refresh: " + err.Error())
+	}
+
 	display := userDisplayText(text, imgs)
 
 	user := Message{Role: RoleUser, Text: display}
@@ -440,21 +458,6 @@ func (m *Model) submit(text string, imgs []image.Ref) tea.Cmd {
 	m.persist(session.Record{Role: session.RoleUser, Text: text, Images: imgs})
 	m.resetInput()
 	m.refreshTranscript()
-
-	if m.client == nil {
-		errMsg := Message{Role: RoleError, Text: "no provider configured — set up ~/.zeta/config.json"}
-		m.messages = append(m.messages, errMsg)
-		m.persist(session.Record{Role: session.RoleError, Text: errMsg.Text})
-		m.refreshTranscript()
-		return nil
-	}
-	if err := m.ensureFreshClient(); err != nil {
-		errMsg := Message{Role: RoleError, Text: "oauth refresh: " + err.Error()}
-		m.messages = append(m.messages, errMsg)
-		m.persist(session.Record{Role: session.RoleError, Text: errMsg.Text})
-		m.refreshTranscript()
-		return nil
-	}
 
 	titlePrompt := text
 	if titlePrompt == "" && len(imgs) > 0 {

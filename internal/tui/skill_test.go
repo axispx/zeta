@@ -124,8 +124,8 @@ func TestSkillSlashDoesNotCollideWithBuiltins(t *testing.T) {
 func TestSubmitInputSkillWithArgs(t *testing.T) {
 	ta := textarea.New()
 	ta.SetValue("/review focus on stream.go")
-	m := Model{textarea: ta}
-	// No client → submit still records the user turn then errors.
+	m := Model{textarea: ta, cfg: testClientCfg()}
+	m.applyClient()
 	cmd := m.submitInput()
 	_ = cmd
 	if len(m.history) != 1 || m.history[0].Text != "/review focus on stream.go" {
@@ -173,7 +173,8 @@ func TestSubmitInputExactSkillTokenFills(t *testing.T) {
 	// Palette Enter always fills skills (never runs) so args can be added.
 	ta := textarea.New()
 	ta.SetValue("/review")
-	m := Model{textarea: ta}
+	m := Model{textarea: ta, cfg: testClientCfg()}
+	m.applyClient()
 	m.syncOverlay()
 	if !m.overlay.showing() {
 		t.Fatal("expected command overlay for exact token")
