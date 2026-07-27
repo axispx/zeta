@@ -34,8 +34,19 @@ func (d configDialog) renderPanel(chrome styles.Chrome, termW int, dlg Dialog) s
 	return dlg.PanelWithFooter(body, footer, panelW, ink)
 }
 
-func configEscTitle(title string, innerW int, ink styles.OverlayInk) string {
-	return formatHintRow("", title, "esc", innerW, ink.Header, ink.Hint, ink.Gap)
+// configEscTitle names what esc does here. It is one rung per view (back, or
+// close at the root), so the header states which one rather than leaving the
+// user to press it and find out.
+func configEscTitle(title, escHint string, innerW int, ink styles.OverlayInk) string {
+	return formatHintRow("", title, escHint, innerW, ink.Header, ink.Hint, ink.Gap)
+}
+
+// clearHint advertises ctrl+u while there is a query to clear.
+func clearHint(query string, ink styles.OverlayInk) []string {
+	if query == "" {
+		return nil
+	}
+	return []string{ink.HintKbd("Clear", "ctrl+u")}
 }
 
 func (d configDialog) presetsBody(innerW int, chrome styles.Chrome, ink styles.OverlayInk) (body string, footer DialogFooter) {
@@ -51,10 +62,11 @@ func (d configDialog) presetsBody(innerW int, chrome styles.Chrome, ink styles.O
 			}
 		}
 	}
+	hints = append(hints, clearHint(d.presetQuery, ink)...)
 	if len(hints) > 0 {
 		footer = DialogFooter{Hint: strings.Join(hints, ink.Gap.Render("  "))}
 	}
-	title := configEscTitle("Configure providers", innerW, ink)
+	title := configEscTitle("Configure providers", "esc close", innerW, ink)
 
 	if d.loading {
 		var b strings.Builder
@@ -127,6 +139,7 @@ func (d configDialog) modelsBody(innerW int, chrome styles.Chrome, ink styles.Ov
 			hints = append(hints, ink.HintKbd("Edit", "ctrl+e"))
 		}
 	}
+	hints = append(hints, clearHint(d.modelQuery, ink)...)
 	footer = DialogFooter{Hint: strings.Join(hints, ink.Gap.Render("  "))}
 	titleName := d.focusID
 	if p, ok := d.draft.Provider(d.focusID); ok {
@@ -136,7 +149,7 @@ func (d configDialog) modelsBody(innerW int, chrome styles.Chrome, ink styles.Ov
 	}
 
 	var b strings.Builder
-	b.WriteString(configEscTitle(titleName, innerW, ink))
+	b.WriteString(configEscTitle(titleName, "esc back", innerW, ink))
 	b.WriteByte('\n')
 	b.WriteString(ink.Hint.Render("Enter to toggle"))
 	b.WriteString("\n\n")
@@ -188,8 +201,12 @@ func (d configDialog) authBody(innerW int, chrome styles.Chrome, ink styles.Over
 	if title == "" {
 		title = "Credentials"
 	}
+	escHint := "esc back"
+	if d.oauth != nil {
+		escHint = "esc cancel" // a flow is in flight; esc drops it, not the view
+	}
 	var b strings.Builder
-	b.WriteString(configEscTitle(title, innerW, ink))
+	b.WriteString(configEscTitle(title, escHint, innerW, ink))
 	b.WriteByte('\n')
 	if d.oauth != nil {
 		if d.oauth.browser() {
@@ -255,7 +272,7 @@ func (d configDialog) formBody(innerW int, chrome styles.Chrome, ink styles.Over
 	}
 
 	var b strings.Builder
-	b.WriteString(configEscTitle(title, innerW, ink))
+	b.WriteString(configEscTitle(title, "esc back", innerW, ink))
 	b.WriteByte('\n')
 
 	labelW := 0

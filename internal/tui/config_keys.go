@@ -83,10 +83,6 @@ func (d *configDialog) handlePresetsKey(msg tea.KeyPressMsg) tea.Cmd {
 		d.openRenameProvider(it.id)
 		return nil
 	case "esc":
-		if d.presetQuery != "" {
-			d.setPresetQuery("")
-			return nil
-		}
 		d.clear()
 		return nil
 	}
@@ -133,10 +129,8 @@ func (d *configDialog) handleModelsKey(msg tea.KeyPressMsg) tea.Cmd {
 		d.openEditModel(rows[d.selected])
 		return nil
 	case "esc":
-		if d.modelQuery != "" {
-			d.setModelQuery("")
-			return nil
-		}
+		// Back one level, filter intact: the presets list is the screen the
+		// user left, not a fresh one. ctrl+u clears a search box.
 		d.status = ""
 		d.view = configPresets
 		d.listSel.clear()
