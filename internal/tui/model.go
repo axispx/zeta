@@ -357,7 +357,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, m.requestQuit()
 		case m.config.active:
-			cmd, _ := m.config.Update(msg)
+			cmd, _ := m.updateConfigDialog(msg)
 			return m, cmd
 		case m.picker.active:
 			return m, m.handlePickerKey(msg)
@@ -403,7 +403,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	if m.config.active {
-		if cmd, handled := m.config.Update(msg); handled {
+		if cmd, handled := m.updateConfigDialog(msg); handled {
 			return m, cmd
 		}
 		// Unhandled (e.g. already consumed above): keep modal closed to outer chrome.
