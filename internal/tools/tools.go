@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/axispx/zeta/internal/ai"
+	"github.com/axispx/zeta/internal/todo"
 )
 
 // Tool is one function the model may call.
@@ -28,14 +29,21 @@ func ArgPath(raw json.RawMessage) string {
 	return strings.TrimSpace(a.Path)
 }
 
-// Build returns the full tool set (build mode).
-func Build() []Tool {
-	return []Tool{readTool{}, editTool{}, writeTool{}, grepTool{}, globTool{}, bashTool{}, websearchTool{}, webfetchTool{}, skillTool{}, askUserTool{}}
+// Build returns the full tool set (build mode). Todo runs only when a store is wired;
+// harness paths should prefer BuildWith.
+func Build() []Tool { return BuildWith(nil) }
+
+// BuildWith returns the full tool set with todo bound to store (nil store → tool errors on Run).
+func BuildWith(store *todo.Store) []Tool {
+	return []Tool{readTool{}, editTool{}, writeTool{}, grepTool{}, globTool{}, bashTool{}, websearchTool{}, webfetchTool{}, skillTool{}, todoTool{store: store}, askUserTool{}}
 }
 
-// Inspect returns ask/plan-safe tools (no edits, no shell).
-func Inspect() []Tool {
-	return []Tool{readTool{}, grepTool{}, globTool{}, websearchTool{}, webfetchTool{}, skillTool{}, askUserTool{}}
+// Inspect returns ask/plan-safe tools (no edits, no shell). Prefer InspectWith in the harness.
+func Inspect() []Tool { return InspectWith(nil) }
+
+// InspectWith returns ask/plan-safe tools with todo bound to store.
+func InspectWith(store *todo.Store) []Tool {
+	return []Tool{readTool{}, grepTool{}, globTool{}, websearchTool{}, webfetchTool{}, skillTool{}, todoTool{store: store}, askUserTool{}}
 }
 
 // Defs converts tools to API function definitions.

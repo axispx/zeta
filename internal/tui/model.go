@@ -20,6 +20,7 @@ import (
 	"github.com/axispx/zeta/internal/prompt"
 	"github.com/axispx/zeta/internal/session"
 	"github.com/axispx/zeta/internal/styles"
+	"github.com/axispx/zeta/internal/todo"
 	"github.com/axispx/zeta/internal/version"
 	"github.com/axispx/zeta/internal/workspace"
 )
@@ -59,6 +60,7 @@ type Model struct {
 	compactCancel context.CancelFunc
 	mode          prompt.Mode
 	grants        *permission.Session // "allow for session" (bash only); reset on /clear
+	todos         *todo.Store         // session checklist; non-nil after New/applySession
 	bottom        bottomSlot          // exclusive input-slot panel (perm | ask | plan)
 	pendingPlan   string              // plan body produced this turn; offered once on turnDone
 	overlay       filterOverlay
@@ -135,6 +137,7 @@ func New(cfg config.Config, opts Options) (Model, error) {
 		ws:       ws,
 		spinner:  spinner.New(spinner.WithSpinner(spinner.MiniDot)),
 		grants:   &permission.Session{},
+		todos:    todo.NewStore(),
 	}
 	m.promptHist.reset()
 	applyTextareaStyles(&m.textarea, nil)
@@ -151,8 +154,10 @@ func New(cfg config.Config, opts Options) (Model, error) {
 
 	if sess, err := session.New(ws.Abs); err != nil {
 		m.messages = []Message{{Role: RoleError, Text: "session: " + err.Error()}}
+		m.wireTodos(nil)
 	} else {
 		m.sess = sess
+		m.wireTodos(nil)
 	}
 	if opts.Picker {
 		m.openPicker()
@@ -459,7 +464,7 @@ func (m *Model) beginTurn(titlePrompt string) tea.Cmd {
 	}
 	var cmds []tea.Cmd
 	var turnCmd tea.Cmd
-	m.turn, turnCmd = startTurn(m.client, m.ws, m.mode, m.history, m.grants)
+	m.turn, turnCmd = startTurn(m.client, m.ws, m.mode, m.history, m.grants, m.todos)
 	// Busy gap grows (GapBeforeInput → busyStatusRows); shrink transcript now.
 	m.layoutPreservingBottom()
 	cmds = append(cmds, turnCmd, m.spinner.Tick)

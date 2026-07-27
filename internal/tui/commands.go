@@ -15,6 +15,7 @@ import (
 	"github.com/axispx/zeta/internal/session"
 	"github.com/axispx/zeta/internal/skill"
 	"github.com/axispx/zeta/internal/styles"
+	"github.com/axispx/zeta/internal/todo"
 )
 
 // command is a slash-palette entry. skill marks a bundled playbook binding
@@ -288,9 +289,15 @@ func (m *Model) applySession(sess *session.Session, recs []session.Record, err e
 		m.messages = []Message{{Role: RoleError, Text: "session: " + err.Error()}}
 		m.sess = nil
 		m.history = nil
+		m.wireTodos(nil)
 	} else {
 		m.sess = sess
 		m.messages, m.history = loadSession(recs)
+		var items []todo.Item
+		if sess != nil {
+			items = sess.Todos()
+		}
+		m.wireTodos(items)
 	}
 	m.contextTokens = 0
 	m.titlePending = false
@@ -302,6 +309,20 @@ func (m *Model) applySession(sess *session.Session, recs []session.Record, err e
 	m.grants = &permission.Session{}
 	m.tx.invalidate()
 	m.refreshTranscript()
+}
+
+// wireTodos resets the checklist and binds persist-on-change to the current session.
+func (m *Model) wireTodos(items []todo.Item) {
+	if m.todos == nil {
+		m.todos = todo.NewStore()
+	}
+	m.todos.Seed(items)
+	m.todos.SetOnChange(func(next []todo.Item) error {
+		if m.sess == nil {
+			return nil
+		}
+		return m.sess.AppendTodos(next)
+	})
 }
 
 func (m *Model) startNewSession() {

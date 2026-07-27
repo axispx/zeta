@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/axispx/zeta/internal/todo"
 )
 
 func TestCwdKey(t *testing.T) {
@@ -34,6 +36,9 @@ func TestOpenAppendResume(t *testing.T) {
 	}
 	if len(recs) != 0 {
 		t.Fatalf("fresh session records = %d", len(recs))
+	}
+	if len(s.Todos()) != 0 {
+		t.Fatalf("fresh todos = %#v", s.Todos())
 	}
 
 	// Empty sessions are not indexed.
@@ -67,6 +72,9 @@ func TestOpenAppendResume(t *testing.T) {
 	}
 	if s2.ID != s.ID {
 		t.Fatalf("id = %q, want %q", s2.ID, s.ID)
+	}
+	if len(s2.Todos()) != 0 {
+		t.Fatalf("todos without AppendTodos = %#v", s2.Todos())
 	}
 	name, err := s2.IndexedName()
 	if err != nil {
@@ -272,5 +280,69 @@ func TestOpenID(t *testing.T) {
 	}
 	if len(recs) != 1 || recs[0].Text != "one" {
 		t.Fatalf("recs = %#v", recs)
+	}
+	if len(got.Todos()) != 0 {
+		t.Fatalf("todos = %#v", got.Todos())
+	}
+}
+
+func TestAppendTodosLastWins(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("ZETA_HOME", home)
+	proj := filepath.Join(t.TempDir(), "proj")
+
+	s, err := New(proj)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Append(Record{Role: RoleUser, Text: "start"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AppendTodos([]todo.Item{
+		{ID: "1", Subject: "first", Status: todo.Pending},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Append(Record{Role: RoleAgent, Text: "working"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AppendTodos([]todo.Item{
+		{ID: "1", Subject: "first", Status: todo.Completed},
+		{ID: "2", Subject: "second", Status: todo.InProgress},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if todos := s.Todos(); len(todos) != 2 || todos[0].Status != todo.Completed {
+		t.Fatalf("live Todos = %#v", todos)
+	}
+
+	s2, recs, err := OpenID(proj, s.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s2.ID != s.ID {
+		t.Fatalf("id = %q", s2.ID)
+	}
+	if len(recs) != 2 {
+		t.Fatalf("recs = %#v", recs)
+	}
+	todos := s2.Todos()
+	if len(todos) != 2 || todos[0].Status != todo.Completed || todos[1].ID != "2" {
+		t.Fatalf("todos = %#v", todos)
+	}
+
+	// Clear snapshot round-trips.
+	if err := s.AppendTodos(nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(s.Todos()) != 0 {
+		t.Fatalf("live clear = %#v", s.Todos())
+	}
+	s3, _, err := OpenID(proj, s.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s3.Todos()) != 0 {
+		t.Fatalf("cleared todos = %#v", s3.Todos())
 	}
 }

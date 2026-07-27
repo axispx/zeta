@@ -25,7 +25,8 @@ internal/ai/         OpenAI-compatible streaming + tools
 internal/agent/      tool loop + permission gate
 internal/permission/ allow | deny for side-effect tools
 internal/compact/    context compaction
-internal/tools/      read / edit / write / grep / glob / bash / websearch / webfetch / skill / ask_user
+internal/tools/      read / edit / write / grep / glob / bash / websearch / webfetch / skill / todo / ask_user
+internal/todo/       session-scoped checklist store (model-owned)
 internal/skill/      bundled playbooks (`skills/*/SKILL.md` via go:embed)
 internal/config/     ~/.zeta/config.json
 internal/models/     models.dev catalog → presets

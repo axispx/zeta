@@ -9,6 +9,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/axispx/zeta/internal/styles"
+	"github.com/axispx/zeta/internal/todo"
 )
 
 const (
@@ -31,6 +32,8 @@ func viewFor(name string) toolView {
 		return toolView{keepOut: true, segment: "bash", busy: statusRunning, renderRun: renderShellRun}
 	case "edit", "write":
 		return toolView{keepOut: true, segment: "edit", busy: statusEditing, renderRun: renderEditRun}
+	case "todo":
+		return toolView{keepOut: true, segment: "todo", busy: statusWorking, renderRun: renderTodoRun}
 	case "read", "skill":
 		return toolView{busy: statusReading}
 	case "grep", "glob", "websearch":
@@ -128,6 +131,53 @@ func renderEditRun(msgs []Message) string {
 			b.WriteString("\n\n")
 		}
 		b.WriteString(renderEditCall(m))
+	}
+	return b.String()
+}
+
+func renderTodoRun(msgs []Message) string {
+	// Last snapshot in a consecutive run is enough (full replace each call).
+	if len(msgs) == 0 {
+		return ""
+	}
+	return renderTodoCall(msgs[len(msgs)-1])
+}
+
+// renderTodoCall formats a todo tool result as a compact checklist.
+// Parses Format text via todo.ParseFormat (resume path stores Format in Out).
+// Header and status glyphs are yellow; subjects stay default weight.
+func renderTodoCall(m Message) string {
+	var b strings.Builder
+	b.WriteString(styles.Todo.Render("Todos"))
+	if m.Status == ToolDenied {
+		b.WriteString("  ")
+		b.WriteString(styles.SystemMsg.Render("denied"))
+		return b.String()
+	}
+	body := strings.TrimSpace(m.Out)
+	if body == "" {
+		return b.String()
+	}
+	items, warning, ok := todo.ParseFormat(body)
+	if !ok {
+		// Unexpected shape — show raw body rather than drop the row.
+		b.WriteByte('\n')
+		b.WriteString(body)
+		return b.String()
+	}
+	for _, it := range items {
+		b.WriteByte('\n')
+		b.WriteString(styles.Todo.Render(todo.Glyph(it.Status)))
+		b.WriteString(" ")
+		b.WriteString(it.Subject)
+		if d := strings.TrimSpace(it.Description); d != "" {
+			b.WriteString(" — ")
+			b.WriteString(d)
+		}
+	}
+	if warning != "" {
+		b.WriteByte('\n')
+		b.WriteString(styles.SystemMsg.Render(warning))
 	}
 	return b.String()
 }

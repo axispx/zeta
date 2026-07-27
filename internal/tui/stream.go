@@ -12,6 +12,7 @@ import (
 	"github.com/axispx/zeta/internal/permission"
 	"github.com/axispx/zeta/internal/prompt"
 	"github.com/axispx/zeta/internal/skill"
+	"github.com/axispx/zeta/internal/todo"
 	"github.com/axispx/zeta/internal/tools"
 	"github.com/axispx/zeta/internal/workspace"
 )
@@ -131,12 +132,12 @@ func (m *Model) handleStreamPaint(msg streamPaintMsg) {
 	m.repaintTranscript()
 }
 
-func toolsForMode(mode prompt.Mode) []tools.Tool {
+func toolsForMode(mode prompt.Mode, store *todo.Store) []tools.Tool {
 	switch mode {
 	case prompt.ModeAsk, prompt.ModePlan:
-		return tools.Inspect()
+		return tools.InspectWith(store)
 	default:
-		return tools.Build()
+		return tools.BuildWith(store)
 	}
 }
 
@@ -144,12 +145,18 @@ func toolsForMode(mode prompt.Mode) []tools.Tool {
 // and expands a trailing slash-skill user turn into a developer playbook.
 // Durable history keeps the user text (token + optional args); completed
 // slash turns are not re-injected on later requests.
-func requestMsgs(ws workspace.Context, mode prompt.Mode, history []ai.Message) []ai.Message {
-	out := make([]ai.Message, 0, len(history)+3)
+// When todos is non-empty, a developer checklist block is injected after mode.
+func requestMsgs(ws workspace.Context, mode prompt.Mode, history []ai.Message, todos *todo.Store) []ai.Message {
+	out := make([]ai.Message, 0, len(history)+4)
 	out = append(out,
 		ai.Message{Role: ai.RoleSystem, Text: prompt.System(ws)},
 		ai.Message{Role: ai.RoleDeveloper, Text: mode.Instructions()},
 	)
+	if todos != nil {
+		if block := todos.PromptBlock(); block != "" {
+			out = append(out, ai.Message{Role: ai.RoleDeveloper, Text: block})
+		}
+	}
 	out = append(out, history...)
 	if n := len(history); n > 0 {
 		last := history[n-1]
@@ -243,12 +250,12 @@ func turnEventMsg(evt agent.Event) tea.Msg {
 	}
 }
 
-func startTurn(client *ai.Client, ws workspace.Context, mode prompt.Mode, history []ai.Message, grants *permission.Session) (*turnSession, tea.Cmd) {
+func startTurn(client *ai.Client, ws workspace.Context, mode prompt.Mode, history []ai.Message, grants *permission.Session, todos *todo.Store) (*turnSession, tea.Cmd) {
 	ctx, cancel := context.WithCancel(context.Background())
 	replies := make(chan agent.Reply, 1)
 	cfg := agent.Config{
 		Client:  client,
-		Tools:   toolsForMode(mode),
+		Tools:   toolsForMode(mode, todos),
 		Root:    ws.Abs,
 		Replies: replies,
 		// Same classifier as handleTurnToolStart (waitFor).
@@ -256,7 +263,7 @@ func startTurn(client *ai.Client, ws workspace.Context, mode prompt.Mode, histor
 			return waitFor(name, grants) != waitNone
 		},
 	}
-	ch := cfg.Run(ctx, requestMsgs(ws, mode, history))
+	ch := cfg.Run(ctx, requestMsgs(ws, mode, history, todos))
 	t := &turnSession{
 		cancel:     cancel,
 		ch:         ch,

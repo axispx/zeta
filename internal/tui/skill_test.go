@@ -15,7 +15,7 @@ import (
 
 func TestRequestMsgsExpandsSlashSkill(t *testing.T) {
 	hist := []ai.Message{{Role: ai.RoleUser, Text: "/review"}}
-	msgs := requestMsgs(workspace.Context{}, prompt.ModeBuild, hist)
+	msgs := requestMsgs(workspace.Context{}, prompt.ModeBuild, hist, nil)
 	if len(msgs) < 3 {
 		t.Fatalf("len=%d", len(msgs))
 	}
@@ -41,7 +41,7 @@ func TestRequestMsgsExpandsSlashSkill(t *testing.T) {
 func TestRequestMsgsExpandsSlashSkillWithArgs(t *testing.T) {
 	const user = "/review focus on tui packaging"
 	hist := []ai.Message{{Role: ai.RoleUser, Text: user}}
-	msgs := requestMsgs(workspace.Context{}, prompt.ModeBuild, hist)
+	msgs := requestMsgs(workspace.Context{}, prompt.ModeBuild, hist, nil)
 	var sawUser, sawSkill bool
 	for _, m := range msgs {
 		if m.Role == ai.RoleUser && m.Text == user {
@@ -68,7 +68,7 @@ func TestRequestMsgsNoReinjectCompletedSlash(t *testing.T) {
 			{Role: ai.RoleUser, Text: user},
 			{Role: ai.RoleAssistant, Text: "done"},
 		}
-		msgs := requestMsgs(workspace.Context{}, prompt.ModeBuild, hist)
+		msgs := requestMsgs(workspace.Context{}, prompt.ModeBuild, hist, nil)
 		for _, m := range msgs {
 			if m.Role == ai.RoleDeveloper && strings.Contains(m.Text, "Thermo-Nuclear") {
 				t.Fatalf("re-injected completed slash %q: %+v", user, rolesOf(msgs))
@@ -79,7 +79,7 @@ func TestRequestMsgsNoReinjectCompletedSlash(t *testing.T) {
 
 func TestRequestMsgsNoopPlainUser(t *testing.T) {
 	hist := []ai.Message{{Role: ai.RoleUser, Text: "no slash"}}
-	msgs := requestMsgs(workspace.Context{}, prompt.ModeBuild, hist)
+	msgs := requestMsgs(workspace.Context{}, prompt.ModeBuild, hist, nil)
 	for _, m := range msgs {
 		if m.Role == ai.RoleDeveloper && strings.Contains(m.Text, "skill_content") {
 			t.Fatalf("unexpected skill inject: %+v", m)

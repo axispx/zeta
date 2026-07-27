@@ -72,7 +72,7 @@ func TestInteractive(t *testing.T) {
 	if !Interactive(AskUser) {
 		t.Fatal("ask_user must be interactive")
 	}
-	for _, name := range []string{"read", "bash", "edit", "write", "skill"} {
+	for _, name := range []string{"read", "bash", "edit", "write", "skill", "todo"} {
 		if Interactive(name) {
 			t.Fatalf("%s must not be interactive", name)
 		}
@@ -113,17 +113,17 @@ func TestSkillToolSummary(t *testing.T) {
 
 func TestInspect(t *testing.T) {
 	ro := Inspect()
-	if len(ro) != 7 {
+	if len(ro) != 8 {
 		t.Fatalf("inspect len: %d", len(ro))
 	}
-	if len(Build()) != 10 {
+	if len(Build()) != 11 {
 		t.Fatalf("build len: %d", len(Build()))
 	}
 	names := map[string]bool{}
 	for _, tool := range ro {
 		names[tool.Name()] = true
 	}
-	if names["bash"] || names["edit"] || names["write"] || !names["skill"] || !names["read"] || !names["grep"] || !names["glob"] || !names["websearch"] || !names["webfetch"] || !names["ask_user"] {
+	if names["bash"] || names["edit"] || names["write"] || !names["skill"] || !names["read"] || !names["grep"] || !names["glob"] || !names["websearch"] || !names["webfetch"] || !names["todo"] || !names["ask_user"] {
 		t.Fatalf("inspect names: %v", names)
 	}
 }
