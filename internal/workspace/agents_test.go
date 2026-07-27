@@ -74,6 +74,24 @@ func TestInspectNoGitWalksUp(t *testing.T) {
 	}
 }
 
+func TestRefreshBranch(t *testing.T) {
+	root := t.TempDir()
+	mustMkdir(t, filepath.Join(root, ".git"))
+	mustWrite(t, filepath.Join(root, ".git", "HEAD"), "ref: refs/heads/main\n")
+	mustWrite(t, filepath.Join(root, "AGENTS.md"), "keep me")
+
+	c := Context{Abs: root, Cwd: root, Branch: "main", AgentsMD: "keep me"}
+	mustWrite(t, filepath.Join(root, ".git", "HEAD"), "ref: refs/heads/feature\n")
+	mustWrite(t, filepath.Join(root, "AGENTS.md"), "changed")
+	c.RefreshBranch()
+	if c.Branch != "feature" {
+		t.Fatalf("RefreshBranch branch = %q, want feature", c.Branch)
+	}
+	if c.AgentsMD != "keep me" {
+		t.Fatalf("RefreshBranch must not reload AGENTS.md, got %q", c.AgentsMD)
+	}
+}
+
 func TestInspectEmptyIgnored(t *testing.T) {
 	dir := t.TempDir()
 	mustWrite(t, filepath.Join(dir, "AGENTS.md"), "  \n  ")

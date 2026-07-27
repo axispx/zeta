@@ -83,6 +83,8 @@ func (m *Model) startCompact() tea.Cmd {
 		m.noteError("oauth refresh: " + err.Error())
 		return nil
 	}
+	// Match submit: overhead estimate uses current system prompt.
+	m.refreshWorkspace()
 	return m.runCompact(compactManual, "")
 }
 
@@ -155,6 +157,8 @@ func (m *Model) handleCompactDone(msg compactDoneMsg) tea.Cmd {
 	}
 
 	if msg.kind == compactAuto {
+		// Compact may have taken long enough for cwd/branch/AGENTS.md to change.
+		m.refreshWorkspace()
 		return m.beginTurn(msg.titlePrompt)
 	}
 	return nil

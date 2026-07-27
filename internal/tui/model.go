@@ -237,6 +237,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.FocusMsg:
+		m.ws.RefreshBranch()
 		if m.config.active {
 			return m, nil
 		}
@@ -457,13 +458,22 @@ func (m *Model) submit(text string, imgs []image.Ref) tea.Cmd {
 	if titlePrompt == "" && len(imgs) > 0 {
 		titlePrompt = transcriptLabel(imgs[0], 1)
 	}
+	// Fresh before auto-compact estimate and the turn that follows.
+	m.refreshWorkspace()
 	if m.shouldAutoCompact() {
 		return m.runCompact(compactAuto, titlePrompt)
 	}
 	return m.beginTurn(titlePrompt)
 }
 
+// refreshWorkspace reloads cwd/branch/AGENTS.md. Call at turn/compact
+// boundaries; beginTurn assumes the caller already refreshed.
+func (m *Model) refreshWorkspace() {
+	m.ws = workspace.Load()
+}
+
 // beginTurn starts the agent loop for the current history.
+// Callers must refreshWorkspace first (or have just done so).
 func (m *Model) beginTurn(titlePrompt string) tea.Cmd {
 	if m.client == nil {
 		return nil
