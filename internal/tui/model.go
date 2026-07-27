@@ -432,6 +432,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // When the transcript is near the context limit, auto-compacts first.
 // text/imgs come from parseComposer (inline [Image N] tokens stripped from text).
 func (m *Model) submit(text string, imgs []image.Ref) tea.Cmd {
+	// Refuse before committing anything: a turn that cannot be sent must stay
+	// out of history and off disk, and its text stays in the composer so the
+	// user can retry it after /config instead of retyping.
+	if m.client == nil {
+		m.noteError("no provider configured, run /config to connect one")
+		return nil
+	}
+	if err := m.ensureFreshClient(); err != nil {
+		m.noteError("oauth refresh: " + err.Error())
+		return nil
+	}
+
 	display := userDisplayText(text, imgs)
 
 	user := Message{Role: RoleUser, Text: display}
@@ -440,21 +452,6 @@ func (m *Model) submit(text string, imgs []image.Ref) tea.Cmd {
 	m.persist(session.Record{Role: session.RoleUser, Text: text, Images: imgs})
 	m.resetInput()
 	m.refreshTranscript()
-
-	if m.client == nil {
-		errMsg := Message{Role: RoleError, Text: "no provider configured — set up ~/.zeta/config.json"}
-		m.messages = append(m.messages, errMsg)
-		m.persist(session.Record{Role: session.RoleError, Text: errMsg.Text})
-		m.refreshTranscript()
-		return nil
-	}
-	if err := m.ensureFreshClient(); err != nil {
-		errMsg := Message{Role: RoleError, Text: "oauth refresh: " + err.Error()}
-		m.messages = append(m.messages, errMsg)
-		m.persist(session.Record{Role: session.RoleError, Text: errMsg.Text})
-		m.refreshTranscript()
-		return nil
-	}
 
 	titlePrompt := text
 	if titlePrompt == "" && len(imgs) > 0 {

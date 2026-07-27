@@ -105,7 +105,7 @@ func TestSubmitImageOnly(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("ZETA_HOME", dir)
 
-	m, err := New(config.Config{}, Options{})
+	m, err := New(testClientCfg(), Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
