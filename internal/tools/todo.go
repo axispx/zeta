@@ -78,24 +78,11 @@ func (t todoTool) Run(_ context.Context, _ string, raw json.RawMessage) (string,
 	if t.store == nil {
 		return "", fmt.Errorf("todo store unavailable")
 	}
-	var a struct {
-		Items []todo.Item `json:"items"`
+	items, err := todo.ParseArgs(raw)
+	if err != nil {
+		return "", err
 	}
-	if err := json.Unmarshal(raw, &a); err != nil {
-		return "", fmt.Errorf("invalid arguments: %w", err)
-	}
-	if a.Items == nil {
-		// Distinguish missing items from explicit empty list.
-		var probe map[string]json.RawMessage
-		if err := json.Unmarshal(raw, &probe); err != nil {
-			return "", fmt.Errorf("invalid arguments: %w", err)
-		}
-		if _, ok := probe["items"]; !ok {
-			return "", fmt.Errorf("items is required")
-		}
-		a.Items = []todo.Item{}
-	}
-	warn, err := t.store.Replace(a.Items)
+	warn, err := t.store.Replace(items)
 	if err != nil {
 		return "", err
 	}

@@ -133,11 +133,12 @@ func (m *Model) handleStreamPaint(msg streamPaintMsg) {
 }
 
 func toolsForMode(mode prompt.Mode, store *todo.Store) []tools.Tool {
+	env := tools.Env{Todos: store}
 	switch mode {
 	case prompt.ModeAsk, prompt.ModePlan:
-		return tools.InspectWith(store)
+		return tools.ForMode(false, env)
 	default:
-		return tools.BuildWith(store)
+		return tools.ForMode(true, env)
 	}
 }
 

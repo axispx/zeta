@@ -29,21 +29,26 @@ func ArgPath(raw json.RawMessage) string {
 	return strings.TrimSpace(a.Path)
 }
 
-// Build returns the full tool set (build mode). Todo runs only when a store is wired;
-// harness paths should prefer BuildWith.
-func Build() []Tool { return BuildWith(nil) }
-
-// BuildWith returns the full tool set with todo bound to store (nil store → tool errors on Run).
-func BuildWith(store *todo.Store) []Tool {
-	return []Tool{readTool{}, editTool{}, writeTool{}, grepTool{}, globTool{}, bashTool{}, websearchTool{}, webfetchTool{}, skillTool{}, todoTool{store: store}, askUserTool{}}
+// Env carries session-scoped tool dependencies the harness wires per turn.
+type Env struct {
+	Todos *todo.Store
 }
 
-// Inspect returns ask/plan-safe tools (no edits, no shell). Prefer InspectWith in the harness.
-func Inspect() []Tool { return InspectWith(nil) }
+// Build returns the full tool set (build mode) with no session env.
+// Harness paths should use ForMode.
+func Build() []Tool { return ForMode(true, Env{}) }
 
-// InspectWith returns ask/plan-safe tools with todo bound to store.
-func InspectWith(store *todo.Store) []Tool {
-	return []Tool{readTool{}, grepTool{}, globTool{}, websearchTool{}, webfetchTool{}, skillTool{}, todoTool{store: store}, askUserTool{}}
+// Inspect returns ask/plan-safe tools (no edits, no shell) with no session env.
+func Inspect() []Tool { return ForMode(false, Env{}) }
+
+// ForMode returns build tools when build is true, else ask/plan-safe tools.
+// env.Todos binds the session checklist (nil → todo tool errors on Run).
+func ForMode(build bool, env Env) []Tool {
+	todo := todoTool{store: env.Todos}
+	if build {
+		return []Tool{readTool{}, editTool{}, writeTool{}, grepTool{}, globTool{}, bashTool{}, websearchTool{}, webfetchTool{}, skillTool{}, todo, askUserTool{}}
+	}
+	return []Tool{readTool{}, grepTool{}, globTool{}, websearchTool{}, webfetchTool{}, skillTool{}, todo, askUserTool{}}
 }
 
 // Defs converts tools to API function definitions.

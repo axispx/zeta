@@ -31,7 +31,7 @@ func TestTodoToolNilStore(t *testing.T) {
 
 func TestTodoToolReplace(t *testing.T) {
 	store := todo.NewStore()
-	ts := BuildWith(store)
+	ts := ForMode(true, Env{Todos: store})
 	ctx := context.Background()
 
 	out := Run(ctx, ts, t.TempDir(), Todo, mustRaw(t, map[string]any{
@@ -73,7 +73,7 @@ func TestTodoToolReplace(t *testing.T) {
 
 func TestTodoToolInvalidArgs(t *testing.T) {
 	store := todo.NewStore()
-	ts := BuildWith(store)
+	ts := ForMode(true, Env{Todos: store})
 	ctx := context.Background()
 	out := Run(ctx, ts, t.TempDir(), Todo, mustRaw(t, map[string]any{
 		"items": []map[string]any{{"id": "1", "subject": "x", "status": "nope"}},

@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/axispx/zeta/internal/todo"
 )
 
 func TestCwdKey(t *testing.T) {
@@ -36,9 +35,6 @@ func TestOpenAppendResume(t *testing.T) {
 	}
 	if len(recs) != 0 {
 		t.Fatalf("fresh session records = %d", len(recs))
-	}
-	if len(s.Todos()) != 0 {
-		t.Fatalf("fresh todos = %#v", s.Todos())
 	}
 
 	// Empty sessions are not indexed.
@@ -72,9 +68,6 @@ func TestOpenAppendResume(t *testing.T) {
 	}
 	if s2.ID != s.ID {
 		t.Fatalf("id = %q, want %q", s2.ID, s.ID)
-	}
-	if len(s2.Todos()) != 0 {
-		t.Fatalf("todos without AppendTodos = %#v", s2.Todos())
 	}
 	name, err := s2.IndexedName()
 	if err != nil {
@@ -281,12 +274,9 @@ func TestOpenID(t *testing.T) {
 	if len(recs) != 1 || recs[0].Text != "one" {
 		t.Fatalf("recs = %#v", recs)
 	}
-	if len(got.Todos()) != 0 {
-		t.Fatalf("todos = %#v", got.Todos())
-	}
 }
 
-func TestAppendTodosLastWins(t *testing.T) {
+func TestLoadSkipsUnknownEventTypes(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("ZETA_HOME", home)
 	proj := filepath.Join(t.TempDir(), "proj")
@@ -295,25 +285,22 @@ func TestAppendTodosLastWins(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Append(Record{Role: RoleUser, Text: "start"}); err != nil {
+	if err := s.Append(Record{Role: RoleUser, Text: "before"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AppendTodos([]todo.Item{
-		{ID: "1", Subject: "first", Status: todo.Pending},
-	}); err != nil {
+	// Inject a deleted side-channel event (old todos snapshots) between messages.
+	f, err := os.OpenFile(s.Path, os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Append(Record{Role: RoleAgent, Text: "working"}); err != nil {
+	if _, err := f.WriteString(`{"type":"todos","items":[{"id":"1","subject":"legacy","status":"pending"}]}` + "\n"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AppendTodos([]todo.Item{
-		{ID: "1", Subject: "first", Status: todo.Completed},
-		{ID: "2", Subject: "second", Status: todo.InProgress},
-	}); err != nil {
+	if err := f.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if todos := s.Todos(); len(todos) != 2 || todos[0].Status != todo.Completed {
-		t.Fatalf("live Todos = %#v", todos)
+	if err := s.Append(Record{Role: RoleAgent, Text: "after"}); err != nil {
+		t.Fatal(err)
 	}
 
 	s2, recs, err := OpenID(proj, s.ID)
@@ -323,26 +310,8 @@ func TestAppendTodosLastWins(t *testing.T) {
 	if s2.ID != s.ID {
 		t.Fatalf("id = %q", s2.ID)
 	}
-	if len(recs) != 2 {
+	if len(recs) != 2 || recs[0].Text != "before" || recs[1].Text != "after" {
 		t.Fatalf("recs = %#v", recs)
 	}
-	todos := s2.Todos()
-	if len(todos) != 2 || todos[0].Status != todo.Completed || todos[1].ID != "2" {
-		t.Fatalf("todos = %#v", todos)
-	}
-
-	// Clear snapshot round-trips.
-	if err := s.AppendTodos(nil); err != nil {
-		t.Fatal(err)
-	}
-	if len(s.Todos()) != 0 {
-		t.Fatalf("live clear = %#v", s.Todos())
-	}
-	s3, _, err := OpenID(proj, s.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(s3.Todos()) != 0 {
-		t.Fatalf("cleared todos = %#v", s3.Todos())
-	}
 }
+

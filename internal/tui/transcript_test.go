@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	tea "charm.land/bubbletea/v2"
 )
 
 func TestLiveFromIdleAndStreaming(t *testing.T) {
@@ -218,6 +220,114 @@ func TestTranscriptCacheManyDeltasStablePrefix(t *testing.T) {
 	}
 	if !strings.Contains(m.viewport.GetContent(), strings.Repeat("x", 50)) {
 		t.Fatal("missing streamed xs")
+	}
+}
+
+// overflowViewport seeds a viewport tall enough that top/mid/bottom are distinct.
+func overflowViewport(t *testing.T) Model {
+	t.Helper()
+	m := testModel()
+	m.width = 80
+	m.height = 24
+	m.mainCache = &mainViewCache{}
+	m.viewport.SoftWrap = true
+	m.viewport.SetWidth(40)
+	m.viewport.SetHeight(8)
+	// Raw content — bypass message markdown so line count is predictable.
+	var b strings.Builder
+	for i := 0; i < 40; i++ {
+		fmt.Fprintf(&b, "history line %02d\n", i)
+	}
+	m.viewport.SetContent(b.String())
+	m.viewport.GotoBottom()
+	if m.viewport.TotalLineCount() <= m.viewport.Height() {
+		t.Fatalf("need overflow, total=%d height=%d", m.viewport.TotalLineCount(), m.viewport.Height())
+	}
+	return m
+}
+
+func TestRejectEdgeScroll(t *testing.T) {
+	m := overflowViewport(t)
+	if !m.viewport.AtBottom() {
+		t.Fatal("expected initial stick-to-bottom")
+	}
+
+	// At bottom: down is dead, up moves.
+	if !m.rejectEdgeScroll(tea.MouseWheelMsg{Button: tea.MouseWheelDown}) {
+		t.Fatal("expected reject wheel-down at bottom")
+	}
+	if m.rejectEdgeScroll(tea.MouseWheelMsg{Button: tea.MouseWheelUp}) {
+		t.Fatal("did not expect reject wheel-up away from top")
+	}
+
+	m.viewport.GotoTop()
+	if !m.viewport.AtTop() {
+		t.Fatal("expected at top")
+	}
+	if !m.rejectEdgeScroll(tea.MouseWheelMsg{Button: tea.MouseWheelUp}) {
+		t.Fatal("expected reject wheel-up at top")
+	}
+	if m.rejectEdgeScroll(tea.MouseWheelMsg{Button: tea.MouseWheelDown}) {
+		t.Fatal("did not expect reject wheel-down away from bottom")
+	}
+
+	// Mid-scroll: neither edge rejects.
+	m.viewport.ScrollDown(4)
+	if m.viewport.AtTop() || m.viewport.AtBottom() {
+		t.Fatalf("expected mid-scroll position, y=%d top=%v bot=%v",
+			m.viewport.YOffset(), m.viewport.AtTop(), m.viewport.AtBottom())
+	}
+	if m.rejectEdgeScroll(tea.MouseWheelMsg{Button: tea.MouseWheelUp}) ||
+		m.rejectEdgeScroll(tea.MouseWheelMsg{Button: tea.MouseWheelDown}) {
+		t.Fatal("mid-scroll should accept both wheel directions")
+	}
+}
+
+func TestRejectEdgeScrollUpdateNoMove(t *testing.T) {
+	m := overflowViewport(t)
+	m.viewport.GotoTop()
+	// Non-empty messages so mainView takes the viewport path (not the banner).
+	m.messages = []Message{{Role: RoleSystem, Text: "x"}}
+	off := m.viewport.YOffset()
+
+	next, _ := m.Update(tea.MouseWheelMsg{Button: tea.MouseWheelUp})
+	m = next.(Model)
+	if got := m.viewport.YOffset(); got != off {
+		t.Fatalf("YOffset=%d after rejected wheel-up, want %d", got, off)
+	}
+}
+
+func TestMainViewCacheHitOnSameOffset(t *testing.T) {
+	m := overflowViewport(t)
+	m.messages = []Message{{Role: RoleSystem, Text: "x"}}
+	m.showScrollbar = true
+	m.viewport.GotoTop()
+
+	first := m.mainView()
+	if m.mainCache.text == "" {
+		t.Fatal("expected main view cache fill")
+	}
+	second := m.mainView()
+	if first != second {
+		t.Fatal("cache miss on unchanged offset")
+	}
+	if m.mainCache.text != first {
+		t.Fatal("cache text drifted")
+	}
+
+	// Content change must bust the cache even at the same YOffset.
+	m.viewport.SetContent("VISIBLE_MARKER_A\n" + strings.Repeat("line\n", 30))
+	m.invalidateMainView()
+	if m.mainCache.text != "" {
+		t.Fatal("invalidateMainView should clear cache text")
+	}
+	m.viewport.GotoTop()
+	third := m.mainView()
+	if !strings.Contains(third, "VISIBLE_MARKER_A") {
+		t.Fatalf("expected new content in paint, got %q", stripANSI(third))
+	}
+	if third == first {
+		t.Fatal("expected different paint after content change")
 	}
 }
 

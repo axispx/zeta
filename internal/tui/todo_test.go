@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -53,6 +54,98 @@ func TestRequestMsgsTodosBlock(t *testing.T) {
 	}
 }
 
+func TestTodosFromRecordsLastWins(t *testing.T) {
+	args1, _ := json.Marshal(map[string]any{
+		"items": []map[string]any{{"id": "1", "subject": "first", "status": "pending"}},
+	})
+	args2, _ := json.Marshal(map[string]any{
+		"items": []map[string]any{
+			{"id": "1", "subject": "first", "status": "completed"},
+			{"id": "2", "subject": "second", "status": "in_progress"},
+		},
+	})
+	clear, _ := json.Marshal(map[string]any{"items": []any{}})
+
+	recs := []session.Record{
+		{Role: session.RoleUser, Text: "start"},
+		{
+			Role: session.RoleAgent,
+			ToolCalls: []session.ToolCall{
+				{ID: "c1", Name: tools.Todo, Arguments: string(args1)},
+			},
+		},
+		{Role: session.RoleTool, Tool: tools.Todo, ToolCallID: "c1", Text: "Todos (1):\n[pending] 1: first"},
+		{
+			Role: session.RoleAgent,
+			ToolCalls: []session.ToolCall{
+				{ID: "c2", Name: tools.Todo, Arguments: string(args2)},
+			},
+		},
+		{Role: session.RoleTool, Tool: tools.Todo, ToolCallID: "c2", Text: "Todos (2):..."},
+	}
+	got := todosFromRecords(recs)
+	if len(got) != 2 || got[0].Status != todo.Completed || got[1].ID != "2" {
+		t.Fatalf("got=%+v", got)
+	}
+
+	// Denied call does not overwrite.
+	recs = append(recs,
+		session.Record{
+			Role: session.RoleAgent,
+			ToolCalls: []session.ToolCall{
+				{ID: "c3", Name: tools.Todo, Arguments: string(clear)},
+			},
+		},
+		session.Record{Role: session.RoleTool, Tool: tools.Todo, ToolCallID: "c3", Denied: true, Text: "rejected"},
+	)
+	got = todosFromRecords(recs)
+	if len(got) != 2 {
+		t.Fatalf("denied should not clear: %+v", got)
+	}
+
+	// Tool error body (Denied=false) must not count as success.
+	recs = append(recs,
+		session.Record{
+			Role: session.RoleAgent,
+			ToolCalls: []session.ToolCall{
+				{ID: "c3err", Name: tools.Todo, Arguments: string(clear)},
+			},
+		},
+		session.Record{Role: session.RoleTool, Tool: tools.Todo, ToolCallID: "c3err", Text: "error: todo store unavailable"},
+	)
+	got = todosFromRecords(recs)
+	if len(got) != 2 {
+		t.Fatalf("error body should not clear: %+v", got)
+	}
+
+	// Assistant tool_calls without a tool result (cancel mid-call) ignored.
+	recs = append(recs, session.Record{
+		Role: session.RoleAgent,
+		ToolCalls: []session.ToolCall{
+			{ID: "c3b", Name: tools.Todo, Arguments: string(clear)},
+		},
+	})
+	got = todosFromRecords(recs)
+	if len(got) != 2 {
+		t.Fatalf("incomplete should not clear: %+v", got)
+	}
+
+	// Successful clear.
+	recs = append(recs,
+		session.Record{
+			Role: session.RoleAgent,
+			ToolCalls: []session.ToolCall{
+				{ID: "c4", Name: tools.Todo, Arguments: string(clear)},
+			},
+		},
+		session.Record{Role: session.RoleTool, Tool: tools.Todo, ToolCallID: "c4", Text: "Todos (0):"},
+	)
+	got = todosFromRecords(recs)
+	if len(got) != 0 {
+		t.Fatalf("clear=%+v", got)
+	}
+}
+
 func TestApplySessionRestoresAndClearsTodos(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("ZETA_HOME", home)
@@ -69,10 +162,30 @@ func TestApplySessionRestoresAndClearsTodos(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := sess.AppendTodos([]todo.Item{{ID: "1", Subject: "restored", Status: todo.InProgress}}); err != nil {
+	args, _ := json.Marshal(map[string]any{
+		"items": []map[string]any{{"id": "1", "subject": "restored", "status": "in_progress"}},
+	})
+	if err := sess.Append(session.Record{Role: session.RoleUser, Text: "hi"}); err != nil {
 		t.Fatal(err)
 	}
-	// Reload so Session.Todos is populated the way OpenID would.
+	if err := sess.Append(session.Record{
+		Role: session.RoleAgent,
+		ToolCalls: []session.ToolCall{
+			{ID: "t1", Name: tools.Todo, Arguments: string(args)},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := sess.Append(session.Record{
+		Role:       session.RoleTool,
+		Tool:       tools.Todo,
+		ToolCallID: "t1",
+		Text:       "Todos (1):\n[in_progress] 1: restored",
+		Label:      "todo 1 items",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
 	sess, recs, err := session.OpenID(proj, sess.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -83,48 +196,23 @@ func TestApplySessionRestoresAndClearsTodos(t *testing.T) {
 		t.Fatalf("restored=%+v", snap)
 	}
 
+	// Transcript keeps Format body for the todo row.
+	var found bool
+	for _, msg := range m.messages {
+		if msg.Role == RoleTool && msg.Tool == tools.Todo {
+			found = true
+			if !strings.Contains(msg.Out, "Todos (1):") {
+				t.Fatalf("Out=%q", msg.Out)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("missing todo tool row")
+	}
+
 	m.startNewSession()
 	if len(m.todos.Snapshot()) != 0 {
 		t.Fatalf("new session should clear todos: %+v", m.todos.Snapshot())
-	}
-}
-
-func TestTodoOnChangePersists(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("ZETA_HOME", home)
-	proj := t.TempDir()
-
-	sess, err := session.New(proj)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// Seed the session file so AppendTodos has a parent.
-	if err := sess.Append(session.Record{Role: session.RoleUser, Text: "hi"}); err != nil {
-		t.Fatal(err)
-	}
-
-	m := testModel()
-	m.sess = sess
-	m.wireTodos(nil)
-
-	if _, err := m.todos.Replace([]todo.Item{
-		{ID: "1", Subject: "persist me", Status: todo.Completed},
-	}); err != nil {
-		t.Fatal(err)
-	}
-
-	// Live session updated.
-	if got := m.sess.Todos(); len(got) != 1 || got[0].Subject != "persist me" {
-		t.Fatalf("live=%+v", got)
-	}
-
-	// Reloaded from disk.
-	s2, _, err := session.OpenID(proj, sess.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := s2.Todos(); len(got) != 1 || got[0].Subject != "persist me" {
-		t.Fatalf("reloaded todos=%+v", got)
 	}
 }
 
@@ -133,18 +221,17 @@ func TestRenderTodoCall(t *testing.T) {
 		Role:   RoleTool,
 		Tool:   tools.Todo,
 		Status: ToolOK,
-		Out:    "Todos (2):\n[in_progress] 1: Wire store\n[pending] 2: Persist — detail\nwarning: 2 items in_progress",
+		Out:    "Todos (2):\n[in_progress] 1: Wire store\n[pending] 2: Persist — detail",
 	}))
-	if !strings.HasPrefix(out, "Todos\n") {
-		t.Fatalf("header: %q", out)
+	if !strings.Contains(out, "Todos (2):") || !strings.Contains(out, "[in_progress] 1: Wire store") {
+		t.Fatalf("body: %q", out)
 	}
-	if !strings.Contains(out, "◐ Wire store") || !strings.Contains(out, "○ Persist — detail") {
-		t.Fatalf("items: %q", out)
+	denied := stripANSI(renderTodoCall(Message{
+		Role: RoleTool, Tool: tools.Todo, Status: ToolDenied,
+	}))
+	if !strings.Contains(denied, "todo") || !strings.Contains(denied, "denied") {
+		t.Fatalf("denied: %q", denied)
 	}
-	if !strings.Contains(out, "warning: 2 items in_progress") {
-		t.Fatalf("warning: %q", out)
-	}
-	// keepOut path
 	if !toolHasOut(tools.Todo) {
 		t.Fatal("todo should keepOut")
 	}

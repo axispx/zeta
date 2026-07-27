@@ -9,7 +9,6 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/axispx/zeta/internal/styles"
-	"github.com/axispx/zeta/internal/todo"
 )
 
 const (
@@ -33,6 +32,7 @@ func viewFor(name string) toolView {
 	case "edit", "write":
 		return toolView{keepOut: true, segment: "edit", busy: statusEditing, renderRun: renderEditRun}
 	case "todo":
+		// keepOut so resume paints the model-facing Format body as the row.
 		return toolView{keepOut: true, segment: "todo", busy: statusWorking, renderRun: renderTodoRun}
 	case "read", "skill":
 		return toolView{busy: statusReading}
@@ -143,43 +143,16 @@ func renderTodoRun(msgs []Message) string {
 	return renderTodoCall(msgs[len(msgs)-1])
 }
 
-// renderTodoCall formats a todo tool result as a compact checklist.
-// Parses Format text via todo.ParseFormat (resume path stores Format in Out).
-// Header and status glyphs are yellow; subjects stay default weight.
+// renderTodoCall shows the model-facing Format body (no second UI dialect).
 func renderTodoCall(m Message) string {
-	var b strings.Builder
-	b.WriteString(styles.Todo.Render("Todos"))
 	if m.Status == ToolDenied {
-		b.WriteString("  ")
-		b.WriteString(styles.SystemMsg.Render("denied"))
-		return b.String()
+		return styles.ToolMsg.Render("todo") + "  " + styles.SystemMsg.Render("denied")
 	}
 	body := strings.TrimSpace(m.Out)
 	if body == "" {
-		return b.String()
+		return styles.ToolMsg.Render("todo")
 	}
-	items, warning, ok := todo.ParseFormat(body)
-	if !ok {
-		// Unexpected shape — show raw body rather than drop the row.
-		b.WriteByte('\n')
-		b.WriteString(body)
-		return b.String()
-	}
-	for _, it := range items {
-		b.WriteByte('\n')
-		b.WriteString(styles.Todo.Render(todo.Glyph(it.Status)))
-		b.WriteString(" ")
-		b.WriteString(it.Subject)
-		if d := strings.TrimSpace(it.Description); d != "" {
-			b.WriteString(" — ")
-			b.WriteString(d)
-		}
-	}
-	if warning != "" {
-		b.WriteByte('\n')
-		b.WriteString(styles.SystemMsg.Render(warning))
-	}
-	return b.String()
+	return styles.ToolMsg.Render(body)
 }
 
 // renderEditCall formats an edit as "Editing|Creating|…" while open, then

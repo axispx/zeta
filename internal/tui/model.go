@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"encoding/json"
 	"image/color"
 	"strings"
 
@@ -21,7 +22,7 @@ import (
 	"github.com/axispx/zeta/internal/session"
 	"github.com/axispx/zeta/internal/styles"
 	"github.com/axispx/zeta/internal/todo"
-	"github.com/axispx/zeta/internal/version"
+	"github.com/axispx/zeta/internal/tools"
 	"github.com/axispx/zeta/internal/workspace"
 )
 
@@ -66,16 +67,19 @@ type Model struct {
 	overlay       filterOverlay
 	picker        pickerState
 	config        configDialog
-	chrome        styles.Chrome       // terminal-derived panels; zero until BackgroundColorMsg
-	promptHist    promptHistory       // up/down recall of prior user turns
-	spinner       spinner.Model       // animated while a turn is in flight
-	tx            transcriptCache     // frozen settled transcript; tail re-renders only
-	paint         streamPaint         // throttled live redraw; gen survives turn boundaries
-	sel           transcriptSel       // app-level transcript drag selection
-	copyFlash     bool                // brief "Copied" in the gap after a successful copy
-	copyFlashGen  int                 // invalidates stale flash timers
-	pendingImages map[int]image.Ref   // draft images keyed by stable [Image N] id
-	nextImageN    int                 // last allocated token number (never renumbered)
+	chrome        styles.Chrome     // terminal-derived panels; zero until BackgroundColorMsg
+	promptHist    promptHistory     // up/down recall of prior user turns
+	spinner       spinner.Model     // animated while a turn is in flight
+	tx            transcriptCache   // frozen settled transcript; tail re-renders only
+	paint         streamPaint       // throttled live redraw; gen survives turn boundaries
+	sel           transcriptSel     // app-level transcript drag selection
+	copyFlash     bool              // brief "Copied" in the gap after a successful copy
+	copyFlashGen  int               // invalidates stale flash timers
+	pendingImages map[int]image.Ref // draft images keyed by stable [Image N] id
+	nextImageN    int               // last allocated token number (never renumbered)
+	// mainCache skips SoftWrap rebuilds on no-op frames. Pointer so View (value
+	// receiver) can update it across bubbletea's Update→View cycle.
+	mainCache *mainViewCache
 }
 
 // Options controls how the TUI starts a session.
@@ -131,13 +135,14 @@ func New(cfg config.Config, opts Options) (Model, error) {
 
 	ws := workspace.Load()
 	m := Model{
-		cfg:      cfg,
-		viewport: vp,
-		textarea: ta,
-		ws:       ws,
-		spinner:  spinner.New(spinner.WithSpinner(spinner.MiniDot)),
-		grants:   &permission.Session{},
-		todos:    todo.NewStore(),
+		cfg:       cfg,
+		viewport:  vp,
+		textarea:  ta,
+		ws:        ws,
+		spinner:   spinner.New(spinner.WithSpinner(spinner.MiniDot)),
+		grants:    &permission.Session{},
+		mainCache: &mainViewCache{},
+		todos:     todo.NewStore(),
 	}
 	m.promptHist.reset()
 	applyTextareaStyles(&m.textarea, nil)
@@ -154,10 +159,10 @@ func New(cfg config.Config, opts Options) (Model, error) {
 
 	if sess, err := session.New(ws.Abs); err != nil {
 		m.messages = []Message{{Role: RoleError, Text: "session: " + err.Error()}}
-		m.wireTodos(nil)
+		m.seedTodos(nil)
 	} else {
 		m.sess = sess
-		m.wireTodos(nil)
+		m.seedTodos(nil)
 	}
 	if opts.Picker {
 		m.openPicker()
@@ -329,6 +334,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case tea.MouseWheelMsg:
+		if m.rejectEdgeScroll(msg) { // trackpad momentum past top/bottom
+			m.handleSelectionMouse(msg) // still cancel drag
+			return m, nil
+		}
 		m.handleSelectionMouse(msg) // cancel drag; fall through to viewport scroll
 
 	case tea.PasteMsg:
@@ -738,6 +747,55 @@ func loadSession(recs []session.Record) (ui []Message, history []ai.Message) {
 	return ui, compact.RebuildAPIHistory(recs)
 }
 
+// seedTodos replaces the in-memory checklist (resume / new session).
+// items come from todosFromRecords (already normalized) or nil to clear.
+func (m *Model) seedTodos(items []todo.Item) {
+	if m.todos == nil {
+		m.todos = todo.NewStore()
+	}
+	// Replace is the only mutation path; soft in_progress warning ignored on hydrate.
+	_, _ = m.todos.Replace(items)
+}
+
+// todosFromRecords returns items from the latest successful todo tool call.
+// Success = non-denied tool result whose body is Format output ("Todos (N):…").
+// Denied, cancelled, error, and incomplete calls are skipped.
+func todosFromRecords(recs []session.Record) []todo.Item {
+	results := make(map[string]session.Record, len(recs))
+	for _, r := range recs {
+		if r.Role == session.RoleTool && r.ToolCallID != "" {
+			results[r.ToolCallID] = r
+		}
+	}
+	for i := len(recs) - 1; i >= 0; i-- {
+		r := recs[i]
+		if r.Role != session.RoleAgent {
+			continue
+		}
+		for j := len(r.ToolCalls) - 1; j >= 0; j-- {
+			tc := r.ToolCalls[j]
+			if tc.Name != tools.Todo {
+				continue
+			}
+			res, ok := results[tc.ID]
+			if !ok || res.Denied || !todoResultOK(res.Text) {
+				continue
+			}
+			items, err := todo.ParseArgs(json.RawMessage(tc.Arguments))
+			if err != nil {
+				continue
+			}
+			return items
+		}
+	}
+	return nil
+}
+
+// todoResultOK reports a successful todo tool body (Format output).
+func todoResultOK(text string) bool {
+	return strings.HasPrefix(strings.TrimSpace(text), "Todos (")
+}
+
 // layout sizes chrome regions. m.showScrollbar reserves one column for the transcript scrollbar.
 // Transcript height accounts for the real gap (busy status / overlay / reserved blank).
 func (m *Model) layout() {
@@ -796,6 +854,7 @@ func (m *Model) layoutPreservingBottom() {
 	if atBottom {
 		m.viewport.GotoBottom()
 	}
+	m.invalidateMainView()
 }
 
 // refreshTranscript paints immediately and cancels any pending throttled paint.
@@ -810,6 +869,7 @@ func (m *Model) refreshTranscript() {
 // changes wrap width, which can make AtBottom lie mid-paint — so only flip the
 // bar when needed, then scroll back down if we started at the bottom.
 func (m *Model) repaintTranscript() {
+	m.invalidateMainView()
 	if len(m.messages) == 0 {
 		m.showScrollbar = false
 		m.layout()
@@ -915,33 +975,4 @@ func (m Model) programView(content string) tea.View {
 	// Bubble Tea v2 maps WindowTitle → OSC 2.
 	v.WindowTitle = terminalTitle(m.sess)
 	return v
-}
-
-func (m Model) mainView() string {
-	w := m.viewport.Width()
-	h := m.viewport.Height()
-	if w <= 0 || h <= 0 {
-		return ""
-	}
-
-	var inner string
-	if len(m.messages) == 0 {
-		banner := styles.Banner.Render(strings.TrimSpace(styles.BannerArt))
-		ver := styles.Placeholder.Render("v" + version.Version)
-		hero := lipgloss.JoinVertical(lipgloss.Center, banner, "", ver)
-		inner = lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, hero)
-	} else {
-		inner = m.viewport.View()
-		if m.sel.has() {
-			start, end := m.sel.normalized()
-			inner = highlightSelection(inner, m.viewport.YOffset(), start, end)
-		}
-	}
-
-	body := styles.Transcript.Render(inner)
-	if !m.showScrollbar {
-		return body
-	}
-	bar := renderScrollbar(h, m.viewport.TotalLineCount(), m.viewport.YOffset())
-	return lipgloss.JoinHorizontal(lipgloss.Top, body, bar)
 }

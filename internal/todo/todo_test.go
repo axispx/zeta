@@ -1,10 +1,8 @@
 package todo
 
 import (
-	"errors"
+	"encoding/json"
 	"strings"
-	"sync"
-	"sync/atomic"
 	"testing"
 )
 
@@ -25,10 +23,6 @@ func TestReplaceAndFormat(t *testing.T) {
 	want := "Todos (3):\n[in_progress] 1: Wire todo store\n[pending] 2: Session persist — JSONL\n[completed] 3: Package tests"
 	if got != want {
 		t.Fatalf("Format=\n%s\nwant\n%s", got, want)
-	}
-	items, w, ok := ParseFormat(got)
-	if !ok || w != "" || len(items) != 3 || items[1].Description != "JSONL" {
-		t.Fatalf("ParseFormat=%v warn=%q ok=%v", items, w, ok)
 	}
 }
 
@@ -91,11 +85,6 @@ func TestInProgressWarning(t *testing.T) {
 	if warn != "warning: 2 items in_progress" {
 		t.Fatalf("warn=%q", warn)
 	}
-	out := s.Format() + "\n" + warn
-	items, w, ok := ParseFormat(out)
-	if !ok || len(items) != 2 || w != warn {
-		t.Fatalf("items=%v w=%q ok=%v", items, w, ok)
-	}
 }
 
 func TestPromptBlock(t *testing.T) {
@@ -139,89 +128,42 @@ func TestSnapshotCopy(t *testing.T) {
 	}
 }
 
-func TestOnChange(t *testing.T) {
+func TestReplaceClears(t *testing.T) {
 	s := NewStore()
-	var got []Item
-	s.SetOnChange(func(items []Item) error {
-		got = items
-		return nil
-	})
-	if _, err := s.Replace([]Item{{ID: "1", Subject: "a", Status: Pending}}); err != nil {
+	if _, err := s.Replace([]Item{{ID: "x", Subject: "from session", Status: Completed}}); err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 1 || got[0].ID != "1" {
-		t.Fatalf("onChange=%+v", got)
-	}
-	// Seed does not fire.
-	got = nil
-	s.Seed([]Item{{ID: "x", Subject: "from session", Status: Completed}})
-	if got != nil {
-		t.Fatal("Seed should not fire OnChange")
-	}
-	if snap := s.Snapshot(); len(snap) != 1 || snap[0].ID != "x" {
-		t.Fatalf("%+v", snap)
-	}
-}
-
-func TestOnChangeRollback(t *testing.T) {
-	s := NewStore()
-	if _, err := s.Replace([]Item{{ID: "1", Subject: "keep"}}); err != nil {
-		t.Fatal(err)
-	}
-	s.SetOnChange(func([]Item) error { return errors.New("disk full") })
-	if _, err := s.Replace([]Item{{ID: "2", Subject: "new"}}); err == nil {
-		t.Fatal("want error")
-	}
-	if snap := s.Snapshot(); len(snap) != 1 || snap[0].ID != "1" {
-		t.Fatalf("rolled back? %+v", snap)
-	}
-}
-
-func TestConcurrentSnapshotReplace(t *testing.T) {
-	s := NewStore()
-	if _, err := s.Replace([]Item{{ID: "1", Subject: "a", Status: Pending}}); err != nil {
-		t.Fatal(err)
-	}
-	var wg sync.WaitGroup
-	var fails atomic.Int32
-	for i := 0; i < 20; i++ {
-		wg.Add(2)
-		go func() {
-			defer wg.Done()
-			_ = s.Snapshot()
-			_ = s.Format()
-			_ = s.PromptBlock()
-		}()
-		go func() {
-			defer wg.Done()
-			if _, err := s.Replace([]Item{{ID: "1", Subject: "a", Status: InProgress}}); err != nil {
-				fails.Add(1)
-			}
-		}()
-	}
-	wg.Wait()
-	if fails.Load() != 0 {
-		t.Fatalf("replace fails=%d", fails.Load())
-	}
-	if len(s.Snapshot()) != 1 {
-		t.Fatalf("snap=%+v", s.Snapshot())
-	}
-}
-
-func TestGlyph(t *testing.T) {
-	if Glyph(Pending) != "○" || Glyph(InProgress) != "◐" || Glyph(Completed) != "●" || Glyph(Cancelled) != "✗" {
-		t.Fatal("glyphs")
-	}
-}
-
-func TestSeed(t *testing.T) {
-	s := NewStore()
-	s.Seed([]Item{{ID: "x", Subject: "from session", Status: Completed}})
 	if got := s.Snapshot(); len(got) != 1 || got[0].ID != "x" {
 		t.Fatalf("%+v", got)
 	}
-	s.Seed(nil)
+	if _, err := s.Replace(nil); err != nil {
+		t.Fatal(err)
+	}
 	if len(s.Snapshot()) != 0 {
 		t.Fatal("clear")
+	}
+}
+
+func TestParseArgs(t *testing.T) {
+	raw, _ := json.Marshal(map[string]any{
+		"items": []map[string]any{
+			{"id": "1", "subject": "A", "status": "pending"},
+			{"id": "2", "subject": "B", "status": "in_progress"},
+		},
+	})
+	items, err := ParseArgs(raw)
+	if err != nil || len(items) != 2 || items[1].Status != InProgress {
+		t.Fatalf("items=%+v err=%v", items, err)
+	}
+
+	empty, err := ParseArgs(json.RawMessage(`{"items":[]}`))
+	if err != nil || len(empty) != 0 {
+		t.Fatalf("empty=%+v err=%v", empty, err)
+	}
+	if _, err := ParseArgs(json.RawMessage(`{}`)); err == nil {
+		t.Fatal("missing items")
+	}
+	if _, err := ParseArgs(json.RawMessage(`{"items":[{"id":"1","subject":"x","status":"nope"}]}`)); err == nil {
+		t.Fatal("bad status")
 	}
 }

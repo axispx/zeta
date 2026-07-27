@@ -29,6 +29,7 @@ func (m *Model) setTranscriptContent() {
 		writeThinkingTail(&b, m.turn.thinking, m.contentW)
 	}
 	m.viewport.SetContent(b.String())
+	m.invalidateMainView()
 	if atBottom {
 		m.viewport.GotoBottom()
 	}

@@ -63,11 +63,6 @@ var (
 	Prompt = lipgloss.NewStyle().
 		Bold(true)
 
-	// Todo is the checklist header + status glyphs in the transcript.
-	Todo = lipgloss.NewStyle().
-		Bold(true).
-		Foreground(Yellow)
-
 	Placeholder = lipgloss.NewStyle().
 			Italic(true).
 			Faint(true)

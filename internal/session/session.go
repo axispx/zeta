@@ -12,7 +12,6 @@ import (
 
 	"github.com/axispx/zeta/internal/image"
 	"github.com/axispx/zeta/internal/paths"
-	"github.com/axispx/zeta/internal/todo"
 )
 
 // Roles stored in message events.
@@ -27,7 +26,6 @@ const (
 const (
 	typeSession = "session"
 	typeMessage = "message"
-	typeTodos   = "todos"
 )
 
 // ToolCall is an assistant-requested function call persisted with an agent turn.
@@ -75,13 +73,6 @@ type event struct {
 	FramePlan  bool       `json:"frame_plan,omitempty"`
 }
 
-// todosEvent is a full checklist snapshot. Last event wins on load.
-// items is never omitted so a clear serializes as [].
-type todosEvent struct {
-	Type  string      `json:"type"`
-	TS    string      `json:"ts,omitempty"`
-	Items []todo.Item `json:"items"`
-}
 
 // Session is an append-only JSONL transcript for one chat.
 // A new session is in-memory only until the first Append.
@@ -92,7 +83,6 @@ type Session struct {
 	Created string
 	Name    string // display name; hydrated from index on load, set via SetName
 	onDisk  bool   // true once the JSONL exists
-	todos   []todo.Item
 }
 
 // Persisted reports whether the session transcript exists on disk.
@@ -100,15 +90,6 @@ func (s *Session) Persisted() bool {
 	return s != nil && s.onDisk
 }
 
-// Todos returns a copy of the last persisted checklist snapshot.
-func (s *Session) Todos() []todo.Item {
-	if s == nil || len(s.todos) == 0 {
-		return nil
-	}
-	out := make([]todo.Item, len(s.todos))
-	copy(out, s.todos)
-	return out
-}
 
 // Open resumes the latest session for cwd, or creates a new one if none exist.
 func Open(cwd string) (*Session, []Record, error) {
@@ -189,35 +170,6 @@ func (s *Session) Append(rec Record) error {
 	return s.upsertIndex()
 }
 
-// AppendTodos writes a full todos snapshot and updates s.Todos.
-// items may be empty to record a cleared list. On load, the last event wins.
-func (s *Session) AppendTodos(items []todo.Item) error {
-	if s == nil {
-		return nil
-	}
-	if err := s.ensureFile(); err != nil {
-		return err
-	}
-	if items == nil {
-		items = []todo.Item{}
-	}
-	// Update in-memory snapshot only after a successful write.
-	snap := make([]todo.Item, len(items))
-	copy(snap, items)
-	if err := s.writeTodos(todosEvent{
-		Type:  typeTodos,
-		TS:    time.Now().UTC().Format(time.RFC3339Nano),
-		Items: snap,
-	}); err != nil {
-		return err
-	}
-	if len(snap) == 0 {
-		s.todos = nil
-	} else {
-		s.todos = snap
-	}
-	return s.upsertIndex()
-}
 
 // ensureFile creates the project dir and writes the session header if needed.
 func (s *Session) ensureFile() error {
@@ -252,18 +204,6 @@ func (s *Session) writeEvent(evt event) error {
 	if err != nil {
 		return fmt.Errorf("marshal session event: %w", err)
 	}
-	return s.appendLine(data)
-}
-
-func (s *Session) writeTodos(evt todosEvent) error {
-	data, err := json.Marshal(evt)
-	if err != nil {
-		return fmt.Errorf("marshal session event: %w", err)
-	}
-	return s.appendLine(data)
-}
-
-func (s *Session) appendLine(data []byte) error {
 	f, err := os.OpenFile(s.Path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
 		return fmt.Errorf("append session: %w", err)
@@ -299,18 +239,12 @@ func load(abs, path string) (*Session, []Record, error) {
 		if line == "" {
 			continue
 		}
-		var head struct {
-			Type string `json:"type"`
-		}
-		if err := json.Unmarshal([]byte(line), &head); err != nil {
+		var evt event
+		if err := json.Unmarshal([]byte(line), &evt); err != nil {
 			return nil, nil, fmt.Errorf("session %s:%d: %w", filepath.Base(path), lineNo, err)
 		}
-		switch head.Type {
+		switch evt.Type {
 		case typeSession:
-			var evt event
-			if err := json.Unmarshal([]byte(line), &evt); err != nil {
-				return nil, nil, fmt.Errorf("session %s:%d: %w", filepath.Base(path), lineNo, err)
-			}
 			if evt.ID != "" {
 				s.ID = evt.ID
 			}
@@ -318,10 +252,6 @@ func load(abs, path string) (*Session, []Record, error) {
 				s.Created = evt.Created
 			}
 		case typeMessage:
-			var evt event
-			if err := json.Unmarshal([]byte(line), &evt); err != nil {
-				return nil, nil, fmt.Errorf("session %s:%d: %w", filepath.Base(path), lineNo, err)
-			}
 			out = append(out, Record{
 				Role:       evt.Role,
 				Text:       evt.Text,
@@ -335,19 +265,9 @@ func load(abs, path string) (*Session, []Record, error) {
 				Tail:       evt.Tail,
 				FramePlan:  evt.FramePlan,
 			})
-		case typeTodos:
-			var evt todosEvent
-			if err := json.Unmarshal([]byte(line), &evt); err != nil {
-				return nil, nil, fmt.Errorf("session %s:%d: %w", filepath.Base(path), lineNo, err)
-			}
-			// Last snapshot wins; copy so later mutations don't alias the decode buffer.
-			if len(evt.Items) == 0 {
-				s.todos = nil
-			} else {
-				s.todos = append([]todo.Item(nil), evt.Items...)
-			}
 		default:
-			return nil, nil, fmt.Errorf("session %s:%d: unknown event type %q", filepath.Base(path), lineNo, head.Type)
+			// Pre-1.0: skip deleted event types (e.g. old todos snapshots).
+			continue
 		}
 	}
 	if err := sc.Err(); err != nil {
