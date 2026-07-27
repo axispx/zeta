@@ -58,8 +58,11 @@ func (c providerCaps) authChooser() bool   { return c.oauth }
 type configDialog struct {
 	active bool
 	draft  config.Config
-	// apply pushes a saved draft into the live Model cfg + AI client.
-	apply func(config.Config)
+	// saved holds the last written config for the owning Model to collect.
+	// A callback cannot work here: Model.Update takes a value receiver, so a
+	// pointer captured when the dialog opened is stale by the next turn and
+	// its writes land in a discarded copy.
+	saved *config.Config
 
 	view configView
 	listSel
@@ -88,8 +91,14 @@ type configForm struct {
 
 func (d *configDialog) clear() {
 	d.cancelOAuth()
-	apply := d.apply
-	*d = configDialog{apply: apply}
+	*d = configDialog{}
+}
+
+// takeSaved hands the owning Model the config written since the last call.
+func (d *configDialog) takeSaved() *config.Config {
+	c := d.saved
+	d.saved = nil
+	return c
 }
 
 func (d configDialog) isForm() bool {
@@ -202,7 +211,8 @@ func (d *configDialog) paste(msg tea.PasteMsg) tea.Cmd {
 	return nil
 }
 
-// mutate clones draft, applies fn, validates, saves, then swaps + notifies apply.
+// mutate clones draft, applies fn, validates, saves, then swaps + parks the
+// result in saved for the Model to collect.
 func (d *configDialog) mutate(fn func(*config.Config) error) error {
 	next := d.draft.Clone()
 	if err := fn(&next); err != nil {
@@ -215,9 +225,8 @@ func (d *configDialog) mutate(fn func(*config.Config) error) error {
 		return err
 	}
 	d.draft = next
-	if d.apply != nil {
-		d.apply(next.Clone())
-	}
+	saved := next.Clone()
+	d.saved = &saved
 	return nil
 }
 

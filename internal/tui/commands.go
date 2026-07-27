@@ -276,11 +276,18 @@ func (m *Model) fillSkillSlash(name string) {
 func (m *Model) openConfigDialog() tea.Cmd {
 	m.overlay.clear()
 	m.picker.clear()
-	m.config.apply = func(c config.Config) {
-		m.cfg = c
+	return m.config.Open(m.cfg)
+}
+
+// updateConfigDialog forwards a msg to the dialog and collects anything it
+// saved, so a write reaches the Model that Update actually returns.
+func (m *Model) updateConfigDialog(msg tea.Msg) (tea.Cmd, bool) {
+	cmd, handled := m.config.Update(msg)
+	if c := m.config.takeSaved(); c != nil {
+		m.cfg = *c
 		m.applyClient()
 	}
-	return m.config.Open(m.cfg)
+	return cmd, handled
 }
 
 func (m *Model) applySession(sess *session.Session, recs []session.Record, err error) {

@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
+
 	"github.com/axispx/zeta/internal/config"
 	"github.com/axispx/zeta/internal/styles"
 )
@@ -70,7 +72,6 @@ func TestMutateAtomicOnSaveFailure(t *testing.T) {
 	}
 	t.Setenv("ZETA_HOME", badHome)
 
-	applied := false
 	d := configDialog{
 		draft: config.Config{
 			Providers: map[string]config.Provider{
@@ -81,7 +82,6 @@ func TestMutateAtomicOnSaveFailure(t *testing.T) {
 				},
 			},
 		},
-		apply: func(config.Config) { applied = true },
 	}
 	before := d.draft.Active
 	err := d.mutate(func(c *config.Config) error {
@@ -94,8 +94,8 @@ func TestMutateAtomicOnSaveFailure(t *testing.T) {
 	if d.draft.Active != before {
 		t.Fatalf("draft swapped despite save failure: %q", d.draft.Active)
 	}
-	if applied {
-		t.Fatal("apply should not run on save failure")
+	if d.takeSaved() != nil {
+		t.Fatal("nothing should be published on save failure")
 	}
 }
 
@@ -170,6 +170,74 @@ func TestPresetsBodyShowsCustomTag(t *testing.T) {
 	plain := stripANSI(body)
 	if !strings.Contains(plain, "Local") || !strings.Contains(plain, "(Custom)") {
 		t.Fatalf("expected Local (Custom) in body:\n%s", plain)
+	}
+}
+
+var (
+	keyEnter = tea.KeyPressMsg{Code: tea.KeyEnter, Text: "enter"}
+	keyEsc   = tea.KeyPressMsg{Code: tea.KeyEscape, Text: "esc"}
+)
+
+// stepModel drives one msg through Update the way Bubble Tea does: on a copy,
+// keeping only what Update returns. Writes the dialog makes through a pointer
+// captured in an earlier turn are dropped here, as they are at runtime.
+func stepModel(t *testing.T, m Model, msg tea.Msg) Model {
+	t.Helper()
+	next, _ := m.Update(msg)
+	got, ok := next.(Model)
+	if !ok {
+		t.Fatalf("Update returned %T", next)
+	}
+	return got
+}
+
+// Enabling a model must reach the running Model, not just ~/.zeta/config.json.
+func TestConfigDialogSaveReachesLiveModel(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("ZETA_HOME", dir)
+
+	m := testModel()
+	m.cfg = config.Config{Providers: map[string]config.Provider{
+		"p": {
+			Name: "P", BaseURL: "https://p/v1", APIKey: "k",
+			Models: map[string]config.ModelDef{"m1": {Name: "M1", ContextWindow: 1000, Disabled: true}},
+		},
+	}}
+	m.applyClient()
+	if m.client != nil {
+		t.Fatal("no model enabled; client should start nil")
+	}
+
+	m.textarea.SetValue("/config")
+	m = stepModel(t, m, keyEnter)
+	if !m.config.active {
+		t.Fatal("/config did not open the dialog")
+	}
+	// Stand in for the models.dev fetch so the list is not stuck loading.
+	m = stepModel(t, m, modelsDevLoadedMsg{gen: m.config.loadGen, presets: []config.Preset{{
+		ID: "p", Name: "P", BaseURL: "https://p/v1",
+		Models: map[string]config.ModelDef{"m1": {Name: "M1", ContextWindow: 1000}},
+	}}})
+	if m.config.loading {
+		t.Fatal("presets still loading")
+	}
+
+	m = stepModel(t, m, keyEnter) // configured row 0 → its models
+	if m.config.view != configModels {
+		t.Fatalf("view = %v", m.config.view)
+	}
+	m = stepModel(t, m, keyEnter) // enable m1
+	m = stepModel(t, m, keyEsc)   // models → presets
+	m = stepModel(t, m, keyEsc)   // presets → closed
+
+	if m.config.active {
+		t.Fatal("dialog still open")
+	}
+	if m.cfg.Active != "p/m1" {
+		t.Fatalf("Active = %q", m.cfg.Active)
+	}
+	if m.client == nil {
+		t.Fatal("client nil; the save never reached the live model")
 	}
 }
 
