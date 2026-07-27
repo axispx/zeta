@@ -428,14 +428,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(taCmd, vpCmd)
 }
 
-// rejectSubmit reports why a turn could not be sent. The message is shown but
-// not persisted: the turn never happened, so it should not survive a resume.
-func (m *Model) rejectSubmit(reason string) tea.Cmd {
-	m.messages = append(m.messages, Message{Role: RoleError, Text: reason})
-	m.refreshTranscript()
-	return nil
-}
-
 // submit appends the user turn, starts a streaming completion, and refreshes.
 // When the transcript is near the context limit, auto-compacts first.
 // text/imgs come from parseComposer (inline [Image N] tokens stripped from text).
@@ -444,10 +436,12 @@ func (m *Model) submit(text string, imgs []image.Ref) tea.Cmd {
 	// out of history and off disk, and its text stays in the composer so the
 	// user can retry it after /config instead of retyping.
 	if m.client == nil {
-		return m.rejectSubmit("no provider configured, run /config to connect one")
+		m.noteError("no provider configured, run /config to connect one")
+		return nil
 	}
 	if err := m.ensureFreshClient(); err != nil {
-		return m.rejectSubmit("oauth refresh: " + err.Error())
+		m.noteError("oauth refresh: " + err.Error())
+		return nil
 	}
 
 	display := userDisplayText(text, imgs)
