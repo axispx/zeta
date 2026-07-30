@@ -1,7 +1,7 @@
 package image
 
 // Ref is an image embedded as a data: URL (session + prompt history + API).
-// No separate on-disk attachment store — OpenCode-style.
+// No separate on-disk attachment store — images live inline on user turns.
 type Ref struct {
 	URL  string `json:"url"`            // data:<mime>;base64,...
 	MIME string `json:"mime"`           // e.g. image/png

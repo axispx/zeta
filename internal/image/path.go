@@ -97,7 +97,7 @@ func trimMatchingQuotes(s string) string {
 	return s
 }
 
-// lightUnescape handles a Codex/OpenCode subset of shell escapes in pasted paths.
+// lightUnescape handles a small subset of shell escapes in pasted paths.
 func lightUnescape(s string) string {
 	if !strings.Contains(s, `\`) {
 		return s

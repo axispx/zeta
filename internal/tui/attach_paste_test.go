@@ -12,8 +12,8 @@ import (
 )
 
 func TestUpdatePasteMsgInsertsImage(t *testing.T) {
+	isolateZetaHome(t)
 	dir := t.TempDir()
-	t.Setenv("ZETA_HOME", dir)
 	png := filepath.Join(dir, "x.png")
 	_ = os.WriteFile(png, []byte{0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4}, 0o600)
 
@@ -46,6 +46,7 @@ func TestIsPasteKey(t *testing.T) {
 
 func TestUpdateSuperVClipboard(t *testing.T) {
 	// ensure super+v is consumed (no panic); may paste text or image
+	isolateZetaHome(t)
 	m, err := New(config.Config{}, Options{})
 	if err != nil {
 		t.Fatal(err)

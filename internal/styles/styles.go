@@ -90,6 +90,10 @@ var (
 			BorderForeground(Yellow).
 			PaddingLeft(1)
 
+	// Follow-ups panel above the input while messages are queued.
+	FollowUpsHeader = lipgloss.NewStyle().Bold(true).Foreground(Yellow)
+	FollowUpsHint   = lipgloss.NewStyle().Foreground(Dim).Faint(true)
+
 	// Overlay / accent-list rows (command palette, model overlay, session picker).
 	// OverlayRow uses default terminal fg (same as input text).
 	OverlayRow         = lipgloss.NewStyle()
@@ -158,6 +162,16 @@ func (c Chrome) OverlayPanel() lipgloss.Style {
 		s = s.Background(c.Input)
 	}
 	return s
+}
+
+// FollowUpsBoxBare is the follow-up panel body (yellow border; top border is drawn separately).
+func FollowUpsBoxBare(innerW int) lipgloss.Style {
+	return lipgloss.NewStyle().
+		Border(lipgloss.NormalBorder()).
+		BorderTop(false).
+		BorderForeground(Yellow).
+		Padding(1, OverlayPadRight, 0, 1).
+		Width(innerW)
 }
 
 // OverlayInk is accent-list row styling. Gap carries panel fill so pad cells

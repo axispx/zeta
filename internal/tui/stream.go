@@ -37,6 +37,7 @@ type turnSession struct {
 	pending    *agent.Event       // set when coalesce peeks a non-matching event
 	thinking   string             // live reasoning tail; only while thinkingPhase
 	activeTool int                // index of open tool row in Model.messages; -1 if none
+	steers     chan ai.Message    // harness ↔ agent steering at safe boundaries
 }
 
 // thinkingPhase is true before answer deltas or an open tool (pre-answer reasoning).
@@ -99,6 +100,7 @@ type turnToolMsg struct {
 	denied  bool
 }
 type turnDoneMsg struct{}
+type turnSteerAcceptedMsg struct{ message ai.Message }
 type turnErrMsg struct{ err error }
 
 // streamPaintMsg fires after streamPaintEvery to paint accumulated live text.
@@ -244,6 +246,8 @@ func turnEventMsg(evt agent.Event) tea.Msg {
 		return turnToolMsg{label: evt.Text, name: evt.Name, message: evt.Message, denied: evt.Denied}
 	case agent.KindDone:
 		return turnDoneMsg{}
+	case agent.KindSteerAccepted:
+		return turnSteerAcceptedMsg{message: evt.Message}
 	case agent.KindErr:
 		return turnErrMsg{err: evt.Err}
 	default:
@@ -254,11 +258,13 @@ func turnEventMsg(evt agent.Event) tea.Msg {
 func startTurn(client *ai.Client, ws workspace.Context, mode prompt.Mode, history []ai.Message, grants *permission.Session, todos *todo.Store) (*turnSession, tea.Cmd) {
 	ctx, cancel := context.WithCancel(context.Background())
 	replies := make(chan agent.Reply, 1)
+	steers := make(chan ai.Message, 1)
 	cfg := agent.Config{
 		Client:  client,
 		Tools:   toolsForMode(mode, todos),
 		Root:    ws.Abs,
 		Replies: replies,
+		Steers:  steers,
 		// Same classifier as handleTurnToolStart (waitFor).
 		Gate: func(name string) bool {
 			return waitFor(name, grants) != waitNone
@@ -269,6 +275,7 @@ func startTurn(client *ai.Client, ws workspace.Context, mode prompt.Mode, histor
 		cancel:     cancel,
 		ch:         ch,
 		reply:      replies,
+		steers:     steers,
 		streaming:  false, // set true on first delta; false = Waiting chrome / settled md
 		activeTool: -1,
 	}

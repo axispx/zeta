@@ -8,6 +8,7 @@ Use any OpenAI-compatible provider — OpenAI, xAI, DeepSeek, Kimi, and more, pl
 
 - **Build / Ask / Plan** — implement with tools, read-only Q&A, or plan first then approve into Build
 - **Permission prompts** — shell and file changes ask before running (Build mode)
+- **Folder trust** — first open in a directory asks before loading project files
 - **Local sessions** — chat history stays on your machine; resume anytime with `/resume`
 - **Auto-compaction** — long chats summarize older context when the model window fills up
 - **Multi-provider** — API keys and models managed in-app with `/config`
@@ -23,9 +24,10 @@ Then run `zeta` from a project directory.
 ## Quick start
 
 1. Start Zeta in the repo you care about.
-2. Run **`/config`**, add a provider API key (or a custom endpoint).
-3. Switch models with **`/model`** if you want.
-4. Type a prompt and press **Enter**.
+2. On first open in a folder, confirm you **trust** it (git root when in a repo). Choice is saved under `~/.zeta/trusted.json`.
+3. Run **`/config`**, add a provider API key (or a custom endpoint).
+4. Switch models with **`/model`** if you want.
+5. Type a prompt and press **Enter**.
 
 Each launch opens a **new session**. Use `/resume` to continue an earlier one.
 
@@ -43,11 +45,11 @@ Cycle modes with **Shift+Tab**.
 
 | Key                                    | Action                                      |
 | -------------------------------------- | ------------------------------------------- |
-| `Enter`                                | Send                                        |
+| `Enter`                                | Send (while busy: queue follow-ups; empty composer: send oldest) |
 | `↑` / `↓` or `Ctrl+P` / `Ctrl+N`       | Prompt history                              |
 | `Shift+Tab`                            | Cycle mode (build → ask → plan)             |
 | `Shift+Enter` / `Ctrl+J` / `Alt+Enter` | Newline                                     |
-| `Esc` / `Ctrl+C`                       | Cancel the current turn (or quit when idle) |
+| `Esc` / `Ctrl+C`                       | Remove oldest follow-up, or cancel turn (or quit when idle) |
 | Mouse / `PgUp` / `PgDn`                | Scroll                                      |
 | Drag transcript                        | Select text and copy on release (no scrollbar) |
 
@@ -81,6 +83,8 @@ Sometimes the agent asks a multiple-choice question (plus freeform **Other**):
 If `Shift+Enter` is remapped (common in iTerm), remove that binding or use `Ctrl+J` / `Alt+Enter` for newlines.
 
 **Copy:** drag in the transcript to select (the scrollbar is not included); releasing the mouse copies to the clipboard. Leaving the terminal mid-drag counts as release.
+
+While the agent is working, `Enter` queues your message for a later turn. Press `Enter` on an empty composer to send the oldest follow-up into the current turn (at the next safe boundary). Follow-ups drain one at a time when the turn finishes. `Esc` discards the oldest follow-up without cancelling the turn.
 
 ## Commands
 

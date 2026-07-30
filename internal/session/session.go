@@ -35,7 +35,7 @@ type ToolCall struct {
 	Arguments string `json:"arguments"`
 }
 
-// ImageRef is an image on a user turn (data: URL embedded; OpenCode-style).
+// ImageRef is an image on a user turn (data: URL embedded inline).
 type ImageRef = image.Ref
 
 // Record is a chat turn loaded from the transcript (message events only).

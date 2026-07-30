@@ -45,6 +45,7 @@ func TestTryAttachPath(t *testing.T) {
 }
 
 func TestInsertAndParseComposer(t *testing.T) {
+	isolateZetaHome(t)
 	m, err := New(config.Config{}, Options{})
 	if err != nil {
 		t.Fatal(err)
@@ -61,8 +62,7 @@ func TestInsertAndParseComposer(t *testing.T) {
 }
 
 func TestSubmitWithImages(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("ZETA_HOME", dir)
+	isolateZetaHome(t)
 
 	m, err := New(config.Config{
 		Active: "x/y",
@@ -102,8 +102,7 @@ func TestSubmitWithImages(t *testing.T) {
 }
 
 func TestSubmitImageOnly(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("ZETA_HOME", dir)
+	isolateZetaHome(t)
 
 	m, err := New(testClientCfg(), Options{})
 	if err != nil {
@@ -138,6 +137,7 @@ func TestLoadSessionImages(t *testing.T) {
 }
 
 func TestSlashCommandRefusesImages(t *testing.T) {
+	isolateZetaHome(t)
 	m, err := New(config.Config{}, Options{})
 	if err != nil {
 		t.Fatal(err)
@@ -154,6 +154,7 @@ func TestSlashCommandRefusesImages(t *testing.T) {
 }
 
 func TestSyncPendingImagesOnDelete(t *testing.T) {
+	isolateZetaHome(t)
 	m, err := New(config.Config{}, Options{})
 	if err != nil {
 		t.Fatal(err)
@@ -183,6 +184,7 @@ func TestSyncPendingImagesOnDelete(t *testing.T) {
 }
 
 func TestPathPasteInsertsToken(t *testing.T) {
+	isolateZetaHome(t)
 	dir := t.TempDir()
 	png := filepath.Join(dir, "drop.png")
 	_ = os.WriteFile(png, []byte{0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a, 1}, 0o600)

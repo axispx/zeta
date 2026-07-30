@@ -16,6 +16,7 @@ const (
 	statusRunning   = "Running"
 	statusSearching = "Searching"
 	statusFetching  = "Fetching"
+	statusSending   = "Sending"
 
 	// busyStatusRows is blank + spinner + blank so the label is not flush
 	// against the transcript or input. layout() sizes the viewport for this.
@@ -37,7 +38,7 @@ func (m Model) turnStatusLine() string {
 
 // gapContent is the gap slot between transcript and input: bottom panel
 // (permission / ask / plan), command/model overlay, busy status, copy flash, or empty.
-// Priority: bottom panel → overlay → busy → copy flash.
+// Priority: bottom panel → overlay → busy + follow-ups → copy flash.
 func (m Model) gapContent() string {
 	if p := m.renderBottom(m.width); p != "" {
 		return p
@@ -45,13 +46,20 @@ func (m Model) gapContent() string {
 	if ov := m.renderOverlay(m.width); ov != "" {
 		return ov
 	}
-	if busy := m.turnStatusLine(); busy != "" {
+	busy := m.turnStatusLine()
+	q := m.renderQueueFollowups(m.width)
+	switch {
+	case busy != "" && q != "":
+		return lipgloss.JoinVertical(lipgloss.Left, busy, q)
+	case busy != "":
 		return busy
-	}
-	if m.copyFlash {
+	case q != "":
+		return q
+	case m.copyFlash:
 		return copiedFlashLine()
+	default:
+		return ""
 	}
-	return ""
 }
 
 // copiedFlashLine is a one-row "Copied" hint in the gap after a successful copy.
@@ -79,8 +87,12 @@ func (m Model) busyLabel() string {
 	if m.turn == nil {
 		return ""
 	}
+	// Active tool wins over an in-flight steer offer.
 	if i := m.turn.activeTool; i >= 0 && i < len(m.messages) {
 		return toolStatus(m.messages[i].Tool)
+	}
+	if m.offered != nil {
+		return statusSending
 	}
 	if m.turn.streaming {
 		return statusWorking

@@ -7,6 +7,13 @@ import (
 	"github.com/axispx/zeta/internal/tools"
 )
 
+// isolateZetaHome points ZETA_HOME at a temp dir so tests do not touch the
+// developer's real ~/.zeta (sessions, trusted.json, config).
+func isolateZetaHome(t *testing.T) {
+	t.Helper()
+	t.Setenv("ZETA_HOME", t.TempDir())
+}
+
 func TestWaitFor(t *testing.T) {
 	var grants permission.Session
 

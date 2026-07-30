@@ -20,6 +20,7 @@ go test ./...
 
 ```
 cmd/zeta/            entrypoint
+internal/cli/        flags, usage, folder-trust prompt
 internal/tui/        bubbletea UI
 internal/ai/         OpenAI-compatible streaming + tools
 internal/agent/      tool loop + permission gate
@@ -31,6 +32,7 @@ internal/skill/      bundled playbooks (`skills/*/SKILL.md` via go:embed)
 internal/config/     ~/.zeta/config.json
 internal/models/     models.dev catalog → presets
 internal/session/    JSONL under ~/.zeta/sessions/
+internal/workspace/  cwd/git context, AGENTS.md, folder trust (~/.zeta/trusted.json)
 internal/plan/       proposed_plan extract + build seed
 internal/paths/      ZETA_HOME
 internal/image/      path normalize, sniff, data: URLs, clipboard (temp only)

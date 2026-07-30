@@ -10,6 +10,7 @@ import (
 
 	"github.com/axispx/zeta/internal/ai"
 	"github.com/axispx/zeta/internal/config"
+	"github.com/axispx/zeta/internal/image"
 	"github.com/axispx/zeta/internal/permission"
 	"github.com/axispx/zeta/internal/search"
 	"github.com/axispx/zeta/internal/session"
@@ -243,7 +244,7 @@ func (m *Model) dismissOverlay() {
 }
 
 func (m *Model) runCommand(name string) tea.Cmd {
-	m.finishTurn()
+	m.endTurn(turnEndAbort) // drop any mid-turn offer; no-op when idle
 	m.resetInput()
 	m.overlay.clear()
 
@@ -307,6 +308,7 @@ func (m *Model) applySession(sess *session.Session, recs []session.Record, err e
 	m.resetPromptHistory()
 	m.clearBottom()
 	m.pendingPlan = ""
+	m.clearQueue()
 	m.overlay.clear()
 	m.grants = &permission.Session{}
 	m.tx.invalidate()
@@ -417,12 +419,15 @@ func (m *Model) consumeCommandOverlayKey(msg tea.KeyPressMsg) bool {
 	return ok
 }
 
-// submitInput handles plain Enter: selected palette command, exact slash command, or chat.
+// submitInput handles plain Enter: palette, slash command, chat, queue, or promote.
 func (m *Model) submitInput() tea.Cmd {
-	if m.busy() {
+	if m.compacting {
 		return nil
 	}
 	if m.overlay.mode == overlayCommands && m.overlay.showing() {
+		if m.turn != nil {
+			return nil
+		}
 		cmd := m.overlay.cmds[m.overlay.selected]
 		// Skills always fill so the user can add args; second Enter submits.
 		if cmd.skill {
@@ -431,36 +436,48 @@ func (m *Model) submitInput() tea.Cmd {
 		}
 		return m.runCommand(cmd.name)
 	}
+
 	text, imgs := m.parseComposer()
 	if text == "" && len(imgs) == 0 {
-		return nil
-	}
-	if text == ":q" { // vim
-		return m.requestQuit()
-	}
-	// Skill slash (exact or with args) → chat turn; playbook injected in requestMsgs.
-	if _, ok := skill.MatchSlash(text); ok {
-		return m.submit(text, imgs)
-	}
-	if isSlashToken(text) {
-		if len(imgs) > 0 {
-			m.messages = append(m.messages, Message{
-				Role: RoleSystem,
-				Text: "slash commands cannot include images",
-			})
-			m.refreshTranscript()
+		if m.turn != nil {
+			m.promoteOldestToSteer()
 			return nil
 		}
-		if c, ok := lookupCommand(text); ok && !c.skill {
-			return m.runCommand(text)
+		return m.drainNextQueuedPrompt()
+	}
+	if m.turn == nil && text == ":q" { // vim
+		return m.requestQuit()
+	}
+
+	// Non-skill slash → harness policy; skill slash is chat content.
+	if isSlashToken(text) {
+		if _, ok := skill.MatchSlash(text); !ok {
+			return m.submitHarnessSlash(text, imgs)
 		}
-		m.resetInput()
-		m.overlay.clear()
-		m.messages = append(m.messages, Message{Role: RoleError, Text: "unknown command: " + text})
-		m.refreshTranscript()
-		return nil
+	}
+	if m.turn != nil {
+		return m.enqueuePrompt(text, imgs)
 	}
 	return m.submit(text, imgs)
+}
+
+// submitHarnessSlash runs a non-skill slash command, or rejects it when idle.
+// Mid-turn, all harness/unknown slashes are swallowed (no queue, no side effects).
+func (m *Model) submitHarnessSlash(text string, imgs []image.Ref) tea.Cmd {
+	if len(imgs) > 0 {
+		m.noteSystem("slash commands cannot include images")
+		return nil
+	}
+	if m.turn != nil {
+		return nil
+	}
+	if c, ok := lookupCommand(text); ok && !c.skill {
+		return m.runCommand(text)
+	}
+	m.resetInput()
+	m.overlay.clear()
+	m.noteError("unknown command: " + text)
+	return nil
 }
 
 func clipBottomLines(s string, n int) string {

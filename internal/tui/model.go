@@ -75,6 +75,8 @@ type Model struct {
 	sel           transcriptSel     // app-level transcript drag selection
 	copyFlash     bool              // brief "Copied" in the gap after a successful copy
 	copyFlashGen  int               // invalidates stale flash timers
+	queue         []queuedPrompt    // waiting follow-ups (FIFO only; not yet offered)
+	offered       *queuedPrompt     // at most one prompt on turn.steers, awaiting accept
 	pendingImages map[int]image.Ref // draft images keyed by stable [Image N] id
 	nextImageN    int               // last allocated token number (never renumbered)
 	// mainCache skips SoftWrap rebuilds on no-op frames. Pointer so View (value
@@ -303,10 +305,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.handleTurnTool(msg)
 
 	case turnDoneMsg:
-		m.finishTurn()
-		m.maybeOfferPlan()
-		m.refreshTranscript()
-		return m, nil
+		return m, m.handleTurnDone()
+
+	case turnSteerAcceptedMsg:
+		return m, m.handleTurnSteerAccepted(msg.message)
 
 	case turnErrMsg:
 		m.handleTurnErr(msg.err)
@@ -373,9 +375,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		switch {
-		case msg.String() == "esc":
+		case msg.String() == "esc" || msg.Code == tea.KeyEscape:
 			if m.sel.has() {
 				m.sel.clear()
+				return m, nil
+			}
+			if m.discardOldestQueued() {
 				return m, nil
 			}
 			m.tryInterrupt()
@@ -386,7 +391,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case m.consumeCommandOverlayKey(msg):
 			return m, nil
 		case msg.String() == "shift+tab":
-			if m.turn == nil && !m.inputBlocked() {
+			if m.turn == nil && !m.inputBlocked() && !m.hasQueueState() {
 				m.mode = m.mode.Next()
 			}
 			return m, nil
@@ -445,12 +450,7 @@ func (m *Model) submit(text string, imgs []image.Ref) tea.Cmd {
 		return nil
 	}
 
-	display := userDisplayText(text, imgs)
-
-	user := Message{Role: RoleUser, Text: display}
-	m.messages = append(m.messages, user)
-	m.history = append(m.history, ai.Message{Role: ai.RoleUser, Text: text, Images: imgs})
-	m.persist(session.Record{Role: session.RoleUser, Text: text, Images: imgs})
+	m.commitUserPrompt(text, imgs)
 	m.resetInput()
 	m.refreshTranscript()
 
@@ -632,24 +632,8 @@ func firstUserPrompt(msgs []Message) string {
 	return ""
 }
 
-func (m *Model) finishTurn() {
-	if m.turn == nil {
-		return
-	}
-	m.cancelStreamPaint() // invalidate pending ticks (gen is on Model)
-	// Deny any open permission/ask so the agent unblocks on the same path as user deny.
-	m.abandonBottom()
-	// Cancel mid-tool: close out the open row — late KindTool is dropped.
-	if i := m.turn.activeTool; i >= 0 && i < len(m.messages) && m.messages[i].Status == ToolRunning {
-		m.messages[i].Status = ToolDenied
-	}
-	m.turn.cancel()
-	m.turn = nil
-	m.history = compact.TrimIncomplete(m.history)
-}
-
 func (m *Model) requestQuit() tea.Cmd {
-	m.finishTurn()
+	m.endTurn(turnEndAbort)
 	m.cancelCompact()
 	return m.quit()
 }
@@ -657,17 +641,6 @@ func (m *Model) requestQuit() tea.Cmd {
 func (m *Model) quit() tea.Cmd {
 	m.quitting = true
 	return tea.Quit
-}
-
-func (m *Model) handleTurnErr(err error) {
-	if m.turn == nil {
-		return
-	}
-	m.finishTurn()
-	errMsg := Message{Role: RoleError, Text: err.Error()}
-	m.messages = append(m.messages, errMsg)
-	m.persist(session.Record{Role: session.RoleError, Text: errMsg.Text})
-	m.refreshTranscript()
 }
 
 func (m *Model) persist(rec session.Record) {

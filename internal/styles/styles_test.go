@@ -49,4 +49,5 @@ func TestChromeDerivedStyles(t *testing.T) {
 	_ = c.UserMsg()
 	_ = c.OverlayPanel()
 	_ = c.OverlayInk()
+	_ = FollowUpsBoxBare(40)
 }

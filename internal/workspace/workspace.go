@@ -13,21 +13,28 @@ type Context struct {
 	// Cwd is a display path (home replaced with ~).
 	Cwd    string
 	Branch string
-	// AgentsMD is the nearest AGENTS.md contents (cwd → git root, or → / if no git).
+	// AgentsMD is the nearest AGENTS.md within the trust target (cwd → git root,
+	// or cwd only when not in a repo). Empty when the folder is not trusted.
 	AgentsMD string
 }
 
 // Load reads cwd, git branch, and AGENTS.md from the current process directory.
+// AGENTS.md is loaded only when the trust target is approved; branch/cwd still fill.
 func Load() Context {
 	abs, err := os.Getwd()
 	if err != nil {
 		abs = ""
 	}
-	branch, agents := inspect(abs)
+	agents := ""
+	if abs != "" {
+		if target := TrustTarget(abs); isTrustedTarget(target) {
+			agents = NearestAgents(abs, target)
+		}
+	}
 	return Context{
 		Abs:      abs,
-		Cwd:      displayCwd(),
-		Branch:   branch,
+		Cwd:      DisplayPath(abs),
+		Branch:   Branch(abs),
 		AgentsMD: agents,
 	}
 }
@@ -35,7 +42,7 @@ func Load() Context {
 // RefreshBranch re-reads git HEAD for c.Abs. Does not touch cwd or AGENTS.md —
 // those reload only at turn boundaries (system prompt / tool root).
 func (c *Context) RefreshBranch() {
-	c.Branch, _ = inspect(c.Abs)
+	c.Branch = Branch(c.Abs)
 }
 
 // Label is cwd, or "cwd · branch" when in a git repo.
@@ -46,48 +53,66 @@ func (c Context) Label() string {
 	return c.Cwd + " · " + c.Branch
 }
 
-func displayCwd() string {
-	wd, err := os.Getwd()
-	if err != nil || wd == "" {
+// DisplayPath is abs with $HOME replaced by ~ for UI.
+func DisplayPath(abs string) string {
+	if abs == "" {
 		return "."
 	}
 	home, err := os.UserHomeDir()
 	if err != nil || home == "" {
-		return wd
+		return abs
 	}
-	if wd == home {
+	if abs == home {
 		return "~"
 	}
-	if strings.HasPrefix(wd, home+string(os.PathSeparator)) {
-		return "~" + wd[len(home):]
+	prefix := home + string(os.PathSeparator)
+	if strings.HasPrefix(abs, prefix) {
+		return "~" + abs[len(home):]
 	}
-	return wd
+	return abs
 }
 
-// inspect walks upward once from dir: nearest AGENTS.md, branch at git root.
-// Stops at the git root when in a repo; otherwise walks to the filesystem root.
-func inspect(dir string) (branch, agents string) {
-	if dir == "" {
-		return "", ""
+// Branch returns the current branch name (or short SHA) for dir's git root.
+func Branch(dir string) string {
+	root := GitRoot(dir)
+	if root == "" {
+		return ""
 	}
-	abs, err := filepath.Abs(dir)
-	if err != nil || abs == "" {
-		return "", ""
+	headPath, ok := gitHeadPath(root)
+	if !ok {
+		return ""
 	}
+	return parseGitHead(headPath)
+}
+
+// NearestAgents returns the nearest non-empty AGENTS.md walking from dir up to
+// ceiling (inclusive). Empty ceiling means dir only.
+func NearestAgents(dir, ceiling string) string {
+	abs, err := absDir(dir)
+	if err != nil {
+		return ""
+	}
+	if ceiling == "" {
+		ceiling = abs
+	} else if c, err := absDir(ceiling); err == nil {
+		ceiling = c
+	} else {
+		ceiling = abs
+	}
+
+	cur := abs
 	for {
-		if agents == "" {
-			if body, ok := readAgentsFile(filepath.Join(abs, agentsFileName)); ok {
-				agents = body
-			}
+		if body, ok := readAgentsFile(filepath.Join(cur, agentsFileName)); ok {
+			return body
 		}
-		if headPath, ok := gitHeadPath(abs); ok {
-			return parseGitHead(headPath), agents
+		if samePath(cur, ceiling) {
+			return ""
 		}
-		parent := filepath.Dir(abs)
-		if parent == abs {
-			return "", agents
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			return ""
 		}
-		abs = parent
+		cur = parent
 	}
 }
 

@@ -8,7 +8,7 @@ import (
 	"os/exec"
 )
 
-// macOS: osascript + PNGf clipboard class (OpenCode pattern).
+// macOS: osascript + PNGf clipboard class.
 func readClipboardImageBytes() ([]byte, error) {
 	// Write clipboard PNG to stdout via a short AppleScript bridge.
 	script := `

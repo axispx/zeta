@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -31,6 +32,15 @@ func main() {
 		if path := config.Path(); path != "" {
 			fmt.Fprintf(os.Stderr, "Fix %s or delete it, then run zeta again.\n", path)
 		}
+		os.Exit(1)
+	}
+
+	// Folder trust before workspace/session load (AGENTS.md, project sessions).
+	if err := cli.EnsureTrusted(); err != nil {
+		if errors.Is(err, cli.ErrTrustDeclined) {
+			os.Exit(1)
+		}
+		fmt.Fprintf(os.Stderr, "trust: %v\n", err)
 		os.Exit(1)
 	}
 

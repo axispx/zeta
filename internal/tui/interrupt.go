@@ -23,7 +23,8 @@ func (m *Model) tryInterrupt() bool {
 		m.cancelCompact()
 		return true
 	case m.turn != nil:
-		m.finishTurn()
+		// Abort drops an unconsumed offer; late KindDone must not drain the queue.
+		m.endTurn(turnEndAbort)
 		m.noteSystem(turnCancelledText)
 		return true
 	}
