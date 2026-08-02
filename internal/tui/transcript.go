@@ -17,9 +17,9 @@ type transcriptCache struct {
 
 func (c *transcriptCache) invalidate() { *c = transcriptCache{} }
 
-// setTranscriptContent paints the viewport: cached prefix + fresh tail + thinking.
-// Stick-to-bottom only when already at the bottom so stream paints don't yank
-// the user back down after they scroll up (pgup / mouse wheel).
+// setTranscriptContent paints the viewport: cached prefix + fresh tail +
+// thinking. Stick-to-bottom only when already at the bottom so stream paints
+// don't yank the user back down after they scroll up (pgup / mouse wheel).
 func (m *Model) setTranscriptContent() {
 	m.syncPrefix()
 	atBottom := m.viewport.AtBottom()

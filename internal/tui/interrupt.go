@@ -1,5 +1,7 @@
 package tui
 
+import tea "charm.land/bubbletea/v2"
+
 // turnCancelledText is appended to the transcript when the user aborts a turn.
 const turnCancelledText = "Cancelled"
 
@@ -23,10 +25,27 @@ func (m *Model) tryInterrupt() bool {
 		m.cancelCompact()
 		return true
 	case m.turn != nil:
-		// Abort drops an unconsumed offer; late KindDone must not drain the queue.
-		m.endTurn(turnEndAbort)
+		// Late KindDone must not drain the queue.
+		m.finishTurn()
 		m.noteSystem(turnCancelledText)
 		return true
 	}
 	return false
+}
+
+// handleCtrlC is the Ctrl+C ladder:
+// edit/queue-focus → interrupt (config/picker/…/turn) → clear queue → quit.
+func (m *Model) handleCtrlC() tea.Cmd {
+	if m.handleQueueEsc() {
+		return nil
+	}
+	if m.tryInterrupt() {
+		return nil
+	}
+	if m.hasQueueState() {
+		m.clearQueue()
+		m.afterQueueChange()
+		return nil
+	}
+	return m.requestQuit()
 }

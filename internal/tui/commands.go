@@ -79,6 +79,7 @@ func (l *listSel) clamp(n int) {
 }
 
 // move adjusts selection for a list of length n. Returns whether key was a nav key.
+// j/k are intentionally omitted: filter overlays still receive typed characters.
 func (l *listSel) move(n int, key string) bool {
 	switch key {
 	case "up", "ctrl+p":
@@ -244,7 +245,7 @@ func (m *Model) dismissOverlay() {
 }
 
 func (m *Model) runCommand(name string) tea.Cmd {
-	m.endTurn(turnEndAbort) // drop any mid-turn offer; no-op when idle
+	m.finishTurn() // no-op when idle
 	m.resetInput()
 	m.overlay.clear()
 
@@ -419,7 +420,8 @@ func (m *Model) consumeCommandOverlayKey(msg tea.KeyPressMsg) bool {
 	return ok
 }
 
-// submitInput handles plain Enter: palette, slash command, chat, queue, or promote.
+// submitInput handles plain Enter: palette, slash, save-edit, queue, or drain.
+// Empty Enter delivers the queue head now (interrupts a live turn when busy).
 func (m *Model) submitInput() tea.Cmd {
 	if m.compacting {
 		return nil
@@ -439,11 +441,16 @@ func (m *Model) submitInput() tea.Cmd {
 
 	text, imgs := m.parseComposer()
 	if text == "" && len(imgs) == 0 {
-		if m.turn != nil {
-			m.promoteOldestToSteer()
+		// Empty Enter while editing: keep the item; user must save or Esc.
+		if m.editID != 0 {
 			return nil
 		}
 		return m.drainNextQueuedPrompt()
+	}
+	// Saving an open follow-up beats slash / turn routing.
+	if m.editID != 0 {
+		m.saveEdit(text, imgs)
+		return nil
 	}
 	if m.turn == nil && text == ":q" { // vim
 		return m.requestQuit()
@@ -455,6 +462,7 @@ func (m *Model) submitInput() tea.Cmd {
 			return m.submitHarnessSlash(text, imgs)
 		}
 	}
+	// Mid-turn: queue for later. Send-now is empty Enter / queue-focus Enter.
 	if m.turn != nil {
 		return m.enqueuePrompt(text, imgs)
 	}

@@ -54,6 +54,7 @@ type Model struct {
 	ready         bool
 	quitting      bool
 	turn          *turnSession
+	nextTurnID    int          // last allocated turnSession.id
 	history       []ai.Message // durable API transcript (user/assistant/tool); no system/developer
 	contextTokens int64        // last response's context footprint (prompt+completion)
 	titlePending  bool
@@ -75,8 +76,11 @@ type Model struct {
 	sel           transcriptSel     // app-level transcript drag selection
 	copyFlash     bool              // brief "Copied" in the gap after a successful copy
 	copyFlashGen  int               // invalidates stale flash timers
-	queue         []queuedPrompt    // waiting follow-ups (FIFO only; not yet offered)
-	offered       *queuedPrompt     // at most one prompt on turn.steers, awaiting accept
+	queue         []queuedPrompt    // waiting follow-ups (FIFO; oldest at [0])
+	editID        int               // queue item id open in composer, or 0
+	nextQueueID   int               // last allocated follow-up id
+	queueFocus    bool              // nav over the follow-ups panel
+	queueSel      listSel           // selection while queueFocus
 	pendingImages map[int]image.Ref // draft images keyed by stable [Image N] id
 	nextImageN    int               // last allocated token number (never renumbered)
 	// mainCache skips SoftWrap rebuilds on no-op frames. Pointer so View (value
@@ -282,38 +286,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.spinner, cmd = m.spinner.Update(msg)
 		return m, cmd
 
-	case turnDeltaMsg:
-		return m, m.handleTurnDelta(msg)
-
-	case turnReasoningMsg:
-		return m, m.handleTurnReasoning(msg)
-
 	case streamPaintMsg:
 		m.handleStreamPaint(msg)
 		return m, nil
 
-	case turnAssistantMsg:
-		return m, m.handleTurnAssistant(msg)
+	default:
+		if cmd, ok := m.dispatchTurnMsg(msg); ok {
+			return m, cmd
+		}
+	}
 
-	case turnToolStartMsg:
-		return m, m.handleTurnToolStart(msg)
-
-	case turnToolOutMsg:
-		return m, m.handleTurnToolOut(msg)
-
-	case turnToolMsg:
-		return m, m.handleTurnTool(msg)
-
-	case turnDoneMsg:
-		return m, m.handleTurnDone()
-
-	case turnSteerAcceptedMsg:
-		return m, m.handleTurnSteerAccepted(msg.message)
-
-	case turnErrMsg:
-		m.handleTurnErr(msg.err)
-		return m, nil
-
+	switch msg := msg.(type) {
 	case tea.MouseClickMsg:
 		if cmd, ok := m.handleBottomClick(msg); ok {
 			m.sel.clear()
@@ -355,10 +338,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		switch {
 		case msg.String() == "ctrl+c":
-			if m.tryInterrupt() {
-				return m, nil
-			}
-			return m, m.requestQuit()
+			return m, m.handleCtrlC()
 		case m.config.active:
 			cmd, _ := m.updateConfigDialog(msg)
 			return m, cmd
@@ -374,13 +354,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
+		// Priority: esc → compact block → overlays → ctrl+q → shift+tab →
+		// paste → queue nav → prompt history → plain Enter.
 		switch {
 		case msg.String() == "esc" || msg.Code == tea.KeyEscape:
 			if m.sel.has() {
 				m.sel.clear()
 				return m, nil
 			}
-			if m.discardOldestQueued() {
+			// edit → unfocus queue → cancel turn. Never deletes queue items.
+			if m.handleQueueEsc() {
 				return m, nil
 			}
 			m.tryInterrupt()
@@ -390,20 +373,30 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case m.consumeCommandOverlayKey(msg):
 			return m, nil
+		case msg.String() == "ctrl+q":
+			if m.toggleQueueFocus() {
+				return m, nil
+			}
 		case msg.String() == "shift+tab":
 			if m.turn == nil && !m.inputBlocked() && !m.hasQueueState() {
 				m.mode = m.mode.Next()
 			}
-			return m, nil
-		case m.handlePromptHistoryKey(msg):
 			return m, nil
 		case isPasteKey(msg):
 			if !m.inputBlocked() {
 				m.handleClipboardPaste()
 				return m, nil
 			}
-		// Plain Enter only. Never steal shift/alt/ctrl+enter — those are newlines.
-		case msg.Code == tea.KeyEnter && msg.Mod == 0:
+		}
+		// Queue focus before prompt-history so ↑/↓ move the list, not recall.
+		if cmd, ok := m.handleQueueNavKey(msg); ok {
+			return m, cmd
+		}
+		if m.handlePromptHistoryKey(msg) {
+			return m, nil
+		}
+		// Plain Enter only. Never steal shift/alt/ctrl+enter (newlines).
+		if msg.Code == tea.KeyEnter && msg.Mod == 0 {
 			return m, m.submitInput()
 		}
 	}
@@ -451,7 +444,10 @@ func (m *Model) submit(text string, imgs []image.Ref) tea.Cmd {
 	}
 
 	m.commitUserPrompt(text, imgs)
-	m.resetInput()
+	// Keep an in-progress follow-up edit in the composer (drain of another item).
+	if m.editID == 0 {
+		m.resetInput()
+	}
 	m.refreshTranscript()
 
 	titlePrompt := text
@@ -480,7 +476,8 @@ func (m *Model) beginTurn(titlePrompt string) tea.Cmd {
 	}
 	var cmds []tea.Cmd
 	var turnCmd tea.Cmd
-	m.turn, turnCmd = startTurn(m.client, m.ws, m.mode, m.history, m.grants, m.todos)
+	m.nextTurnID++
+	m.turn, turnCmd = startTurn(m.nextTurnID, m.client, m.ws, m.mode, m.history, m.grants, m.todos)
 	// Busy gap grows (GapBeforeInput → busyStatusRows); shrink transcript now.
 	m.layoutPreservingBottom()
 	cmds = append(cmds, turnCmd, m.spinner.Tick)
@@ -488,124 +485,6 @@ func (m *Model) beginTurn(titlePrompt string) tea.Cmd {
 		cmds = append(cmds, titleCmd)
 	}
 	return tea.Batch(cmds...)
-}
-
-// planFraming is true when this turn is Plan mode. Mode is frozen while a turn
-// runs, so the same snapshot is used for the live agent row and JSONL persist.
-// Stored on the message so framing survives later mode switches and resume.
-func (m *Model) planFraming() bool {
-	return m.mode == prompt.ModePlan
-}
-
-func (m *Model) handleTurnDelta(msg turnDeltaMsg) tea.Cmd {
-	if m.turn == nil {
-		return nil
-	}
-	m.turn.beginStreaming() // clears thinking; pending/next paint drops the chrome
-	n := len(m.messages)
-	if n > 0 && m.messages[n-1].Role == RoleAgent {
-		m.messages[n-1].Text += msg.text
-	} else {
-		m.messages = append(m.messages, Message{
-			Role:      RoleAgent,
-			Text:      msg.text,
-			framePlan: m.planFraming(),
-		})
-	}
-	// Ingest every token; paint at most every streamPaintEvery.
-	return tea.Batch(m.requestStreamPaint(), waitTurn(m.turn))
-}
-
-// handleTurnReasoning appends pre-answer reasoning for the live tail.
-// Outside thinkingPhase tokens are ignored; the stream is still drained.
-func (m *Model) handleTurnReasoning(msg turnReasoningMsg) tea.Cmd {
-	if m.turn == nil {
-		return nil
-	}
-	if !m.turn.acceptReasoning(msg.text) {
-		return waitTurn(m.turn)
-	}
-	return tea.Batch(m.requestStreamPaint(), waitTurn(m.turn))
-}
-
-func (m *Model) handleTurnAssistant(msg turnAssistantMsg) tea.Cmd {
-	if m.turn == nil {
-		return nil
-	}
-	// Segment done — flush buffered answer / clear thinking immediately.
-	if m.turn.endStreaming() {
-		m.refreshTranscript()
-	}
-	m.history = append(m.history, msg.message)
-	if n := msg.usage.ContextTokens(); n > 0 {
-		m.contextTokens = n
-	}
-	// Full assistant text (including <proposed_plan>) on the agent row for UI,
-	// JSONL, and API history. FramePlan snapshots planFraming at ingest.
-	rec := recordFromAPI(msg.message)
-	rec.FramePlan = m.planFraming()
-	m.persist(rec)
-	m.noteProducedPlan(msg.message.Text)
-	return waitTurn(m.turn)
-}
-
-func (m *Model) handleTurnToolStart(msg turnToolStartMsg) tea.Cmd {
-	if m.turn == nil {
-		return nil
-	}
-	m.turn.endStreaming()
-	label := msg.label
-	if label == "" {
-		label = msg.name
-	}
-	m.messages = append(m.messages, newToolMessage(label, msg.name))
-	m.turn.activeTool = len(m.messages) - 1
-	if detail := strings.TrimSpace(msg.detail); detail != "" {
-		m.messages[m.turn.activeTool].Out = detail
-	}
-	m.refreshTranscript()
-
-	// Agent only waits when waitFor matches Gate — do not send a Reply it isn't awaiting.
-	switch waitFor(msg.name, m.grants) {
-	case waitInteractive:
-		m.openInteractiveTool(msg.name, msg.args)
-	case waitPermission:
-		m.bottom.setPerm(newPermissionPrompt(label, msg.name, msg.path))
-		m.afterSetBottom()
-	}
-	return waitTurn(m.turn)
-}
-
-func (m *Model) handleTurnToolOut(msg turnToolOutMsg) tea.Cmd {
-	if m.turn == nil {
-		return nil
-	}
-	if i := m.turn.activeTool; i >= 0 && i < len(m.messages) && m.messages[i].Tool == msg.name {
-		m.messages[i].Out = msg.text
-		return tea.Batch(m.requestStreamPaint(), waitTurn(m.turn))
-	}
-	return waitTurn(m.turn)
-}
-
-func (m *Model) handleTurnTool(msg turnToolMsg) tea.Cmd {
-	if m.turn == nil {
-		return nil
-	}
-	m.history = append(m.history, msg.message)
-	if i := m.turn.activeTool; i >= 0 && i < len(m.messages) && m.messages[i].Tool == msg.name {
-		if msg.denied {
-			m.messages[i].Status = ToolDenied
-		} else {
-			m.messages[i].Status = ToolOK
-			if toolHasOut(m.messages[i].Tool) {
-				m.messages[i].Out = msg.message.Text
-			}
-		}
-	}
-	m.turn.activeTool = -1
-	m.persist(toolRecord(msg.message, msg.label, msg.name, msg.denied))
-	m.refreshTranscript()
-	return waitTurn(m.turn)
 }
 
 // ensureTitle requests an AI title once for an untitled session.
@@ -633,7 +512,7 @@ func firstUserPrompt(msgs []Message) string {
 }
 
 func (m *Model) requestQuit() tea.Cmd {
-	m.endTurn(turnEndAbort)
+	m.finishTurn()
 	m.cancelCompact()
 	return m.quit()
 }

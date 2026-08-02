@@ -30,14 +30,14 @@ type streamPaint struct {
 
 // turnSession is one in-flight agent turn (stream + tool loop).
 type turnSession struct {
+	id         int // matches turn*Msg.id; drops late events after cancel/replace
 	cancel     context.CancelFunc
 	ch         <-chan agent.Event
 	reply      chan<- agent.Reply // harness → agent; one decision per gated start
 	streaming  bool               // true while receiving assistant deltas
 	pending    *agent.Event       // set when coalesce peeks a non-matching event
-	thinking   string             // live reasoning tail; only while thinkingPhase
-	activeTool int                // index of open tool row in Model.messages; -1 if none
-	steers     chan ai.Message    // harness ↔ agent steering at safe boundaries
+	thinking   string // live reasoning tail; only while thinkingPhase
+	activeTool int    // index of open tool row in Model.messages; -1 if none
 }
 
 // thinkingPhase is true before answer deltas or an open tool (pre-answer reasoning).
@@ -76,13 +76,21 @@ func (t *turnSession) endStreaming() bool {
 	return dirty
 }
 
-type turnDeltaMsg struct{ text string }
-type turnReasoningMsg struct{ text string }
+type turnDeltaMsg struct {
+	id   int
+	text string
+}
+type turnReasoningMsg struct {
+	id   int
+	text string
+}
 type turnAssistantMsg struct {
+	id      int
 	message ai.Message
 	usage   ai.Usage
 }
 type turnToolStartMsg struct {
+	id     int
 	label  string
 	name   string
 	path   string
@@ -90,18 +98,22 @@ type turnToolStartMsg struct {
 	args   json.RawMessage // raw tool args (interactive tools)
 }
 type turnToolOutMsg struct {
+	id   int
 	text string
 	name string
 }
 type turnToolMsg struct {
+	id      int
 	label   string
 	name    string
 	message ai.Message
 	denied  bool
 }
-type turnDoneMsg struct{}
-type turnSteerAcceptedMsg struct{ message ai.Message }
-type turnErrMsg struct{ err error }
+type turnDoneMsg struct{ id int }
+type turnErrMsg struct {
+	id  int
+	err error
+}
 
 // streamPaintMsg fires after streamPaintEvery to paint accumulated live text.
 type streamPaintMsg struct{ gen int }
@@ -173,12 +185,13 @@ func requestMsgs(ws workspace.Context, mode prompt.Mode, history []ai.Message, t
 }
 
 func waitTurn(t *turnSession) tea.Cmd {
+	id := t.id
 	return func() tea.Msg {
 		evt, ok := recvTurnEvent(t)
 		if !ok {
-			return turnDoneMsg{}
+			return turnDoneMsg{id: id}
 		}
-		return turnEventMsg(evt)
+		return turnEventMsg(id, evt)
 	}
 }
 
@@ -224,16 +237,17 @@ func recvTurnEvent(t *turnSession) (agent.Event, bool) {
 	}
 }
 
-func turnEventMsg(evt agent.Event) tea.Msg {
+func turnEventMsg(id int, evt agent.Event) tea.Msg {
 	switch evt.Kind {
 	case agent.KindDelta:
-		return turnDeltaMsg{text: evt.Text}
+		return turnDeltaMsg{id: id, text: evt.Text}
 	case agent.KindReasoning:
-		return turnReasoningMsg{text: evt.Text}
+		return turnReasoningMsg{id: id, text: evt.Text}
 	case agent.KindAssistant:
-		return turnAssistantMsg{message: evt.Message, usage: evt.Usage}
+		return turnAssistantMsg{id: id, message: evt.Message, usage: evt.Usage}
 	case agent.KindToolStart:
 		return turnToolStartMsg{
+			id:     id,
 			label:  evt.Text,
 			name:   evt.Name,
 			path:   evt.Path,
@@ -241,30 +255,26 @@ func turnEventMsg(evt agent.Event) tea.Msg {
 			args:   evt.Args,
 		}
 	case agent.KindToolOut:
-		return turnToolOutMsg{text: evt.Text, name: evt.Name}
+		return turnToolOutMsg{id: id, text: evt.Text, name: evt.Name}
 	case agent.KindTool:
-		return turnToolMsg{label: evt.Text, name: evt.Name, message: evt.Message, denied: evt.Denied}
+		return turnToolMsg{id: id, label: evt.Text, name: evt.Name, message: evt.Message, denied: evt.Denied}
 	case agent.KindDone:
-		return turnDoneMsg{}
-	case agent.KindSteerAccepted:
-		return turnSteerAcceptedMsg{message: evt.Message}
+		return turnDoneMsg{id: id}
 	case agent.KindErr:
-		return turnErrMsg{err: evt.Err}
+		return turnErrMsg{id: id, err: evt.Err}
 	default:
-		return turnDoneMsg{}
+		return turnDoneMsg{id: id}
 	}
 }
 
-func startTurn(client *ai.Client, ws workspace.Context, mode prompt.Mode, history []ai.Message, grants *permission.Session, todos *todo.Store) (*turnSession, tea.Cmd) {
+func startTurn(id int, client *ai.Client, ws workspace.Context, mode prompt.Mode, history []ai.Message, grants *permission.Session, todos *todo.Store) (*turnSession, tea.Cmd) {
 	ctx, cancel := context.WithCancel(context.Background())
 	replies := make(chan agent.Reply, 1)
-	steers := make(chan ai.Message, 1)
 	cfg := agent.Config{
 		Client:  client,
 		Tools:   toolsForMode(mode, todos),
 		Root:    ws.Abs,
 		Replies: replies,
-		Steers:  steers,
 		// Same classifier as handleTurnToolStart (waitFor).
 		Gate: func(name string) bool {
 			return waitFor(name, grants) != waitNone
@@ -272,10 +282,10 @@ func startTurn(client *ai.Client, ws workspace.Context, mode prompt.Mode, histor
 	}
 	ch := cfg.Run(ctx, requestMsgs(ws, mode, history, todos))
 	t := &turnSession{
+		id:         id,
 		cancel:     cancel,
 		ch:         ch,
 		reply:      replies,
-		steers:     steers,
 		streaming:  false, // set true on first delta; false = Waiting chrome / settled md
 		activeTool: -1,
 	}

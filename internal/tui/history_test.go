@@ -17,7 +17,7 @@ import (
 )
 
 func testModel() Model {
-	return Model{
+	m := Model{
 		textarea: textarea.New(),
 		viewport: viewport.New(),
 		width:    80,
@@ -25,6 +25,8 @@ func testModel() Model {
 		ready:    true,
 		grants:   &permission.Session{},
 	}
+	m.promptHist.reset() // at=-1 (live draft); zero value is not live
+	return m
 }
 
 func TestLoadSessionRebuildsAfterCompact(t *testing.T) {

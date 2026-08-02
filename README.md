@@ -45,11 +45,13 @@ Cycle modes with **Shift+Tab**.
 
 | Key                                    | Action                                      |
 | -------------------------------------- | ------------------------------------------- |
-| `Enter`                                | Send (while busy: queue follow-ups; empty composer: send oldest) |
+| `Enter`                                | Send (busy: queue text; empty+queue: send now) |
 | `↑` / `↓` or `Ctrl+P` / `Ctrl+N`       | Prompt history                              |
+| `Ctrl+Q`                               | Manage follow-ups (`↑`/`↓`, Enter send, `e` edit, `d` remove) |
 | `Shift+Tab`                            | Cycle mode (build → ask → plan)             |
 | `Shift+Enter` / `Ctrl+J` / `Alt+Enter` | Newline                                     |
-| `Esc` / `Ctrl+C`                       | Remove oldest follow-up, or cancel turn (or quit when idle) |
+| `Esc`                                  | Cancel edit / leave queue / cancel turn (queue kept) |
+| `Ctrl+C`                               | Leave edit/focus → interrupt → clear queue → quit |
 | Mouse / `PgUp` / `PgDn`                | Scroll                                      |
 | Drag transcript                        | Select text and copy on release (no scrollbar) |
 
@@ -84,7 +86,7 @@ If `Shift+Enter` is remapped (common in iTerm), remove that binding or use `Ctrl
 
 **Copy:** drag in the transcript to select (the scrollbar is not included); releasing the mouse copies to the clipboard. Leaving the terminal mid-drag counts as release.
 
-While the agent is working, `Enter` queues your message for a later turn. Press `Enter` on an empty composer to send the oldest follow-up into the current turn (at the next safe boundary). Follow-ups drain one at a time when the turn finishes. `Esc` discards the oldest follow-up without cancelling the turn.
+While the agent is working, `Enter` with text queues a follow-up. Empty `Enter` (or queue-focus Enter on an item) interrupts the current turn and sends that follow-up immediately. Open the queue with `Ctrl+Q` (`↑`/`↓` move, Enter send selected, `e` edit, `d` remove, Esc back). Queued items also drain one at a time when a turn finishes on its own (unless you are editing the next item or typing a draft). `Esc` cancels an edit, leaves queue focus, or cancels the turn (queue kept). `Ctrl+C` leaves edit/queue focus first, then runs the interrupt ladder (dismiss overlays, cancel turn), then clears any remaining follow-ups, then quits.
 
 ## Commands
 

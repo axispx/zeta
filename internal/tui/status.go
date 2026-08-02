@@ -16,7 +16,6 @@ const (
 	statusRunning   = "Running"
 	statusSearching = "Searching"
 	statusFetching  = "Fetching"
-	statusSending   = "Sending"
 
 	// busyStatusRows is blank + spinner + blank so the label is not flush
 	// against the transcript or input. layout() sizes the viewport for this.
@@ -87,12 +86,8 @@ func (m Model) busyLabel() string {
 	if m.turn == nil {
 		return ""
 	}
-	// Active tool wins over an in-flight steer offer.
 	if i := m.turn.activeTool; i >= 0 && i < len(m.messages) {
 		return toolStatus(m.messages[i].Tool)
-	}
-	if m.offered != nil {
-		return statusSending
 	}
 	if m.turn.streaming {
 		return statusWorking

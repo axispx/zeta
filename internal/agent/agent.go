@@ -34,9 +34,6 @@ const (
 	// KindReasoning is streamed reasoning / thinking tokens (UI only; not answer text).
 	// Appended after existing kinds so their iota values stay stable.
 	KindReasoning
-	// KindSteerAccepted is emitted when a harness steering message is appended
-	// to history at a safe model boundary (after tools or before turn end).
-	KindSteerAccepted
 )
 
 // eventBuffer absorbs bursts of KindToolOut without stalling tool I/O.
@@ -47,7 +44,7 @@ type Event struct {
 	Kind    EventKind
 	Text    string     // delta text, tool UI label, or KindToolOut snapshot
 	Name    string     // tool name for KindToolStart / KindToolOut / KindTool
-	Message ai.Message // set for KindAssistant / KindTool / KindSteerAccepted
+	Message ai.Message // set for KindAssistant / KindTool
 	Usage   ai.Usage   // set for KindAssistant when the provider reports usage
 	Err     error
 	Path    string          // KindToolStart: workspace path when relevant
@@ -97,9 +94,6 @@ type Config struct {
 	// Gate reports whether the harness must decide before this tool runs.
 	// Nil means never wait. Ignored when Replies is nil.
 	Gate func(name string) bool
-	// Steers receives user messages promoted into the active turn. Consumed at
-	// safe boundaries only (after tool results or when the model stops without tools).
-	Steers <-chan ai.Message
 	// StreamFn replaces Client.Stream when set (tests).
 	StreamFn func(context.Context, []ai.Message, []ai.Tool) <-chan ai.Event
 }
@@ -138,6 +132,10 @@ func (c Config) run(ctx context.Context, history []ai.Message, out chan<- Event)
 		history = append(history, asst)
 		out <- Event{Kind: KindAssistant, Message: asst, Usage: usage}
 
+		if len(asst.ToolCalls) == 0 {
+			out <- Event{Kind: KindDone}
+			return
+		}
 		for _, call := range asst.ToolCalls {
 			if ctx.Err() != nil {
 				out <- Event{Kind: KindDone}
@@ -147,30 +145,6 @@ func (c Config) run(ctx context.Context, history []ai.Message, out chan<- Event)
 			history = append(history, result)
 			out <- Event{Kind: KindTool, Text: label, Name: call.Name, Message: result, Denied: denied}
 		}
-		// Safe boundary: after tools (or a no-tool reply), inject at most one steer.
-		if history, ok = c.trySteer(ctx, history, out); ok {
-			continue
-		}
-		if len(asst.ToolCalls) == 0 {
-			out <- Event{Kind: KindDone}
-			return
-		}
-	}
-}
-
-// trySteer consumes one steering message at a model boundary.
-func (c Config) trySteer(ctx context.Context, history []ai.Message, out chan<- Event) ([]ai.Message, bool) {
-	if c.Steers == nil {
-		return history, false
-	}
-	select {
-	case msg := <-c.Steers:
-		out <- Event{Kind: KindSteerAccepted, Message: msg}
-		return append(history, msg), true
-	case <-ctx.Done():
-		return history, false
-	default:
-		return history, false
 	}
 }
 
