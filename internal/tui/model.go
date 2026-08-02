@@ -449,6 +449,9 @@ func (m *Model) submit(text string, imgs []image.Ref) tea.Cmd {
 		m.resetInput()
 	}
 	m.refreshTranscript()
+	// Sending is intentional navigation: always show the new user turn, even if
+	// the user had scrolled up to read earlier context (stream paints stay put).
+	m.viewport.GotoBottom()
 
 	titlePrompt := text
 	if titlePrompt == "" && len(imgs) > 0 {

@@ -331,6 +331,39 @@ func TestMainViewCacheHitOnSameOffset(t *testing.T) {
 	}
 }
 
+// Submitting a new message jumps to the bottom even when scrolled up.
+func TestSubmitScrollsToBottomWhenScrolledUp(t *testing.T) {
+	m := testModelWithClient()
+	m.width = 80
+	m.height = 24
+
+	var lines []string
+	for i := 0; i < 60; i++ {
+		lines = append(lines, fmt.Sprintf("history line %02d", i))
+	}
+	m.messages = []Message{
+		{Role: RoleAgent, Text: strings.Join(lines, "\n")},
+	}
+	m.repaintTranscript()
+	if !m.viewport.AtBottom() {
+		t.Fatal("expected initial stick-to-bottom")
+	}
+
+	m.viewport.ScrollUp(10)
+	if m.viewport.AtBottom() {
+		t.Fatal("expected scrolled away from bottom")
+	}
+
+	// submit starts a turn cmd against an unroutable client — do not run it.
+	_ = m.submit("new prompt", nil)
+	if !m.viewport.AtBottom() {
+		t.Fatal("expected submit to scroll to bottom")
+	}
+	if got := m.messages[len(m.messages)-1]; got.Role != RoleUser || got.Text != "new prompt" {
+		t.Fatalf("last message = %+v", got)
+	}
+}
+
 // Stream paints must not yank scroll position after the user leaves the bottom.
 func TestStreamPaintPreservesScrollWhenNotAtBottom(t *testing.T) {
 	m := testModel()
