@@ -14,7 +14,7 @@ func TestEmitToolOutNonBlocking(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		emitToolOut(ev, "bash", "line")
+		emitToolOut(ev, tools.Bash, "line")
 	}()
 	select {
 	case <-done:
@@ -32,7 +32,7 @@ func TestExecToolGateDeny(t *testing.T) {
 	go replyStart(t, ev, replies, false)
 
 	_, result, denied := c.execTool(t.Context(), ai.ToolCall{
-		ID: "c1", Name: "bash", Arguments: `{"command":"echo hi"}`,
+		ID: "c1", Name: tools.Bash, Arguments: `{"command":"echo hi"}`,
 	}, ev)
 	if !denied || result.Text != "rejected: the user denied this call" {
 		t.Errorf("denied=%v text=%q", denied, result.Text)
@@ -51,7 +51,7 @@ func TestExecToolGatePathDetail(t *testing.T) {
 	}()
 
 	_, _, _ = c.execTool(t.Context(), ai.ToolCall{
-		ID: "c1", Name: "write", Arguments: `{"path":"a.txt","content":"x"}`,
+		ID: "c1", Name: tools.Write, Arguments: `{"path":"a.txt","content":"x"}`,
 	}, ev)
 	start := <-got
 	if start.Path != "a.txt" || start.Name != "write" || start.Detail == "" {
@@ -65,7 +65,7 @@ func TestExecToolGateAllow(t *testing.T) {
 	ev := make(chan Event, 8)
 	go replyStart(t, ev, replies, true)
 	_, result, denied := c.execTool(t.Context(), ai.ToolCall{
-		ID: "c1", Name: "bash", Arguments: `{"command":"echo first"}`,
+		ID: "c1", Name: tools.Bash, Arguments: `{"command":"echo first"}`,
 	}, ev)
 	if denied {
 		t.Errorf("expected allowed, got %q", result.Text)
@@ -84,7 +84,7 @@ func TestExecToolGateCancelled(t *testing.T) {
 	}, 1)
 	go func() {
 		_, result, denied := c.execTool(ctx, ai.ToolCall{
-			ID: "c1", Name: "bash", Arguments: `{"command":"echo hi"}`,
+			ID: "c1", Name: tools.Bash, Arguments: `{"command":"echo hi"}`,
 		}, ev)
 		done <- struct {
 			result ai.Message
@@ -109,7 +109,7 @@ func TestExecToolNilRepliesRuns(t *testing.T) {
 	c := Config{Tools: tools.Build(), Root: t.TempDir(), Gate: alwaysGate}
 	ev := make(chan Event, 4)
 	_, _, denied := c.execTool(t.Context(), ai.ToolCall{
-		ID: "c1", Name: "bash", Arguments: `{"command":"true"}`,
+		ID: "c1", Name: tools.Bash, Arguments: `{"command":"true"}`,
 	}, ev)
 	if denied {
 		t.Fatal("nil Replies should skip gate")
@@ -122,7 +122,7 @@ func TestExecToolNilGateRuns(t *testing.T) {
 	c := Config{Tools: tools.Build(), Root: t.TempDir(), Replies: replies}
 	ev := make(chan Event, 4)
 	_, _, denied := c.execTool(t.Context(), ai.ToolCall{
-		ID: "c1", Name: "bash", Arguments: `{"command":"true"}`,
+		ID: "c1", Name: tools.Bash, Arguments: `{"command":"true"}`,
 	}, ev)
 	if denied {
 		t.Fatal("nil Gate should skip wait")
@@ -142,7 +142,7 @@ func TestExecToolGateFalseSkipsWait(t *testing.T) {
 	}
 	ev := make(chan Event, 4)
 	_, _, denied := c.execTool(t.Context(), ai.ToolCall{
-		ID: "c1", Name: "bash", Arguments: `{"command":"true"}`,
+		ID: "c1", Name: tools.Bash, Arguments: `{"command":"true"}`,
 	}, ev)
 	if denied {
 		t.Fatal("Gate false should skip wait")
@@ -158,7 +158,7 @@ func TestExecToolReadOnlyStarts(t *testing.T) {
 	c := Config{Tools: tools.Build(), Root: t.TempDir()}
 	ev := make(chan Event, 4)
 	_, _, denied := c.execTool(t.Context(), ai.ToolCall{
-		ID: "c1", Name: "read", Arguments: `{"path":"."}`,
+		ID: "c1", Name: tools.Read, Arguments: `{"path":"."}`,
 	}, ev)
 	if denied {
 		t.Fatal("read should run")

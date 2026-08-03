@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"github.com/axispx/zeta/internal/tools"
 	"strings"
 	"testing"
 
@@ -105,8 +106,8 @@ func TestLoadSessionNoCompact(t *testing.T) {
 
 func TestLoadSessionDeniedTool(t *testing.T) {
 	recs := []session.Record{
-		{Role: session.RoleTool, Text: "rejected: the user denied this call", Label: "bash echo", Tool: "bash", Denied: true},
-		{Role: session.RoleTool, Text: "ok", Label: "edit a.go", Tool: "edit", Denied: false},
+		{Role: session.RoleTool, Text: "rejected: the user denied this call", Label: "bash echo", Tool: tools.Bash, Denied: true},
+		{Role: session.RoleTool, Text: "ok", Label: "edit a.go", Tool: tools.Edit, Denied: false},
 	}
 	ui, _ := loadSession(recs)
 	if len(ui) != 2 {

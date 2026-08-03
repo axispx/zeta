@@ -9,6 +9,7 @@ import (
 	"github.com/axispx/zeta/internal/agent"
 	"github.com/axispx/zeta/internal/permission"
 	"github.com/axispx/zeta/internal/styles"
+	"github.com/axispx/zeta/internal/tools"
 )
 
 type permOption struct {
@@ -190,11 +191,11 @@ func (m Model) renderPermissionTitle(contentW int, ink styles.OverlayInk) string
 	switch c {
 	case permission.ClassBash:
 		line = ink.Header.Render("Run this ") +
-			ink.Kbd.Render("bash") +
+			ink.Kbd.Render(tools.Bash) +
 			ink.Header.Render(" command?")
 	case permission.ClassEdit:
 		verb := "Edit "
-		if p.name == "write" {
+		if p.name == tools.Write {
 			verb = "Write "
 		}
 		if p.path != "" {

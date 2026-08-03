@@ -36,12 +36,12 @@ func TestReadEdit(t *testing.T) {
 	create := mustRaw(t, map[string]any{
 		"path": "hello.txt", "old_string": "", "new_string": "one\ntwo\nthree\n",
 	})
-	out := Run(ctx, ts, root, "edit", create)
+	out := Run(ctx, ts, root, Edit, create)
 	if !strings.Contains(out, "--- hello.txt") || !strings.Contains(out, "+one") {
 		t.Fatalf("create: %s", out)
 	}
 
-	readOut := Run(ctx, ts, root, "read", mustRaw(t, map[string]any{"path": "hello.txt"}))
+	readOut := Run(ctx, ts, root, Read, mustRaw(t, map[string]any{"path": "hello.txt"}))
 	if !strings.Contains(readOut, "one") || !strings.Contains(readOut, "1|") {
 		t.Fatalf("read: %s", readOut)
 	}
@@ -49,7 +49,7 @@ func TestReadEdit(t *testing.T) {
 	edit := mustRaw(t, map[string]any{
 		"path": "hello.txt", "old_string": "two", "new_string": "TWO",
 	})
-	out = Run(ctx, ts, root, "edit", edit)
+	out = Run(ctx, ts, root, Edit, edit)
 	if !strings.Contains(out, "-two") || !strings.Contains(out, "+TWO") {
 		t.Fatalf("edit: %s", out)
 	}
@@ -60,7 +60,7 @@ func TestReadEdit(t *testing.T) {
 
 	// ambiguous without replace_all
 	_ = os.WriteFile(filepath.Join(root, "dup.txt"), []byte("a a a"), 0o644)
-	out = Run(ctx, ts, root, "edit", mustRaw(t, map[string]any{
+	out = Run(ctx, ts, root, Edit, mustRaw(t, map[string]any{
 		"path": "dup.txt", "old_string": "a", "new_string": "b",
 	}))
 	if !strings.Contains(out, "error:") {
@@ -72,7 +72,7 @@ func TestInteractive(t *testing.T) {
 	if !Interactive(AskUser) {
 		t.Fatal("ask_user must be interactive")
 	}
-	for _, name := range []string{"read", "bash", "edit", "write", "skill", "todo"} {
+	for _, name := range []string{Read, Bash, Edit, Write, Skill, Todo} {
 		if Interactive(name) {
 			t.Fatalf("%s must not be interactive", name)
 		}
@@ -123,7 +123,7 @@ func TestInspect(t *testing.T) {
 	for _, tool := range ro {
 		names[tool.Name()] = true
 	}
-	if names["bash"] || names["edit"] || names["write"] || !names["skill"] || !names["read"] || !names["grep"] || !names["glob"] || !names["websearch"] || !names["webfetch"] || !names["todo"] || !names["ask_user"] {
+	if names[Bash] || names[Edit] || names[Write] || !names[Skill] || !names[Read] || !names[Grep] || !names[Glob] || !names[WebSearch] || !names[WebFetch] || !names[Todo] || !names[AskUser] {
 		t.Fatalf("inspect names: %v", names)
 	}
 }
@@ -131,13 +131,13 @@ func TestInspect(t *testing.T) {
 func TestRunModeGate(t *testing.T) {
 	ro := Inspect()
 	root := t.TempDir()
-	out := Run(context.Background(), ro, root, "edit", mustRaw(t, map[string]any{
+	out := Run(context.Background(), ro, root, Edit, mustRaw(t, map[string]any{
 		"path": "x", "old_string": "", "new_string": "y",
 	}))
 	if !strings.Contains(out, "not available in this mode") {
 		t.Fatalf("got %s", out)
 	}
-	out = Run(context.Background(), ro, root, "bash", mustRaw(t, map[string]any{
+	out = Run(context.Background(), ro, root, Bash, mustRaw(t, map[string]any{
 		"command": "echo hi",
 	}))
 	if !strings.Contains(out, "not available in this mode") {
@@ -184,7 +184,7 @@ func TestReadDir(t *testing.T) {
 	_ = os.MkdirAll(filepath.Join(root, ".git", "objects"), 0o755)
 	_ = os.MkdirAll(filepath.Join(root, "empty"), 0o755)
 
-	out := Run(ctx, ts, root, "read", mustRaw(t, map[string]any{"path": "."}))
+	out := Run(ctx, ts, root, Read, mustRaw(t, map[string]any{"path": "."}))
 	if strings.HasPrefix(out, "error:") {
 		t.Fatal(out)
 	}
@@ -198,17 +198,17 @@ func TestReadDir(t *testing.T) {
 		t.Fatalf("should skip .git: %q", out)
 	}
 
-	out = Run(ctx, ts, root, "read", mustRaw(t, map[string]any{"path": "internal"}))
+	out = Run(ctx, ts, root, Read, mustRaw(t, map[string]any{"path": "internal"}))
 	if out != "tools/" {
 		t.Fatalf("subdir: %q", out)
 	}
 
-	out = Run(ctx, ts, root, "read", mustRaw(t, map[string]any{"path": "empty"}))
+	out = Run(ctx, ts, root, Read, mustRaw(t, map[string]any{"path": "empty"}))
 	if out != "[empty directory]" {
 		t.Fatalf("empty: %q", out)
 	}
 
-	out = Run(ctx, ts, root, "read", mustRaw(t, map[string]any{
+	out = Run(ctx, ts, root, Read, mustRaw(t, map[string]any{
 		"path": ".", "offset": 1,
 	}))
 	if !strings.HasPrefix(out, "error:") || !strings.Contains(out, "only to files") {
@@ -222,7 +222,7 @@ func TestBashProgress(t *testing.T) {
 	ctx := WithProgress(context.Background(), func(s string) {
 		got = append(got, s)
 	})
-	out := Run(ctx, Build(), root, "bash", mustRaw(t, map[string]any{
+	out := Run(ctx, Build(), root, Bash, mustRaw(t, map[string]any{
 		"command": "printf 'one\\ntwo\\nthree\\n'",
 	}))
 	if strings.HasPrefix(out, "error:") {
@@ -246,7 +246,7 @@ func TestBash(t *testing.T) {
 	_ = os.MkdirAll(filepath.Join(root, "sub"), 0o755)
 	_ = os.WriteFile(filepath.Join(root, "sub", "note.txt"), []byte("hi\n"), 0o644)
 
-	out := Run(ctx, ts, root, "bash", mustRaw(t, map[string]any{
+	out := Run(ctx, ts, root, Bash, mustRaw(t, map[string]any{
 		"command": "echo hello",
 	}))
 	if strings.HasPrefix(out, "error:") {
@@ -256,35 +256,35 @@ func TestBash(t *testing.T) {
 		t.Fatalf("echo: %q", out)
 	}
 
-	out = Run(ctx, ts, root, "bash", mustRaw(t, map[string]any{
+	out = Run(ctx, ts, root, Bash, mustRaw(t, map[string]any{
 		"command": "cat note.txt", "workdir": "sub",
 	}))
 	if !strings.Contains(out, "hi") || !strings.Contains(out, "exit: 0") {
 		t.Fatalf("workdir: %q", out)
 	}
 
-	out = Run(ctx, ts, root, "bash", mustRaw(t, map[string]any{
+	out = Run(ctx, ts, root, Bash, mustRaw(t, map[string]any{
 		"command": "echo x", "workdir": "../outside",
 	}))
 	if !strings.HasPrefix(out, "error:") || !strings.Contains(out, "outside the workspace") {
 		t.Fatalf("escape: %q", out)
 	}
 
-	out = Run(ctx, ts, root, "bash", mustRaw(t, map[string]any{
+	out = Run(ctx, ts, root, Bash, mustRaw(t, map[string]any{
 		"command": "echo x", "workdir": "missing",
 	}))
 	if !strings.HasPrefix(out, "error:") || !strings.Contains(out, "does not exist") {
 		t.Fatalf("missing workdir: %q", out)
 	}
 
-	out = Run(ctx, ts, root, "bash", mustRaw(t, map[string]any{
+	out = Run(ctx, ts, root, Bash, mustRaw(t, map[string]any{
 		"command": "echo x", "workdir": "sub/note.txt",
 	}))
 	if !strings.HasPrefix(out, "error:") || !strings.Contains(out, "not a directory") {
 		t.Fatalf("file workdir: %q", out)
 	}
 
-	out = Run(ctx, ts, root, "bash", mustRaw(t, map[string]any{
+	out = Run(ctx, ts, root, Bash, mustRaw(t, map[string]any{
 		"command": "exit 7",
 	}))
 	if strings.HasPrefix(out, "error:") {
@@ -294,7 +294,7 @@ func TestBash(t *testing.T) {
 		t.Fatalf("nonzero: %q", out)
 	}
 
-	out = Run(ctx, ts, root, "bash", mustRaw(t, map[string]any{
+	out = Run(ctx, ts, root, Bash, mustRaw(t, map[string]any{
 		"command": "sleep 2", "timeout_ms": 200,
 	}))
 	if strings.HasPrefix(out, "error:") {
@@ -497,7 +497,7 @@ func TestRunTruncatesLongLines(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	out := Run(context.Background(), Build(), root, "read", mustRaw(t, map[string]any{"path": "long.txt"}))
+	out := Run(context.Background(), Build(), root, Read, mustRaw(t, map[string]any{"path": "long.txt"}))
 	if strings.HasPrefix(out, "error:") {
 		t.Fatal(out)
 	}
@@ -505,7 +505,7 @@ func TestRunTruncatesLongLines(t *testing.T) {
 		t.Fatalf("expected line truncation marker in read: %q", out[:min(120, len(out))])
 	}
 
-	out = Run(context.Background(), Build(), root, "bash", mustRaw(t, map[string]any{
+	out = Run(context.Background(), Build(), root, Bash, mustRaw(t, map[string]any{
 		"command": "cat long.txt",
 	}))
 	if strings.HasPrefix(out, "error:") {
@@ -522,7 +522,7 @@ func TestRunTruncatesLongLines(t *testing.T) {
 func TestRunErrorBypassesLimit(t *testing.T) {
 	t.Setenv("ZETA_HOME", t.TempDir())
 	root := t.TempDir()
-	out := Run(context.Background(), Build(), root, "read", mustRaw(t, map[string]any{"path": "missing-nope.txt"}))
+	out := Run(context.Background(), Build(), root, Read, mustRaw(t, map[string]any{"path": "missing-nope.txt"}))
 	if !strings.HasPrefix(out, "error:") {
 		t.Fatalf("want error prefix: %q", out)
 	}
@@ -550,7 +550,7 @@ func TestBashLongLineCapture(t *testing.T) {
 	t.Setenv("ZETA_HOME", t.TempDir())
 	root := t.TempDir()
 	// Continuous stream larger than capture cap (no newlines → line-capped in limitToolOutput).
-	out := Run(context.Background(), Build(), root, "bash", mustRaw(t, map[string]any{
+	out := Run(context.Background(), Build(), root, Bash, mustRaw(t, map[string]any{
 		"command": "dd if=/dev/zero bs=1024 count=300 2>/dev/null | tr '\\0' a",
 	}))
 	if strings.HasPrefix(out, "error:") {
@@ -571,7 +571,7 @@ func TestBashLongLineCapture(t *testing.T) {
 func TestBashManyLinesSpill(t *testing.T) {
 	t.Setenv("ZETA_HOME", t.TempDir())
 	root := t.TempDir()
-	out := Run(context.Background(), Build(), root, "bash", mustRaw(t, map[string]any{
+	out := Run(context.Background(), Build(), root, Bash, mustRaw(t, map[string]any{
 		"command": "i=0; while [ $i -lt 5000 ]; do echo \"log line $i padding padding padding\"; i=$((i+1)); done",
 	}))
 	if strings.HasPrefix(out, "error:") {
@@ -598,7 +598,7 @@ func TestGrep(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(root, "a.go"), []byte("package main\nfunc Hello() {}\n"), 0o644)
 	_ = os.WriteFile(filepath.Join(root, "b.txt"), []byte("Hello world\n"), 0o644)
 
-	out := Run(context.Background(), Build(), root, "grep", mustRaw(t, map[string]any{
+	out := Run(context.Background(), Build(), root, Grep, mustRaw(t, map[string]any{
 		"pattern": "Hello",
 		"glob":    "*.go",
 	}))
@@ -616,7 +616,7 @@ func TestGrep(t *testing.T) {
 		t.Fatalf("expected relative paths, got %q", out)
 	}
 
-	out = Run(context.Background(), Build(), root, "grep", mustRaw(t, map[string]any{
+	out = Run(context.Background(), Build(), root, Grep, mustRaw(t, map[string]any{
 		"pattern": "Hello",
 		"path":    "a.go",
 	}))
@@ -627,7 +627,7 @@ func TestGrep(t *testing.T) {
 		t.Fatalf("file path search: %q", out)
 	}
 
-	out = Run(context.Background(), Build(), root, "grep", mustRaw(t, map[string]any{
+	out = Run(context.Background(), Build(), root, Grep, mustRaw(t, map[string]any{
 		"pattern": "nomatch_xyz",
 	}))
 	if out != "no matches" {

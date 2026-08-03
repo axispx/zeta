@@ -18,7 +18,7 @@ func TestUnifiedDiff(t *testing.T) {
 	}
 }
 
-func TestLargeDiffLimitedViaRun(t *testing.T) {
+func TestLargeDiffNotLimitedViaRun(t *testing.T) {
 	t.Setenv("ZETA_HOME", t.TempDir())
 	root := t.TempDir()
 	// Build a large replace so the edit tool returns a big unified diff.
@@ -28,23 +28,24 @@ func TestLargeDiffLimitedViaRun(t *testing.T) {
 		neu.WriteString("line of changed content that is long enough pad\n")
 	}
 	// Write old via create then replace whole file.
-	_ = Run(t.Context(), Build(), root, "edit", mustRaw(t, map[string]any{
+	_ = Run(t.Context(), Build(), root, Edit, mustRaw(t, map[string]any{
 		"path": "big.txt", "old_string": "", "new_string": old.String(),
 	}))
-	out := Run(t.Context(), Build(), root, "edit", mustRaw(t, map[string]any{
+	out := Run(t.Context(), Build(), root, Edit, mustRaw(t, map[string]any{
 		"path": "big.txt", "old_string": old.String(), "new_string": neu.String(),
 	}))
 	if strings.HasPrefix(out, "error:") {
 		t.Fatal(out)
 	}
-	if !strings.Contains(out, "[truncated:") {
-		t.Fatalf("expected trunc footer, len=%d head=%q", len(out), out[:min(120, len(out))])
+	// Full patch for review — not head+tail truncated like bash/read/etc.
+	if strings.Contains(out, "[truncated:") {
+		t.Fatalf("edit diff must not be truncated, len=%d", len(out))
 	}
-	if !strings.Contains(out, "omitted") {
-		t.Fatalf("expected middle omit: %q", out[:min(200, len(out))])
+	if got := strings.Count(out, "\n+line of changed"); got < 3000 {
+		t.Fatalf("want full +lines, got %d (len=%d)", got, len(out))
 	}
-	if !strings.Contains(out, "saved to") {
-		t.Fatalf("expected spill path: %q", out[max(0, len(out)-300):])
+	if got := strings.Count(out, "\n-line of original"); got < 3000 {
+		t.Fatalf("want full -lines, got %d (len=%d)", got, len(out))
 	}
 }
 
@@ -53,7 +54,7 @@ func TestEditReturnsDiff(t *testing.T) {
 	ctx := t.Context()
 	ts := Build()
 
-	out := Run(ctx, ts, root, "edit", mustRaw(t, map[string]any{
+	out := Run(ctx, ts, root, Edit, mustRaw(t, map[string]any{
 		"path": "hello.txt", "old_string": "", "new_string": "one\ntwo\n",
 	}))
 	if !strings.Contains(out, "--- hello.txt") || !strings.Contains(out, "+++ hello.txt") {
@@ -66,7 +67,7 @@ func TestEditReturnsDiff(t *testing.T) {
 		t.Fatalf("create should return diff only: %s", out)
 	}
 
-	out = Run(ctx, ts, root, "edit", mustRaw(t, map[string]any{
+	out = Run(ctx, ts, root, Edit, mustRaw(t, map[string]any{
 		"path": "hello.txt", "old_string": "two", "new_string": "TWO",
 	}))
 	if !strings.Contains(out, "-two") || !strings.Contains(out, "+TWO") {
@@ -77,13 +78,13 @@ func TestEditReturnsDiff(t *testing.T) {
 	}
 
 	// Empty create and no-op replace return empty (never prose).
-	out = Run(ctx, ts, root, "edit", mustRaw(t, map[string]any{
+	out = Run(ctx, ts, root, Edit, mustRaw(t, map[string]any{
 		"path": "empty.txt", "old_string": "", "new_string": "",
 	}))
 	if out != "" {
 		t.Fatalf("empty create: %q", out)
 	}
-	out = Run(ctx, ts, root, "edit", mustRaw(t, map[string]any{
+	out = Run(ctx, ts, root, Edit, mustRaw(t, map[string]any{
 		"path": "hello.txt", "old_string": "TWO", "new_string": "TWO",
 	}))
 	if out != "" {

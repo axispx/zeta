@@ -24,7 +24,10 @@ const (
 
 type websearchTool struct{}
 
-func (websearchTool) Name() string { return "websearch" }
+// WebSearch is the tool name for web search.
+const WebSearch = "websearch"
+
+func (websearchTool) Name() string { return WebSearch }
 func (websearchTool) Description() string {
 	return "Search the web for up-to-date information beyond the model's knowledge cutoff. " +
 		"Returns titles, URLs, and snippets from relevant pages."
@@ -49,12 +52,12 @@ func (websearchTool) Summary(raw json.RawMessage) string {
 	_ = json.Unmarshal(raw, &a)
 	q := strings.TrimSpace(a.Query)
 	if q == "" {
-		return "websearch"
+		return WebSearch
 	}
 	if len(q) > 60 {
 		q = q[:57] + "..."
 	}
-	return "websearch " + strconv.Quote(q)
+	return WebSearch + " " + strconv.Quote(q)
 }
 
 func (websearchTool) Run(ctx context.Context, _ string, raw json.RawMessage) (string, error) {

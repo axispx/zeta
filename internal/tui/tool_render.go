@@ -9,6 +9,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/axispx/zeta/internal/styles"
+	"github.com/axispx/zeta/internal/tools"
 )
 
 const (
@@ -27,20 +28,20 @@ type toolView struct {
 
 func viewFor(name string) toolView {
 	switch name {
-	case "bash":
-		return toolView{keepOut: true, segment: "bash", busy: statusRunning, renderRun: renderShellRun}
-	case "edit", "write":
-		return toolView{keepOut: true, segment: "edit", busy: statusEditing, renderRun: renderEditRun}
-	case "todo":
+	case tools.Bash:
+		return toolView{keepOut: true, segment: tools.Bash, busy: statusRunning, renderRun: renderShellRun}
+	case tools.Edit, tools.Write:
+		return toolView{keepOut: true, segment: tools.Edit, busy: statusEditing, renderRun: renderEditRun}
+	case tools.Todo:
 		// keepOut so resume paints the model-facing Format body as the row.
-		return toolView{keepOut: true, segment: "todo", busy: statusWorking, renderRun: renderTodoRun}
-	case "read", "skill":
+		return toolView{keepOut: true, segment: tools.Todo, busy: statusWorking, renderRun: renderTodoRun}
+	case tools.Read, tools.Skill:
 		return toolView{busy: statusReading}
-	case "grep", "glob", "websearch":
+	case tools.Grep, tools.Glob, tools.WebSearch:
 		return toolView{busy: statusSearching}
-	case "webfetch":
+	case tools.WebFetch:
 		return toolView{busy: statusFetching}
-	case "ask_user":
+	case tools.AskUser:
 		return toolView{keepOut: true, busy: statusWaiting}
 	default:
 		return toolView{}
@@ -146,11 +147,11 @@ func renderTodoRun(msgs []Message) string {
 // renderTodoCall shows the model-facing Format body (no second UI dialect).
 func renderTodoCall(m Message) string {
 	if m.Status == ToolDenied {
-		return styles.ToolMsg.Render("todo") + "  " + styles.SystemMsg.Render("denied")
+		return styles.ToolMsg.Render(tools.Todo) + "  " + styles.SystemMsg.Render("denied")
 	}
 	body := strings.TrimSpace(m.Out)
 	if body == "" {
-		return styles.ToolMsg.Render("todo")
+		return styles.ToolMsg.Render(tools.Todo)
 	}
 	return styles.ToolMsg.Render(body)
 }
@@ -199,7 +200,7 @@ func editLabel(text string, done bool) (verb, name string) {
 			return "Created", base
 		}
 		return "Creating", base
-	case "write":
+	case tools.Write:
 		if done {
 			return "Wrote", base
 		}
@@ -308,14 +309,14 @@ type toolGroupMeta struct {
 
 func metaForTool(name string) toolGroupMeta {
 	switch name {
-	case "grep":
-		return toolGroupMeta{verb: "Grepped", one: "grep", many: "greps"}
-	case "glob":
-		return toolGroupMeta{verb: "Globbed", one: "glob", many: "globs"}
-	case "read":
+	case tools.Grep:
+		return toolGroupMeta{verb: "Grepped", one: tools.Grep, many: "greps"}
+	case tools.Glob:
+		return toolGroupMeta{verb: "Globbed", one: tools.Glob, many: "globs"}
+	case tools.Read:
 		return toolGroupMeta{verb: "Read", one: "file", many: "files"}
-	case "skill":
-		return toolGroupMeta{verb: "Skill", one: "skill", many: "skills"}
+	case tools.Skill:
+		return toolGroupMeta{verb: "Skill", one: tools.Skill, many: "skills"}
 	case "":
 		return toolGroupMeta{verb: "Used", one: "tool", many: "tools"}
 	default:

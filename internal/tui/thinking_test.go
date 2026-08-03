@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"github.com/axispx/zeta/internal/tools"
 	"strings"
 	"testing"
 
@@ -127,7 +128,7 @@ func TestThinkingClearsOnToolStart(t *testing.T) {
 		thinking:   "ponder",
 		activeTool: -1,
 	}
-	next, _ := m.Update(turnToolStartMsg{label: "read a.go", name: "read"})
+	next, _ := m.Update(turnToolStartMsg{label: "read a.go", name: tools.Read})
 	m = next.(Model)
 	if m.turn.thinking != "" {
 		t.Fatalf("thinking=%q", m.turn.thinking)

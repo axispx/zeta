@@ -20,23 +20,23 @@ func TestWaitFor(t *testing.T) {
 	if g := waitFor(tools.AskUser, &grants); g != waitInteractive {
 		t.Fatalf("ask_user: %v", g)
 	}
-	if g := waitFor("bash", &grants); g != waitPermission {
+	if g := waitFor(tools.Bash, &grants); g != waitPermission {
 		t.Fatalf("bash ungated: %v", g)
 	}
-	if g := waitFor("edit", &grants); g != waitPermission {
+	if g := waitFor(tools.Edit, &grants); g != waitPermission {
 		t.Fatalf("edit: %v", g)
 	}
-	if g := waitFor("read", &grants); g != waitNone {
+	if g := waitFor(tools.Read, &grants); g != waitNone {
 		t.Fatalf("read: %v", g)
 	}
 
-	grants.Grant("bash")
-	if g := waitFor("bash", &grants); g != waitNone {
+	grants.Grant(tools.Bash)
+	if g := waitFor(tools.Bash, &grants); g != waitNone {
 		t.Fatalf("bash session-granted: %v", g)
 	}
 	// edit never session-grantable
-	grants.Grant("edit")
-	if g := waitFor("edit", &grants); g != waitPermission {
+	grants.Grant(tools.Edit)
+	if g := waitFor(tools.Edit, &grants); g != waitPermission {
 		t.Fatalf("edit still waits: %v", g)
 	}
 	// interactive wins even if somehow permission would also apply
@@ -47,7 +47,7 @@ func TestWaitFor(t *testing.T) {
 
 func TestBottomSlotExclusive(t *testing.T) {
 	var b bottomSlot
-	b.setPerm(&permissionPrompt{name: "bash"})
+	b.setPerm(&permissionPrompt{name: tools.Bash})
 	if b.perm == nil || b.ask != nil || b.plan != nil {
 		t.Fatalf("setPerm: %+v", b)
 	}

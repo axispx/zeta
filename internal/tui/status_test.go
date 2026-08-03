@@ -7,6 +7,8 @@ import (
 
 	"charm.land/bubbles/v2/spinner"
 	"charm.land/lipgloss/v2"
+
+	"github.com/axispx/zeta/internal/tools"
 )
 
 func TestBusyLabel(t *testing.T) {
@@ -37,7 +39,7 @@ func TestBusyLabel(t *testing.T) {
 		t.Fatalf("streaming = %q, want %q", got, statusWorking)
 	}
 
-	m.messages = []Message{{Role: RoleTool, Tool: "read"}}
+	m.messages = []Message{{Role: RoleTool, Tool: tools.Read}}
 	m.turn.streaming = false
 	m.turn.activeTool = 0
 	if got := m.busyLabel(); got != statusReading {
@@ -65,7 +67,7 @@ func TestTurnStatusLine(t *testing.T) {
 	if len(lines) != busyStatusRows || strings.TrimSpace(lines[0]) != "" || strings.TrimSpace(lines[2]) != "" {
 		t.Fatalf("expected blank padding rows: %q", got)
 	}
-	m.messages = []Message{{Role: RoleTool, Tool: "read"}}
+	m.messages = []Message{{Role: RoleTool, Tool: tools.Read}}
 	m.turn.activeTool = 0
 	got = stripANSI(m.turnStatusLine())
 	if !strings.Contains(got, statusReading) {
@@ -140,15 +142,15 @@ func TestToolStatus(t *testing.T) {
 		name string
 		want string
 	}{
-		{"read", statusReading},
-		{"skill", statusReading},
-		{"edit", statusEditing},
-		{"write", statusEditing},
-		{"bash", statusRunning},
-		{"grep", statusSearching},
-		{"glob", statusSearching},
-		{"websearch", statusSearching},
-		{"webfetch", statusFetching},
+		{tools.Read, statusReading},
+		{tools.Skill, statusReading},
+		{tools.Edit, statusEditing},
+		{tools.Write, statusEditing},
+		{tools.Bash, statusRunning},
+		{tools.Grep, statusSearching},
+		{tools.Glob, statusSearching},
+		{tools.WebSearch, statusSearching},
+		{tools.WebFetch, statusFetching},
 		{"", statusWorking},
 		{"custom", statusWorking},
 	}

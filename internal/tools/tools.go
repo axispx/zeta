@@ -106,6 +106,11 @@ func Run(ctx context.Context, ts []Tool, root, name string, args json.RawMessage
 	if err != nil {
 		return "error: " + err.Error()
 	}
+	// edit/write diffs stay full so humans can review every line (permission
+	// preview, transcript, session +/-). Other tools still hit the budget.
+	if name == Edit || name == Write {
+		return out
+	}
 	return limitToolOutput(out)
 }
 

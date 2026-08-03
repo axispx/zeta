@@ -68,7 +68,7 @@ func TestEditExistingEmptyErrors(t *testing.T) {
 	if err := os.WriteFile(path, nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	out := Run(t.Context(), Build(), root, "edit", mustRaw(t, map[string]any{
+	out := Run(t.Context(), Build(), root, Edit, mustRaw(t, map[string]any{
 		"path": "empty.txt", "old_string": "", "new_string": "hello\n",
 	}))
 	if !strings.Contains(out, "error:") || !strings.Contains(out, "write") {
@@ -81,7 +81,7 @@ func TestWriteCreateAndOverwrite(t *testing.T) {
 	ctx := t.Context()
 	ts := Build()
 
-	out := Run(ctx, ts, root, "write", mustRaw(t, map[string]any{
+	out := Run(ctx, ts, root, Write, mustRaw(t, map[string]any{
 		"path": "a.txt", "content": "one\n",
 	}))
 	if !strings.Contains(out, "+one") {
@@ -94,7 +94,7 @@ func TestWriteCreateAndOverwrite(t *testing.T) {
 		t.Fatal("write always summarizes as write")
 	}
 
-	out = Run(ctx, ts, root, "write", mustRaw(t, map[string]any{
+	out = Run(ctx, ts, root, Write, mustRaw(t, map[string]any{
 		"path": "a.txt", "content": "two\n",
 	}))
 	if !strings.Contains(out, "-one") || !strings.Contains(out, "+two") {
@@ -112,7 +112,7 @@ func TestWriteEmptyFile(t *testing.T) {
 	if err := os.WriteFile(path, nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	out := Run(t.Context(), Build(), root, "write", mustRaw(t, map[string]any{
+	out := Run(t.Context(), Build(), root, Write, mustRaw(t, map[string]any{
 		"path": "e.txt", "content": "filled\n",
 	}))
 	if strings.HasPrefix(out, "error:") {

@@ -1,6 +1,10 @@
 package permission
 
-import "sync"
+import (
+	"sync"
+
+	"github.com/axispx/zeta/internal/tools"
+)
 
 // SideEffect reports whether a tool can mutate the workspace or run process work
 // and therefore needs a human decision before running.
@@ -33,9 +37,9 @@ const (
 // ClassOf maps a side-effect tool to its UI/grant class.
 func ClassOf(tool string) (Class, bool) {
 	switch tool {
-	case "bash":
+	case tools.Bash:
 		return ClassBash, true
-	case "edit", "write":
+	case tools.Edit, tools.Write:
 		return ClassEdit, true
 	default:
 		return 0, false

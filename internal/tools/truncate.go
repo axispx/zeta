@@ -28,9 +28,11 @@ const (
 	spillMaxAge = 24 * time.Hour
 )
 
-// limitToolOutput is the sole model-facing size/line policy for tool results:
+// limitToolOutput is the model-facing size/line policy for tool results
+// (everything except edit/write diffs, which stay full for human review):
 //  1. per-line byte cap
 //  2. if still over size/line budget: spill line-capped text, keep head+tail preview
+//
 // Per-tool capture bounds (bash buffer, read loop, grep/glob caps) stay silent.
 func limitToolOutput(s string) string {
 	if s == "" {

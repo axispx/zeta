@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"github.com/axispx/zeta/internal/tools"
 	"strings"
 	"testing"
 
@@ -34,8 +35,8 @@ func TestLiveFromActiveToolRun(t *testing.T) {
 	m := testModel()
 	m.messages = []Message{
 		{Role: RoleUser, Text: "run"},
-		{Role: RoleTool, Text: "read a", Tool: "read"},
-		{Role: RoleTool, Text: "bash ls", Tool: "bash", Out: "x"},
+		{Role: RoleTool, Text: "read a", Tool: tools.Read},
+		{Role: RoleTool, Text: "bash ls", Tool: tools.Bash, Out: "x"},
 	}
 	m.turn = &turnSession{activeTool: 2, streaming: false}
 	if got := m.liveFrom(); got != 1 {
@@ -98,8 +99,8 @@ func TestTranscriptCacheMatchesFullRender(t *testing.T) {
 	m.messages = []Message{
 		{Role: RoleUser, Text: "do stuff"},
 		{Role: RoleAgent, Text: "plan:\n\n1. one\n2. two"},
-		{Role: RoleTool, Text: "read f", Tool: "read"},
-		{Role: RoleTool, Text: "bash echo hi", Tool: "bash", Out: "hi\n"},
+		{Role: RoleTool, Text: "read f", Tool: tools.Read},
+		{Role: RoleTool, Text: "bash echo hi", Tool: tools.Bash, Out: "hi\n"},
 		{Role: RoleAgent, Text: "done **ok**"},
 	}
 	m.turn = &turnSession{streaming: true, activeTool: -1}
@@ -122,7 +123,7 @@ func TestTranscriptCacheToolRunRewind(t *testing.T) {
 	m.contentW = 60
 	m.messages = []Message{
 		{Role: RoleUser, Text: "x"},
-		{Role: RoleTool, Text: "read a", Tool: "read"},
+		{Role: RoleTool, Text: "read a", Tool: tools.Read},
 	}
 	// Tool completes → freeze including tool.
 	m.turn = &turnSession{activeTool: -1}
@@ -132,7 +133,7 @@ func TestTranscriptCacheToolRunRewind(t *testing.T) {
 	}
 
 	// Second tool extends the run backward into frozen region.
-	m.messages = append(m.messages, Message{Role: RoleTool, Text: "bash ls", Tool: "bash"})
+	m.messages = append(m.messages, Message{Role: RoleTool, Text: "bash ls", Tool: tools.Bash})
 	m.turn.activeTool = 2
 	m.setTranscriptContent()
 	if m.tx.frozen != 1 {

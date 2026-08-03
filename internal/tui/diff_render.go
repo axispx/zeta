@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/axispx/zeta/internal/styles"
+	"github.com/axispx/zeta/internal/tools"
 )
 
 type diffLineKind int
@@ -105,4 +106,34 @@ func countDiffLines(diff string) (adds, dels int) {
 		}
 	}
 	return adds, dels
+}
+
+// lineStats is session edit/write +/- line counts.
+type lineStats struct {
+	added, deleted int
+}
+
+func (s lineStats) empty() bool { return s.added == 0 && s.deleted == 0 }
+
+// sessionDiff sums +/- from successful edit/write tool outs.
+func sessionDiff(msgs []Message) lineStats {
+	var s lineStats
+	for _, m := range msgs {
+		if m.Role != RoleTool || m.Status != ToolOK {
+			continue
+		}
+		if m.Tool != tools.Edit && m.Tool != tools.Write {
+			continue
+		}
+		a, d := countDiffLines(m.Out)
+		s.added += a
+		s.deleted += d
+	}
+	return s
+}
+
+// refreshSessionDiff memoizes sessionDiff(messages). Call after messages change
+// (applySession, successful tool finish) — never mutate sessionDiff otherwise.
+func (m *Model) refreshSessionDiff() {
+	m.sessionDiff = sessionDiff(m.messages)
 }

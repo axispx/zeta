@@ -10,7 +10,10 @@ import (
 
 type grepTool struct{}
 
-func (grepTool) Name() string { return "grep" }
+// Grep is the tool name for content search.
+const Grep = "grep"
+
+func (grepTool) Name() string { return Grep }
 func (grepTool) Description() string {
 	return "Search the workspace for a regex. Returns matching lines with file:line prefixes."
 }
@@ -38,7 +41,7 @@ func (grepTool) Parameters() map[string]any {
 func (grepTool) Summary(raw json.RawMessage) string {
 	var a grepArgs
 	_ = json.Unmarshal(raw, &a)
-	parts := []string{"grep", strconv.Quote(a.Pattern)}
+	parts := []string{Grep, strconv.Quote(a.Pattern)}
 	if p := strings.TrimSpace(a.Path); p != "" {
 		parts = append(parts, p)
 	}

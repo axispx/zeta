@@ -10,7 +10,10 @@ import (
 
 type globTool struct{}
 
-func (globTool) Name() string { return "glob" }
+// Glob is the tool name for filename pattern search.
+const Glob = "glob"
+
+func (globTool) Name() string { return Glob }
 func (globTool) Description() string {
 	return "Find files under the workspace by glob pattern. " +
 		"Uses the same ignore rules as grep (gitignore, etc.). " +
@@ -37,7 +40,7 @@ func (globTool) Parameters() map[string]any {
 func (globTool) Summary(raw json.RawMessage) string {
 	var a globArgs
 	_ = json.Unmarshal(raw, &a)
-	parts := []string{"glob"}
+	parts := []string{Glob}
 	if p := strings.TrimSpace(a.Pattern); p != "" {
 		parts = append(parts, p)
 	}

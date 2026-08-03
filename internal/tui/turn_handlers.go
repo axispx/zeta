@@ -174,6 +174,7 @@ func (m *Model) handleTurnTool(msg turnToolMsg) tea.Cmd {
 			if toolHasOut(m.messages[i].Tool) {
 				m.messages[i].Out = msg.message.Text
 			}
+			m.refreshSessionDiff()
 		}
 	}
 	m.turn.activeTool = -1

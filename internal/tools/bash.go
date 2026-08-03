@@ -22,7 +22,10 @@ const (
 
 type bashTool struct{}
 
-func (bashTool) Name() string { return "bash" }
+// Bash is the tool name for shell commands.
+const Bash = "bash"
+
+func (bashTool) Name() string { return Bash }
 func (bashTool) Description() string {
 	return "Run a shell command via the user's default shell ($SHELL). " +
 		"Working directory defaults to the workspace root; optional workdir must exist inside it " +
@@ -57,9 +60,9 @@ func (bashTool) Summary(raw json.RawMessage) string {
 	_ = json.Unmarshal(raw, &a)
 	cmd := strings.TrimSpace(a.Command)
 	if cmd == "" {
-		return "bash"
+		return Bash
 	}
-	return "bash " + cmd
+	return Bash + " " + cmd
 }
 
 type bashArgs struct {

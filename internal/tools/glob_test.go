@@ -24,7 +24,7 @@ func TestGlob(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(root, "node_modules", "pkg", "index.go"), []byte("package pkg\n"), 0o644)
 	_ = os.WriteFile(filepath.Join(root, ".gitignore"), []byte("node_modules/\n"), 0o644)
 
-	out := Run(ctx, ts, root, "glob", mustRaw(t, map[string]any{
+	out := Run(ctx, ts, root, Glob, mustRaw(t, map[string]any{
 		"pattern": "**/*.go",
 	}))
 	if strings.HasPrefix(out, "error:") {
@@ -43,14 +43,14 @@ func TestGlob(t *testing.T) {
 		t.Fatalf("expected relative paths, got %q", out)
 	}
 
-	out = Run(ctx, ts, root, "glob", mustRaw(t, map[string]any{
+	out = Run(ctx, ts, root, Glob, mustRaw(t, map[string]any{
 		"pattern": "*.md",
 	}))
 	if out != "README.md" {
 		t.Fatalf("basename glob: %q", out)
 	}
 
-	out = Run(ctx, ts, root, "glob", mustRaw(t, map[string]any{
+	out = Run(ctx, ts, root, Glob, mustRaw(t, map[string]any{
 		"pattern": "*.go",
 		"path":    "internal",
 	}))
@@ -61,14 +61,14 @@ func TestGlob(t *testing.T) {
 		t.Fatalf("scope leaked: %q", out)
 	}
 
-	out = Run(ctx, ts, root, "glob", mustRaw(t, map[string]any{
+	out = Run(ctx, ts, root, Glob, mustRaw(t, map[string]any{
 		"pattern": "missing_*",
 	}))
 	if out != "no matches" {
 		t.Fatalf("no matches: %q", out)
 	}
 
-	out = Run(ctx, ts, root, "glob", mustRaw(t, map[string]any{
+	out = Run(ctx, ts, root, Glob, mustRaw(t, map[string]any{
 		"pattern": "*.go",
 		"path":    "README.md",
 	}))
@@ -91,7 +91,7 @@ func TestGlobCancel(t *testing.T) {
 	root := t.TempDir()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	out := Run(ctx, Build(), root, "glob", mustRaw(t, map[string]any{
+	out := Run(ctx, Build(), root, Glob, mustRaw(t, map[string]any{
 		"pattern": "*.go",
 	}))
 	if !strings.HasPrefix(out, "error:") {

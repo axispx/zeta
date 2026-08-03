@@ -36,8 +36,8 @@ type turnSession struct {
 	reply      chan<- agent.Reply // harness → agent; one decision per gated start
 	streaming  bool               // true while receiving assistant deltas
 	pending    *agent.Event       // set when coalesce peeks a non-matching event
-	thinking   string // live reasoning tail; only while thinkingPhase
-	activeTool int    // index of open tool row in Model.messages; -1 if none
+	thinking   string             // live reasoning tail; only while thinkingPhase
+	activeTool int                // index of open tool row in Model.messages; -1 if none
 }
 
 // thinkingPhase is true before answer deltas or an open tool (pre-answer reasoning).

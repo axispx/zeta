@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"github.com/axispx/zeta/internal/tools"
 	"strings"
 	"testing"
 
@@ -77,8 +78,8 @@ func TestRenderAgentFramesFencePlan(t *testing.T) {
 func TestToolRunAtGroupsTools(t *testing.T) {
 	msgs := []Message{
 		{Role: RoleUser, Text: "hi"},
-		{Role: RoleTool, Text: "read a.go", Tool: "read"},
-		{Role: RoleTool, Text: "read b.go", Tool: "read"},
+		{Role: RoleTool, Text: "read a.go", Tool: tools.Read},
+		{Role: RoleTool, Text: "read b.go", Tool: tools.Read},
 		{Role: RoleAgent, Text: "done"},
 	}
 	if toolRunAt(msgs, 0) != nil {
@@ -95,11 +96,11 @@ func TestToolRunAtGroupsTools(t *testing.T) {
 
 func TestRenderToolGroupCollapses(t *testing.T) {
 	msgs := []Message{
-		{Role: RoleTool, Text: "read a.go", Tool: "read"},
-		{Role: RoleTool, Text: "read b.go", Tool: "read"},
-		{Role: RoleTool, Text: "read c.go", Tool: "read"},
-		{Role: RoleTool, Text: "read d.go", Tool: "read"},
-		{Role: RoleTool, Text: "grep x", Tool: "grep"},
+		{Role: RoleTool, Text: "read a.go", Tool: tools.Read},
+		{Role: RoleTool, Text: "read b.go", Tool: tools.Read},
+		{Role: RoleTool, Text: "read c.go", Tool: tools.Read},
+		{Role: RoleTool, Text: "read d.go", Tool: tools.Read},
+		{Role: RoleTool, Text: "grep x", Tool: tools.Grep},
 	}
 	out := renderToolGroup(msgs, 80, 0)
 	if !strings.Contains(out, "Read, grepped") {
@@ -121,14 +122,14 @@ func TestRenderToolGroupCollapses(t *testing.T) {
 
 func TestRenderToolGroupBashSplits(t *testing.T) {
 	msgs := []Message{
-		{Role: RoleTool, Text: "read a.go", Tool: "read"},
-		{Role: RoleTool, Text: "read b.go", Tool: "read"},
-		{Role: RoleTool, Text: "bash go test ./...", Tool: "bash"},
-		{Role: RoleTool, Text: "bash ls", Tool: "bash"},
-		{Role: RoleTool, Text: `grep "x" .`, Tool: "grep"},
-		{Role: RoleTool, Text: "edit c.go", Tool: "edit", Status: ToolOK, Out: "--- c.go\n+++ c.go\n@@ -1 +1 @@\n-old\n+new\n"},
-		{Role: RoleTool, Text: "bash pwd", Tool: "bash"},
-		{Role: RoleTool, Text: "read d.go", Tool: "read"},
+		{Role: RoleTool, Text: "read a.go", Tool: tools.Read},
+		{Role: RoleTool, Text: "read b.go", Tool: tools.Read},
+		{Role: RoleTool, Text: "bash go test ./...", Tool: tools.Bash},
+		{Role: RoleTool, Text: "bash ls", Tool: tools.Bash},
+		{Role: RoleTool, Text: `grep "x" .`, Tool: tools.Grep},
+		{Role: RoleTool, Text: "edit c.go", Tool: tools.Edit, Status: ToolOK, Out: "--- c.go\n+++ c.go\n@@ -1 +1 @@\n-old\n+new\n"},
+		{Role: RoleTool, Text: "bash pwd", Tool: tools.Bash},
+		{Role: RoleTool, Text: "read d.go", Tool: tools.Read},
 	}
 	out := renderToolGroup(msgs, 0, 0)
 	if !strings.Contains(out, "Read") || !strings.Contains(out, "2 files") {
@@ -158,7 +159,7 @@ func TestRenderToolGroupBashSplits(t *testing.T) {
 
 func TestRenderToolClusterSingleShowsVerb(t *testing.T) {
 	out := stripANSI(renderToolGroup([]Message{
-		{Role: RoleTool, Text: "read a.go", Tool: "read"},
+		{Role: RoleTool, Text: "read a.go", Tool: tools.Read},
 	}, 0, 0))
 	if !strings.HasPrefix(out, "Read  1 file\nread a.go") {
 		t.Fatalf("single tool: %q", out)
@@ -169,7 +170,7 @@ func TestRenderEditCall(t *testing.T) {
 	m := Message{
 		Role:   RoleTool,
 		Text:   "edit hello.txt",
-		Tool:   "edit",
+		Tool:   tools.Edit,
 		Status: ToolOK,
 		Out:    "--- hello.txt\n+++ hello.txt\n@@ -1,3 +1,3 @@\n one\n-two\n+TWO\n three\n",
 	}
@@ -201,12 +202,12 @@ func TestRenderEditCall(t *testing.T) {
 }
 
 func TestRenderEditCallNoDiff(t *testing.T) {
-	out := stripANSI(renderEditCall(Message{Role: RoleTool, Text: "edit x", Tool: "edit", Status: ToolOK}))
+	out := stripANSI(renderEditCall(Message{Role: RoleTool, Text: "edit x", Tool: tools.Edit, Status: ToolOK}))
 	if out != "Edited  x" {
 		t.Fatalf("got %q", out)
 	}
 	// Empty-file create / no-op: tool returns "" — never prose in Out.
-	out = stripANSI(renderEditCall(Message{Role: RoleTool, Text: "create empty.txt", Tool: "edit", Status: ToolOK, Out: ""}))
+	out = stripANSI(renderEditCall(Message{Role: RoleTool, Text: "create empty.txt", Tool: tools.Edit, Status: ToolOK, Out: ""}))
 	if out != "Created  empty.txt" {
 		t.Fatalf("empty create: %q", out)
 	}
@@ -221,7 +222,7 @@ func TestRenderEditCallPendingVerbs(t *testing.T) {
 		{"write a.go", "Writing  a.go"},
 	}
 	for _, tc := range cases {
-		out := stripANSI(renderEditCall(Message{Role: RoleTool, Text: tc.text, Tool: "edit"}))
+		out := stripANSI(renderEditCall(Message{Role: RoleTool, Text: tc.text, Tool: tools.Edit}))
 		if !strings.HasPrefix(out, tc.want) {
 			t.Fatalf("%q: got %q, want prefix %q", tc.text, out, tc.want)
 		}
@@ -232,7 +233,7 @@ func TestRenderEditCallCreated(t *testing.T) {
 	out := stripANSI(renderEditCall(Message{
 		Role:   RoleTool,
 		Text:   "create hello.txt",
-		Tool:   "edit",
+		Tool:   tools.Edit,
 		Status: ToolOK,
 		Out:    "--- hello.txt\n+++ hello.txt\n@@ -0,0 +1 @@\n+hi\n",
 	}))
@@ -245,7 +246,7 @@ func TestRenderEditCallBasename(t *testing.T) {
 	out := stripANSI(renderEditCall(Message{
 		Role:   RoleTool,
 		Text:   "edit /Users/ashish/Developer/zeta/CONTRIBUTORS.md",
-		Tool:   "edit",
+		Tool:   tools.Edit,
 		Status: ToolOK,
 		Out:    "--- a\n+++ b\n@@ -1,2 +1,3 @@\n a\n-b\n+c\n+d\n",
 	}))
@@ -266,7 +267,7 @@ func TestCountDiffLines(t *testing.T) {
 }
 
 func TestRenderBashLineEmptyCommand(t *testing.T) {
-	out := renderShellCall(Message{Role: RoleTool, Text: "bash", Tool: "bash"})
+	out := renderShellCall(Message{Role: RoleTool, Text: "bash", Tool: tools.Bash})
 	if out != "$" {
 		t.Fatalf("empty bash: %q", out)
 	}
@@ -277,7 +278,7 @@ func TestRenderShellCallFullCommand(t *testing.T) {
 	out := renderShellCall(Message{
 		Role: RoleTool,
 		Text: "bash " + cmd,
-		Tool: "bash",
+		Tool: tools.Bash,
 	})
 	if !strings.HasPrefix(out, "$ "+cmd) {
 		t.Fatalf("want full command: %q", out)
@@ -288,7 +289,7 @@ func TestRenderShellCallShowsLastLines(t *testing.T) {
 	m := Message{
 		Role: RoleTool,
 		Text: "bash go test",
-		Tool: "bash",
+		Tool: tools.Bash,
 		Out:  "a\nb\nc\nd\nexit: 0",
 	}
 	tail := lastNonEmptyLines(stripOKExit(m.Out), maxBashOutLines)
@@ -313,7 +314,7 @@ func TestRenderShellCallKeepsErrorExit(t *testing.T) {
 	m := Message{
 		Role: RoleTool,
 		Text: "bash false",
-		Tool: "bash",
+		Tool: tools.Bash,
 		Out:  "nope\nexit: 1",
 	}
 	out := renderShellCall(m)
@@ -326,7 +327,7 @@ func TestRenderShellCallSkipsEmptyLines(t *testing.T) {
 	m := Message{
 		Role: RoleTool,
 		Text: "bash echo",
-		Tool: "bash",
+		Tool: tools.Bash,
 		Out:  "a\n\n\nb\n\nc",
 	}
 	out := renderShellCall(m)

@@ -39,18 +39,10 @@ func Load() Context {
 	}
 }
 
-// RefreshBranch re-reads git HEAD for c.Abs. Does not touch cwd or AGENTS.md —
-// those reload only at turn boundaries (system prompt / tool root).
+// RefreshBranch re-reads git HEAD for c.Abs (cheap file read). Does not touch
+// cwd or AGENTS.md — those reload at turn boundaries.
 func (c *Context) RefreshBranch() {
 	c.Branch = Branch(c.Abs)
-}
-
-// Label is cwd, or "cwd · branch" when in a git repo.
-func (c Context) Label() string {
-	if c.Branch == "" {
-		return c.Cwd
-	}
-	return c.Cwd + " · " + c.Branch
 }
 
 // DisplayPath is abs with $HOME replaced by ~ for UI.

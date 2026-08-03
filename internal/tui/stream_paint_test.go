@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"github.com/axispx/zeta/internal/tools"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -192,7 +193,7 @@ func TestStreamPaintToolOutThrottled(t *testing.T) {
 	m.contentW = 60
 	m.messages = []Message{
 		{Role: RoleUser, Text: "run"},
-		{Role: RoleTool, Text: "bash ls", Tool: "bash"},
+		{Role: RoleTool, Text: "bash ls", Tool: tools.Bash},
 	}
 	m.layout()
 	m.setTranscriptContent()
@@ -202,9 +203,9 @@ func TestStreamPaintToolOutThrottled(t *testing.T) {
 		activeTool: 1,
 	}
 
-	next, _ := m.Update(turnToolOutMsg{text: "line1\n", name: "bash"})
+	next, _ := m.Update(turnToolOutMsg{text: "line1\n", name: tools.Bash})
 	m = next.(Model)
-	next, _ = m.Update(turnToolOutMsg{text: "line1\nline2\n", name: "bash"})
+	next, _ = m.Update(turnToolOutMsg{text: "line1\nline2\n", name: tools.Bash})
 	m = next.(Model)
 
 	if m.messages[1].Out != "line1\nline2\n" {

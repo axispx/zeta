@@ -690,5 +690,3 @@ func TestRenderFollowupsMarksEditing(t *testing.T) {
 		t.Fatalf("non-head edit must not show default send hints:\n%s", plain)
 	}
 }
-
-

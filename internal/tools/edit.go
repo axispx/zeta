@@ -8,9 +8,12 @@ import (
 	"strings"
 )
 
+// Edit is the tool name for surgical file patches.
+const Edit = "edit"
+
 type editTool struct{}
 
-func (editTool) Name() string { return "edit" }
+func (editTool) Name() string { return Edit }
 func (editTool) Description() string {
 	return "Edit a file by replacing a unique old_string with new_string. " +
 		"If old_string is empty and the file does not exist, create it with new_string. " +
@@ -50,7 +53,7 @@ func (editTool) Summary(raw json.RawMessage) string {
 		OldString string `json:"old_string"`
 	}
 	_ = json.Unmarshal(raw, &a)
-	verb := "edit"
+	verb := Edit
 	if a.OldString == "" {
 		verb = "create"
 	}
@@ -129,7 +132,7 @@ func (editTool) Run(ctx context.Context, root string, raw json.RawMessage) (stri
 func (editTool) Preview(root string, raw json.RawMessage) string {
 	var args editArgs
 	if err := json.Unmarshal(raw, &args); err != nil {
-		return "edit"
+		return Edit
 	}
 	chg, err := planEdit(root, args)
 	return diffPreview(chg, err, editTool{}.Summary(raw))

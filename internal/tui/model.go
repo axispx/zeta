@@ -39,15 +39,16 @@ const (
 
 // Model is the root Bubble Tea model for zeta.
 type Model struct {
-	cfg      config.Config
-	client   *ai.Client
-	sess     *session.Session
-	viewport viewport.Model
-	textarea textarea.Model
-	messages []Message
-	ws       workspace.Context
-	width    int
-	height   int
+	cfg         config.Config
+	client      *ai.Client
+	sess        *session.Session
+	viewport    viewport.Model
+	textarea    textarea.Model
+	messages    []Message
+	ws          workspace.Context
+	sessionDiff lineStats // memo of sessionDiff(messages); refreshSessionDiff only
+	width       int
+	height      int
 	// contentW is the wrap width for transcript lines (matches styles.Transcript inset).
 	contentW      int
 	showScrollbar bool
@@ -465,8 +466,9 @@ func (m *Model) submit(text string, imgs []image.Ref) tea.Cmd {
 	return m.beginTurn(titlePrompt)
 }
 
-// refreshWorkspace reloads cwd/branch/AGENTS.md. Call at turn/compact
-// boundaries; beginTurn assumes the caller already refreshed.
+// refreshWorkspace reloads cwd/branch/AGENTS.md via workspace.Load.
+// Call at turn/compact boundaries; beginTurn assumes the caller already refreshed.
+// Focus only bumps branch.
 func (m *Model) refreshWorkspace() {
 	m.ws = workspace.Load()
 }
@@ -672,7 +674,7 @@ func (m *Model) layout() {
 	}
 
 	// gap + footer; input chrome is hidden while a bottom panel replaces it.
-	chromeH := m.gapHeight() + 1 // footer
+	chromeH := m.gapHeight() + footerRows
 	if !m.inputBlocked() {
 		chromeH += inputH + styles.InputChromeV + styles.InputMarginB
 	}
@@ -815,7 +817,7 @@ func (m Model) renderFooter() string {
 	}
 	return lipgloss.NewStyle().
 		Margin(0, styles.InputMarginH).
-		Render(inputFooter(footerW, m.ws, m.cfg, m.mode, m.contextTokens))
+		Render(inputFooter(footerW, m.ws, m.cfg, m.mode, m.contextTokens, m.sessionDiff))
 }
 
 // stackMainChrome places transcript, gap row (status/overlay/blank), input, and footer.

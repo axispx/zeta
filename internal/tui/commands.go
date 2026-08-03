@@ -303,6 +303,7 @@ func (m *Model) applySession(sess *session.Session, recs []session.Record, err e
 		m.messages, m.history = loadSession(recs)
 		m.seedTodos(todosFromRecords(recs))
 	}
+	m.refreshSessionDiff()
 	m.contextTokens = 0
 	m.titlePending = false
 	m.clearCompactState()

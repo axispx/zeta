@@ -27,7 +27,10 @@ const (
 
 type webfetchTool struct{}
 
-func (webfetchTool) Name() string { return "webfetch" }
+// WebFetch is the tool name for fetching a URL.
+const WebFetch = "webfetch"
+
+func (webfetchTool) Name() string { return WebFetch }
 func (webfetchTool) Description() string {
 	return "Fetch content from a URL. Converts HTML to markdown by default. " +
 		"Use for docs and pages when you already have the URL; use websearch to discover URLs."
@@ -61,12 +64,12 @@ func (webfetchTool) Summary(raw json.RawMessage) string {
 	_ = json.Unmarshal(raw, &a)
 	u := strings.TrimSpace(a.URL)
 	if u == "" {
-		return "webfetch"
+		return WebFetch
 	}
 	if len(u) > 60 {
 		u = u[:57] + "..."
 	}
-	return "webfetch " + u
+	return WebFetch + " " + u
 }
 
 type webfetchArgs struct {

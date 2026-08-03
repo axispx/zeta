@@ -7,9 +7,12 @@ import (
 	"os"
 )
 
+// Write is the tool name for full-file create/overwrite.
+const Write = "write"
+
 type writeTool struct{}
 
-func (writeTool) Name() string { return "write" }
+func (writeTool) Name() string { return Write }
 func (writeTool) Description() string {
 	return "Write full contents to a file (create or overwrite). " +
 		"Prefer edit for surgical changes; use write for new files with known contents " +
@@ -39,9 +42,9 @@ func (writeTool) Summary(raw json.RawMessage) string {
 	}
 	_ = json.Unmarshal(raw, &a)
 	if a.Path != "" {
-		return "write " + a.Path
+		return Write + " " + a.Path
 	}
-	return "write"
+	return Write
 }
 
 type writeArgs struct {
@@ -86,7 +89,7 @@ func (writeTool) Run(ctx context.Context, root string, raw json.RawMessage) (str
 func (writeTool) Preview(root string, raw json.RawMessage) string {
 	var args writeArgs
 	if err := json.Unmarshal(raw, &args); err != nil {
-		return "write"
+		return Write
 	}
 	chg, err := planWrite(root, args)
 	return diffPreview(chg, err, writeTool{}.Summary(raw))

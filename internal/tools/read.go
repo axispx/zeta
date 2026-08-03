@@ -11,7 +11,10 @@ import (
 
 type readTool struct{}
 
-func (readTool) Name() string { return "read" }
+// Read is the tool name for reading files and listing directories.
+const Read = "read"
+
+func (readTool) Name() string { return Read }
 func (readTool) Description() string {
 	return "Read a file or list a directory from the workspace. " +
 		"For directories, returns immediate children (one per line; trailing / for subdirs). " +
@@ -44,9 +47,9 @@ func (readTool) Summary(raw json.RawMessage) string {
 	}
 	_ = json.Unmarshal(raw, &a)
 	if a.Path != "" {
-		return "read " + a.Path
+		return Read + " " + a.Path
 	}
-	return "read"
+	return Read
 }
 
 type readArgs struct {
