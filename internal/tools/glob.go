@@ -4,8 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"path/filepath"
 	"strings"
+
+	"github.com/axispx/zeta/internal/rg"
 )
 
 type globTool struct{}
@@ -74,18 +75,18 @@ func (globTool) Run(ctx context.Context, root string, raw json.RawMessage) (stri
 		return "", err
 	}
 
-	cmdArgs := append([]string{"--files", "--sort=path"}, rgWorkspaceFlags()...)
+	cmdArgs := append([]string{"--files", "--sort=path"}, rg.WorkspaceFlags()...)
 	cmdArgs = append(cmdArgs, "--glob", pattern)
 	if target != "" {
 		cmdArgs = append(cmdArgs, "--", target)
 	}
 
-	stdout, err := runRg(ctx, root, cmdArgs)
+	stdout, err := rg.Run(ctx, root, cmdArgs)
 	if err != nil {
 		return "", err
 	}
 
-	matches := slashPaths(linesFromRg(stdout))
+	matches := rg.SlashPaths(rg.Lines(stdout))
 	if len(matches) == 0 {
 		return "no matches", nil
 	}
@@ -94,16 +95,4 @@ func (globTool) Run(ctx context.Context, root string, raw json.RawMessage) (stri
 		matches = matches[:maxGlobResults]
 	}
 	return strings.Join(matches, "\n"), nil
-}
-
-// slashPaths normalizes path separators for stable model-facing output.
-func slashPaths(lines []string) []string {
-	if len(lines) == 0 {
-		return nil
-	}
-	out := make([]string, len(lines))
-	for i, line := range lines {
-		out[i] = filepath.ToSlash(line)
-	}
-	return out
 }

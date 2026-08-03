@@ -33,6 +33,8 @@ internal/config/     ~/.zeta/config.json
 internal/models/     models.dev catalog → presets
 internal/session/    JSONL under ~/.zeta/sessions/
 internal/workspace/  cwd/git context, AGENTS.md, folder trust (~/.zeta/trusted.json)
+internal/search/     fuzzy filter helpers (slash palette, @ files, models)
+internal/rg/         shared ripgrep invoke (tools + @ file list)
 internal/plan/       proposed_plan extract + build seed
 internal/paths/      ZETA_HOME
 internal/image/      path normalize, sniff, data: URLs, clipboard (temp only)

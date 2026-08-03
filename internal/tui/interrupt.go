@@ -18,8 +18,11 @@ func (m *Model) tryInterrupt() bool {
 		return true
 	case m.interruptBottom():
 		return true
-	case m.overlay.showing():
-		m.dismissOverlay()
+	case m.overlay.mode != overlayOff:
+		// Mode can stay overlayFiles while the list is hidden (no matches);
+		// still dismiss so Esc does not fall through to cancel a turn.
+		// Slash/model wipe their query; @ keeps the draft (see cancelOverlay).
+		m.cancelOverlay()
 		return true
 	case m.compacting:
 		m.cancelCompact()

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/axispx/zeta/internal/rg"
 )
 
 type grepTool struct{}
@@ -75,7 +77,7 @@ func (grepTool) Run(ctx context.Context, root string, raw json.RawMessage) (stri
 		return "", err
 	}
 
-	cmdArgs := append([]string{"--line-number", "--no-heading", "--color", "never"}, rgWorkspaceFlags()...)
+	cmdArgs := append([]string{"--line-number", "--no-heading", "--color", "never"}, rg.WorkspaceFlags()...)
 	if g := strings.TrimSpace(args.Glob); g != "" {
 		cmdArgs = append(cmdArgs, "--glob", g)
 	}
@@ -84,11 +86,11 @@ func (grepTool) Run(ctx context.Context, root string, raw json.RawMessage) (stri
 		cmdArgs = append(cmdArgs, target)
 	}
 
-	stdout, err := runRg(ctx, root, cmdArgs)
+	stdout, err := rg.Run(ctx, root, cmdArgs)
 	if err != nil {
 		return "", err
 	}
-	lines := linesFromRg(stdout)
+	lines := rg.Lines(stdout)
 	if len(lines) == 0 {
 		return "no matches", nil
 	}

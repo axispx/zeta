@@ -84,7 +84,7 @@ func TestMatchCommands(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Fatalf("expected /clear in fuzzy matches for /cle, got %#v", clear)
+		t.Fatalf("expected /clear in prefix matches for /cle, got %#v", clear)
 	}
 	none := matchCommands("/zzz")
 	if len(none) != 0 {
@@ -181,7 +181,7 @@ func TestSyncOverlaySelectsPartial(t *testing.T) {
 	ta := textarea.New()
 	ta.SetValue("/cle")
 	m := Model{textarea: ta}
-	m.syncOverlay()
+	_ = m.syncOverlay()
 	if !m.overlay.showing() || m.overlay.mode != overlayCommands {
 		t.Fatal("command overlay inactive")
 	}

@@ -140,7 +140,7 @@ func TestSubmitInputPaletteSkillFillsInput(t *testing.T) {
 	ta := textarea.New()
 	ta.SetValue("/rev")
 	m := Model{textarea: ta}
-	m.syncOverlay()
+	_ = m.syncOverlay()
 	if !m.overlay.showing() {
 		t.Fatal("expected command overlay")
 	}
@@ -154,7 +154,11 @@ func TestSubmitInputPaletteSkillFillsInput(t *testing.T) {
 	if m.overlay.cmds[m.overlay.selected].name != "/review" {
 		t.Fatalf("selected = %#v", m.overlay.cmds)
 	}
-	cmd := m.submitInput()
+	// Palette Enter is handled by handleOverlayKey (not submitInput).
+	cmd, ok := m.handleOverlayKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if !ok {
+		t.Fatal("enter should fill skill from palette")
+	}
 	if cmd != nil {
 		t.Fatal("palette skill select should not start a turn")
 	}
@@ -175,11 +179,15 @@ func TestSubmitInputExactSkillTokenFills(t *testing.T) {
 	ta.SetValue("/review")
 	m := Model{textarea: ta, cfg: testClientCfg()}
 	m.applyClient()
-	m.syncOverlay()
+	_ = m.syncOverlay()
 	if !m.overlay.showing() {
 		t.Fatal("expected command overlay for exact token")
 	}
-	if cmd := m.submitInput(); cmd != nil {
+	cmd, ok := m.handleOverlayKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if !ok {
+		t.Fatal("enter should fill skill from palette")
+	}
+	if cmd != nil {
 		t.Fatal("palette skill select should not start a turn")
 	}
 	if got := m.textarea.Value(); got != "/review " {
@@ -202,7 +210,7 @@ func TestTabSkillFillsInput(t *testing.T) {
 	ta := textarea.New()
 	ta.SetValue("/rev")
 	m := Model{textarea: ta}
-	m.syncOverlay()
+	_ = m.syncOverlay()
 	for i, c := range m.overlay.cmds {
 		if c.name == "/review" {
 			m.overlay.selected = i

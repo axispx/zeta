@@ -9,15 +9,6 @@ import (
 	"github.com/axispx/zeta/internal/styles"
 )
 
-func TestClipBottomLines(t *testing.T) {
-	if got := clipBottomLines("a\nb\nc", 1); got != "a\nb" {
-		t.Fatalf("clip 1 = %q", got)
-	}
-	if got := clipBottomLines("a\nb", 2); got != "" {
-		t.Fatalf("clip all = %q", got)
-	}
-}
-
 func TestFormatPaletteRow(t *testing.T) {
 	items := []command{
 		{name: "/clear", desc: "start a new session"},

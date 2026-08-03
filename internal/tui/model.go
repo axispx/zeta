@@ -279,6 +279,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case compactDoneMsg:
 		return m, m.handleCompactDone(msg)
 
+	case fileListMsg:
+		m.applyFileListMsg(msg)
+		return m, nil
+
 	case spinner.TickMsg:
 		if !m.busy() {
 			return m, nil
@@ -349,14 +353,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if cmd, ok := m.handleBottomKey(msg); ok {
 				return m, cmd
 			}
-			if m.overlay.mode == overlayModels {
-				if cmd, ok := m.handleOverlayKey(msg); ok {
-					return m, cmd
-				}
+			if cmd, ok := m.handleOverlayKey(msg); ok {
+				return m, cmd
 			}
 		}
-		// Priority: esc → compact block → overlays → ctrl+q → shift+tab →
+		// Priority: esc → compact block → ctrl+q → shift+tab →
 		// paste → queue nav → prompt history → plain Enter.
+		// Overlay nav/commit already handled above via handleOverlayKey.
 		switch {
 		case msg.String() == "esc" || msg.Code == tea.KeyEscape:
 			if m.sel.has() {
@@ -371,8 +374,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case m.compacting:
 			// Block input while compaction runs (result arrives via compactDoneMsg).
-			return m, nil
-		case m.consumeCommandOverlayKey(msg):
 			return m, nil
 		case msg.String() == "ctrl+q":
 			if m.toggleQueueFocus() {
@@ -423,9 +424,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.refreshTranscript()
 		}
 	}
-	m.syncOverlay()
+	ovCmd := m.syncOverlay()
 	m.viewport, vpCmd = m.viewport.Update(msg)
-	return m, tea.Batch(taCmd, vpCmd)
+	return m, tea.Batch(taCmd, vpCmd, ovCmd)
 }
 
 // submit appends the user turn, starts a streaming completion, and refreshes.
@@ -661,7 +662,8 @@ func todoResultOK(text string) bool {
 }
 
 // layout sizes chrome regions. m.showScrollbar reserves one column for the transcript scrollbar.
-// Transcript height accounts for the real gap (busy status / overlay / reserved blank).
+// Transcript height accounts for the in-flow gap (status/bottom/idle) + input + footer.
+// Filter overlays float over the transcript and do not consume layout rows.
 func (m *Model) layout() {
 	w := m.width
 	if w < minTermW {
@@ -783,12 +785,41 @@ func (m Model) View() tea.View {
 		return m.programView(m.config.View(m.chrome, w, w, h))
 	}
 
-	// gap is one layout slot: permission panel, busy status, command overlay, or blank.
+	// Stack: (transcript + gap [+ floating overlay]) | input? | footer.
+	// Filter overlays pin over the bottom of main+gap so the list sits flush on
+	// the input without resizing the viewport. Status stays painted in the gap
+	// rows (covered only where the list overlaps).
 	// layout() already sized the transcript for gapHeight().
-	gap := m.gapContent()
-	input := m.renderInput()
-	footer := m.renderFooter()
-	return m.programView(stackMainChrome(m.mainView(), gap, input, footer))
+	// Empty gap ("") is still one JoinVertical row (idle blank spacer).
+	surface := lipgloss.JoinVertical(lipgloss.Left, m.mainView(), m.gapContent())
+	if m.filterOverlayOpen() {
+		if ov := m.renderOverlay(m.width); ov != "" {
+			surface = pinOverlayBottom(surface, ov)
+		}
+	}
+	return m.programView(stackMainChrome(surface, m.renderInput(), m.renderFooter()))
+}
+
+// pinOverlayBottom draws overlay over the bottom of main without growing layout.
+// main is truncated from the bottom to make room; rows below main stay put.
+func pinOverlayBottom(main, overlay string) string {
+	if overlay == "" {
+		return main
+	}
+	ovH := lipgloss.Height(overlay)
+	if ovH < 1 {
+		return main
+	}
+	mainH := lipgloss.Height(main)
+	if mainH < 1 {
+		return overlay
+	}
+	if ovH >= mainH {
+		return lipgloss.NewStyle().MaxHeight(mainH).Height(mainH).Render(overlay)
+	}
+	topH := mainH - ovH
+	top := lipgloss.NewStyle().MaxHeight(topH).Height(topH).Render(main)
+	return lipgloss.JoinVertical(lipgloss.Left, top, overlay)
 }
 
 // renderInput returns the input box, or "" when a bottom panel replaces it.
@@ -820,13 +851,14 @@ func (m Model) renderFooter() string {
 		Render(inputFooter(footerW, m.ws, m.cfg, m.mode, m.contextTokens, m.sessionDiff))
 }
 
-// stackMainChrome places transcript, gap row (status/overlay/blank), input, and footer.
-// Omit input when empty (permission prompt replaces it).
-func stackMainChrome(main, gap, input, footer string) string {
+// stackMainChrome places the main surface (transcript [+ gap] [+ pinned overlay]),
+// optional input, and footer. Gap is folded into main by View before calling.
+// Omit input when a bottom panel replaces the composer.
+func stackMainChrome(main, input, footer string) string {
 	if input == "" {
-		return lipgloss.JoinVertical(lipgloss.Left, main, gap, footer)
+		return lipgloss.JoinVertical(lipgloss.Left, main, footer)
 	}
-	return lipgloss.JoinVertical(lipgloss.Left, main, gap, input, footer)
+	return lipgloss.JoinVertical(lipgloss.Left, main, input, footer)
 }
 
 func (m Model) programView(content string) tea.View {

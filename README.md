@@ -50,10 +50,13 @@ Cycle modes with **Shift+Tab**.
 | `Ctrl+Q`                               | Manage follow-ups (`↑`/`↓`, Enter send, `e` edit, `d` remove) |
 | `Shift+Tab`                            | Cycle mode (build → ask → plan)             |
 | `Shift+Enter` / `Ctrl+J` / `Alt+Enter` | Newline                                     |
+| `@`                                    | File mention picker (gitignore-aware; Tab/Enter insert) |
 | `Esc`                                  | Cancel edit / leave queue / cancel turn (queue kept) |
 | `Ctrl+C`                               | Leave edit/focus → interrupt → clear queue → quit |
 | Mouse / `PgUp` / `PgDn`                | Scroll                                      |
 | Drag transcript                        | Select text and copy on release (no scrollbar) |
+
+Type `@` in the composer to fuzzy-find a workspace file (respects `.gitignore` via ripgrep). Tab or Enter inserts `@path` and a trailing space; Esc closes the list without clearing the draft.
 
 ### Permissions (Build)
 

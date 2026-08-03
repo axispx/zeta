@@ -386,9 +386,8 @@ func TestWidthBody(t *testing.T) {
 
 func TestStackMainChromeKeepsInputStable(t *testing.T) {
 	// layout() keeps mainH + gapH constant so the input row does not jump when
-	// the gap grows from the reserved blank to busy status or a command overlay.
+	// the gap grows from the reserved blank to busy status.
 	const regionH = 20
-	overlay := "a\nb\nc\nd\ne" // 5 lines
 	input, footer := "INPUT", "FOOTER"
 	status := lipgloss.JoinVertical(lipgloss.Left, "", "⠋ working", "")
 
@@ -402,25 +401,74 @@ func TestStackMainChromeKeepsInputStable(t *testing.T) {
 			mainH = 1
 		}
 		main := strings.Repeat("m\n", mainH-1) + "m"
-		return stackMainChrome(main, gap, input, footer)
+		// View folds main+gap before stackMainChrome.
+		surface := lipgloss.JoinVertical(lipgloss.Left, main, gap)
+		return stackMainChrome(surface, input, footer)
 	}
 	withGap := stack("")
 	withStatus := stack(status)
-	withOverlay := stack(overlay)
 
-	// Input should sit at the same absolute row whether the gap is blank,
-	// showing the busy spinner, or replaced by an overlay.
 	gapIdx := strings.Index(withGap, "INPUT")
 	statusIdx := strings.Index(withStatus, "INPUT")
-	overlayIdx := strings.Index(withOverlay, "INPUT")
-	if gapIdx < 0 || statusIdx < 0 || overlayIdx < 0 {
+	if gapIdx < 0 || statusIdx < 0 {
 		t.Fatal("missing INPUT")
 	}
 	gapH := lipgloss.Height(withGap[:gapIdx])
 	if h := lipgloss.Height(withStatus[:statusIdx]); h != gapH {
 		t.Fatalf("input jumped with status: gap-stack h=%d status-stack h=%d", gapH, h)
 	}
-	if h := lipgloss.Height(withOverlay[:overlayIdx]); h != gapH {
-		t.Fatalf("input jumped with overlay: gap-stack h=%d overlay-stack h=%d", gapH, h)
+}
+
+func TestPinOverlayBottomStableMainHeight(t *testing.T) {
+	main := "1\n2\n3\n4\n5"
+	ov := "A\nB"
+	got := pinOverlayBottom(main, ov)
+	if lipgloss.Height(got) != 5 {
+		t.Fatalf("height=%d want 5", lipgloss.Height(got))
+	}
+	if !strings.HasSuffix(strings.TrimRight(got, "\n"), "A\nB") {
+		t.Fatalf("overlay not at bottom:\n%s", got)
+	}
+}
+
+func TestOverlayFloatKeepsStatusAndIdleGap(t *testing.T) {
+	// Pin over main+status so total height is unchanged and list ends at INPUT.
+	const mainH = 10
+	main := strings.Repeat("m\n", mainH-1) + "m"
+	status := lipgloss.JoinVertical(lipgloss.Left, "", "⠋ Waiting", "")
+	ov := "A\nB\nC"
+	above := lipgloss.JoinVertical(lipgloss.Left, main, status)
+	beforeH := lipgloss.Height(above)
+	pinned := pinOverlayBottom(above, ov)
+	if lipgloss.Height(pinned) != beforeH {
+		t.Fatalf("pinned height=%d want %d", lipgloss.Height(pinned), beforeH)
+	}
+	// Short overlay covers only the bottom of status; Waiting row can remain.
+	busy := stackMainChrome(pinned, "INPUT", "FOOTER")
+	if !strings.Contains(busy, "C") {
+		t.Fatal("overlay missing")
+	}
+	idx := strings.Index(busy, "INPUT")
+	if idx < 0 {
+		t.Fatal("missing INPUT")
+	}
+	before := busy[:idx]
+	lines := strings.Split(strings.TrimRight(before, "\n"), "\n")
+	if len(lines) == 0 || strings.TrimSpace(lines[len(lines)-1]) != "C" {
+		t.Fatalf("want overlay flush on INPUT, last=%q", lines[len(lines)-1])
+	}
+
+	// Idle: pin over main + blank gap (empty string is still one JoinVertical row).
+	idleSurface := lipgloss.JoinVertical(lipgloss.Left, main, "")
+	if lipgloss.Height(idleSurface) != mainH+1 {
+		t.Fatalf("idle surface height=%d want %d", lipgloss.Height(idleSurface), mainH+1)
+	}
+	idlePin := pinOverlayBottom(idleSurface, ov)
+	if lipgloss.Height(idlePin) != mainH+1 {
+		t.Fatalf("idle pin height=%d", lipgloss.Height(idlePin))
+	}
+	idle := stackMainChrome(idlePin, "INPUT", "FOOTER")
+	if i := strings.Index(idle, "INPUT"); i < 0 {
+		t.Fatal("missing INPUT idle")
 	}
 }

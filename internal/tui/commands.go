@@ -102,23 +102,32 @@ const (
 	overlayOff overlayMode = iota
 	overlayCommands
 	overlayModels
+	overlayFiles
 )
 
 const modelOverlayMaxRows = 5
 
-// filterOverlay is the inline list above the input (slash commands or model picker).
+// filterOverlay is the inline list above the input (slash / model / @ files).
 type filterOverlay struct {
 	mode overlayMode
 	listSel
 	cmds   []command            // overlayCommands
 	models []config.ModelChoice // overlayModels catalog
+	files  filePicker           // overlayFiles only
 }
 
 func (o *filterOverlay) clear() {
 	o.mode = overlayOff
 	o.cmds = nil
 	o.models = nil
+	o.files.clear()
 	o.listSel.clear()
+}
+
+// ownsInput reports pickers where the composer text is the filter query
+// (slash / model). @ mentions edit a larger draft and must not wipe it on close.
+func (o filterOverlay) ownsInput() bool {
+	return o.mode == overlayCommands || o.mode == overlayModels
 }
 
 func (o *filterOverlay) showing() bool {
@@ -127,6 +136,10 @@ func (o *filterOverlay) showing() bool {
 		return len(o.cmds) > 0
 	case overlayModels:
 		return true
+	case overlayFiles:
+		// Empty matches / still loading with no rows: hide list, keep inventory
+		// for sync refilter. Keys fall through (Enter submits, Tab types).
+		return o.files.visible()
 	default:
 		return false
 	}
@@ -140,13 +153,16 @@ func (o *filterOverlay) visibleModels(query string) []config.ModelChoice {
 	return search.Filter(query, o.models, modelChoiceHaystack)
 }
 
-func commandHaystack(c command) string { return c.name + " " + c.desc }
+// commandPrefixKey is the slash token without leading '/' (prefix match target).
+func commandPrefixKey(c command) string { return strings.TrimPrefix(c.name, "/") }
 
 func matchCommands(prefix string) []command {
 	if !strings.HasPrefix(prefix, "/") {
 		return nil
 	}
-	return search.Filter(strings.TrimPrefix(prefix, "/"), commands, commandHaystack)
+	// Prefix on the command name only — small fixed vocabulary; fuzzy subsequence
+	// on desc ("new" → /clear) is more surprising than helpful.
+	return search.Prefix(strings.TrimPrefix(prefix, "/"), commands, 0, commandPrefixKey)
 }
 
 func lookupCommand(name string) (command, bool) {
@@ -205,49 +221,83 @@ func (m *Model) ensureFreshClient() error {
 	return nil
 }
 
-func (m *Model) syncOverlay() {
-	before := m.gapHeight()
-	defer func() {
-		if m.ready && m.gapHeight() != before {
-			m.layoutPreservingBottom()
-		}
-	}()
+func (m *Model) syncOverlay() tea.Cmd {
+	// Filter overlays float (no layout height); gap stays idle blank / status.
 	if m.picker.active || m.config.active {
-		m.overlay.clear()
-		return
+		m.closeOverlay()
+		return nil
 	}
 	if m.overlay.mode == overlayModels {
 		m.overlay.clamp(len(m.overlay.visibleModels(m.textarea.Value())))
-		return
+		return nil
 	}
 	val := m.textarea.Value()
-	if !strings.HasPrefix(val, "/") || strings.ContainsAny(val, " \t\n") {
-		m.overlay.clear()
-		return
+	// Whole-input slash palette wins over @ mentions.
+	if strings.HasPrefix(val, "/") && !strings.ContainsAny(val, " \t\n") {
+		items := matchCommands(val)
+		if len(items) == 0 {
+			m.closeOverlay()
+			return nil
+		}
+		// Drop file inventory when leaving @ mode.
+		if m.overlay.mode != overlayCommands {
+			m.closeOverlay()
+		}
+		m.overlay.mode = overlayCommands
+		m.overlay.cmds = items
+		m.overlay.clamp(len(items))
+		return nil
 	}
-	items := matchCommands(val)
-	if len(items) == 0 {
-		m.overlay.clear()
-		return
+	if tok, ok := atTokenAtCursor(val, m.textarea.Line(), m.textarea.Column()); ok {
+		return m.syncFileOverlay(tok.query)
 	}
-	m.overlay.mode = overlayCommands
-	m.overlay.cmds = items
-	m.overlay.models = nil
-	m.overlay.clamp(len(items))
+	m.closeOverlay()
+	return nil
 }
 
-func (m *Model) dismissOverlay() {
+// syncFileOverlay keeps the @ picker in sync with the current query.
+// Lists the workspace once (async); filters sync on each keystroke after that.
+func (m *Model) syncFileOverlay(query string) tea.Cmd {
+	f := &m.overlay.files
+	if m.overlay.mode != overlayFiles {
+		// Entering @ mode: wipe slash/model state; selection resets via clear.
+		m.closeOverlay()
+		m.overlay.mode = overlayFiles
+	}
+	if f.query != query {
+		f.query = query
+		if f.all != nil {
+			m.refilterFiles()
+		}
+	} else {
+		m.overlay.clamp(len(f.matches))
+	}
+	return m.ensureFileList()
+}
+
+// closeOverlay clears filter-overlay state without touching the composer.
+// Cancels any in-flight @ file list (via filePicker.clear).
+func (m *Model) closeOverlay() {
 	m.overlay.clear()
-	m.resetInput()
-	if m.ready {
-		m.layoutPreservingBottom()
+}
+
+// cancelOverlay closes the active filter overlay (Esc / Ctrl+C rung).
+// Slash/model own the input as their query, so cancel wipes it; @ keeps the draft.
+func (m *Model) cancelOverlay() {
+	owns := m.overlay.ownsInput()
+	m.closeOverlay()
+	if owns {
+		m.resetInput()
+		if m.ready {
+			m.layoutPreservingBottom()
+		}
 	}
 }
 
 func (m *Model) runCommand(name string) tea.Cmd {
 	m.finishTurn() // no-op when idle
 	m.resetInput()
-	m.overlay.clear()
+	m.closeOverlay()
 
 	switch name {
 	case "/clear":
@@ -267,7 +317,7 @@ func (m *Model) runCommand(name string) tea.Cmd {
 // fillSkillSlash puts a skill token in the input (trailing space for args) and
 // dismisses the command overlay without submitting.
 func (m *Model) fillSkillSlash(name string) {
-	m.overlay.clear()
+	m.closeOverlay()
 	m.textarea.SetValue(name + " ")
 	m.textarea.MoveToEnd()
 	if m.ready {
@@ -276,7 +326,7 @@ func (m *Model) fillSkillSlash(name string) {
 }
 
 func (m *Model) openConfigDialog() tea.Cmd {
-	m.overlay.clear()
+	m.closeOverlay()
 	m.picker.clear()
 	return m.config.Open(m.cfg)
 }
@@ -311,7 +361,7 @@ func (m *Model) applySession(sess *session.Session, recs []session.Record, err e
 	m.clearBottom()
 	m.pendingPlan = ""
 	m.clearQueue()
-	m.overlay.clear()
+	m.closeOverlay()
 	m.grants = &permission.Session{}
 	m.tx.invalidate()
 	m.refreshTranscript()
@@ -329,7 +379,7 @@ func (m *Model) openModelOverlay() {
 		m.refreshTranscript()
 		return
 	}
-	m.overlay.clear()
+	m.closeOverlay()
 	m.overlay.mode = overlayModels
 	m.overlay.models = entries
 	m.resetInput()
@@ -362,18 +412,24 @@ func (m *Model) selectModel() {
 	if err := m.cfg.Save(); err != nil {
 		m.cfg = prevCfg
 		m.client = prevClient
-		m.dismissOverlay()
+		m.cancelOverlay()
 		m.messages = append(m.messages, Message{Role: RoleError, Text: "config save: " + err.Error()})
 		m.refreshTranscript()
 		return
 	}
 	m.contextTokens = 0
 	m.applyClient()
-	m.dismissOverlay()
+	m.cancelOverlay()
 	m.refreshTranscript()
 }
 
+// handleOverlayKey handles nav/tab/enter for every visible filter overlay.
+// Returns (cmd, true) when the key is consumed. Hidden overlays (e.g. @ with
+// no matches) return false so keys reach the composer / submitInput.
 func (m *Model) handleOverlayKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
+	if !m.overlay.showing() {
+		return nil, false
+	}
 	key := msg.String()
 	switch m.overlay.mode {
 	case overlayModels:
@@ -386,24 +442,44 @@ func (m *Model) handleOverlayKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 			m.selectModel()
 			return nil, true
 		case "esc":
-			m.dismissOverlay()
+			m.cancelOverlay()
 			return nil, true
 		}
 		return nil, false
 	case overlayCommands:
-		if !m.overlay.showing() {
-			return nil, false
-		}
 		if m.overlay.move(len(m.overlay.cmds), key) {
 			return nil, true
 		}
-		if key == "tab" {
+		switch key {
+		case "tab":
 			cmd := m.overlay.cmds[m.overlay.selected]
 			if cmd.skill {
 				m.fillSkillSlash(cmd.name)
 			} else {
 				m.textarea.SetValue(cmd.name)
 			}
+			return nil, true
+		case "enter":
+			// Busy turn: consume Enter so the slash is not queued as chat.
+			if m.turn != nil {
+				return nil, true
+			}
+			cmd := m.overlay.cmds[m.overlay.selected]
+			// Skills always fill so the user can add args; second Enter submits.
+			if cmd.skill {
+				m.fillSkillSlash(cmd.name)
+				return nil, true
+			}
+			return m.runCommand(cmd.name), true
+		}
+		return nil, false
+	case overlayFiles:
+		if m.overlay.move(len(m.overlay.files.matches), key) {
+			return nil, true
+		}
+		switch key {
+		case "enter", "tab":
+			m.insertFileMention()
 			return nil, true
 		}
 		return nil, false
@@ -412,32 +488,12 @@ func (m *Model) handleOverlayKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 	}
 }
 
-// consumeCommandOverlayKey handles nav/tab for the slash-command overlay.
-func (m *Model) consumeCommandOverlayKey(msg tea.KeyPressMsg) bool {
-	if m.overlay.mode != overlayCommands {
-		return false
-	}
-	_, ok := m.handleOverlayKey(msg)
-	return ok
-}
-
-// submitInput handles plain Enter: palette, slash, save-edit, queue, or drain.
+// submitInput handles plain Enter: slash, save-edit, queue, or drain.
+// Overlay commits are handled in handleOverlayKey before this runs.
 // Empty Enter delivers the queue head now (interrupts a live turn when busy).
 func (m *Model) submitInput() tea.Cmd {
 	if m.compacting {
 		return nil
-	}
-	if m.overlay.mode == overlayCommands && m.overlay.showing() {
-		if m.turn != nil {
-			return nil
-		}
-		cmd := m.overlay.cmds[m.overlay.selected]
-		// Skills always fill so the user can add args; second Enter submits.
-		if cmd.skill {
-			m.fillSkillSlash(cmd.name)
-			return nil
-		}
-		return m.runCommand(cmd.name)
 	}
 
 	text, imgs := m.parseComposer()
@@ -484,20 +540,9 @@ func (m *Model) submitHarnessSlash(text string, imgs []image.Ref) tea.Cmd {
 		return m.runCommand(text)
 	}
 	m.resetInput()
-	m.overlay.clear()
+	m.closeOverlay()
 	m.noteError("unknown command: " + text)
 	return nil
-}
-
-func clipBottomLines(s string, n int) string {
-	if n <= 0 || s == "" {
-		return s
-	}
-	lines := strings.Split(s, "\n")
-	if len(lines) <= n {
-		return ""
-	}
-	return strings.Join(lines[:len(lines)-n], "\n")
 }
 
 // windowAround returns a [start,end) window of size listH centered on selected.
@@ -547,6 +592,8 @@ func (m Model) renderOverlay(width int) string {
 		return m.renderCommandOverlay(width)
 	case overlayModels:
 		return m.renderModelOverlay(width)
+	case overlayFiles:
+		return m.renderFileOverlay(width)
 	default:
 		return ""
 	}

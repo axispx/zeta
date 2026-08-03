@@ -89,7 +89,7 @@ func (m *Model) maybeOfferPlan() {
 		return
 	}
 	m.bottom.setPlan(newPlanPrompt(body, plan.Title(body)))
-	m.overlay.clear()
+	m.closeOverlay()
 	m.resetInput()
 	m.afterSetBottom()
 }
@@ -208,7 +208,7 @@ func (m *Model) beginBuildFromPlan(body, title, modelID string) tea.Cmd {
 
 	m.bottom.clear()
 	m.pendingPlan = ""
-	m.overlay.clear()
+	m.closeOverlay()
 	m.resetInput()
 	m.mode = prompt.ModeBuild
 	m.startNewSession()

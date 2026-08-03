@@ -137,6 +137,33 @@ func TestGapHeight(t *testing.T) {
 	}
 }
 
+func TestGapContentKeepsStatusWithOverlay(t *testing.T) {
+	// Status gap stays in-flow; floating overlay does not replace it.
+	m := testModel()
+	m.width = 60
+	m.spinner = spinner.New(spinner.WithSpinner(spinner.MiniDot))
+	m.turn = &turnSession{streaming: false, activeTool: -1}
+	m.overlay.mode = overlayFiles
+	m.overlay.files.matches = []string{"a.go"}
+
+	gap := stripANSI(m.gapContent())
+	if !strings.Contains(gap, statusWaiting) {
+		t.Fatalf("status gap missing Waiting under overlay: %q", gap)
+	}
+	if m.gapHeight() != busyStatusRows {
+		t.Fatalf("gapHeight=%d want %d", m.gapHeight(), busyStatusRows)
+	}
+	if !m.filterOverlayOpen() {
+		t.Fatal("expected filter overlay open")
+	}
+
+	// Idle + overlay: blank gap stays reserved (no transcript jump).
+	m.turn = nil
+	if m.gapHeight() != 1 {
+		t.Fatalf("idle+overlay gapHeight=%d want 1", m.gapHeight())
+	}
+}
+
 func TestToolStatus(t *testing.T) {
 	tests := []struct {
 		name string
