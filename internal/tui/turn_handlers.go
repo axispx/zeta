@@ -13,32 +13,32 @@ import (
 func (m *Model) dispatchTurnMsg(msg tea.Msg) (tea.Cmd, bool) {
 	switch msg := msg.(type) {
 	case turnDeltaMsg:
-		if !m.turnMsgLive(msg.id) {
+		if !m.markTurnProgress(msg.id) {
 			return nil, true
 		}
 		return m.handleTurnDelta(msg), true
 	case turnReasoningMsg:
-		if !m.turnMsgLive(msg.id) {
+		if !m.markTurnProgress(msg.id) {
 			return nil, true
 		}
 		return m.handleTurnReasoning(msg), true
 	case turnAssistantMsg:
-		if !m.turnMsgLive(msg.id) {
+		if !m.markTurnProgress(msg.id) {
 			return nil, true
 		}
 		return m.handleTurnAssistant(msg), true
 	case turnToolStartMsg:
-		if !m.turnMsgLive(msg.id) {
+		if !m.markTurnProgress(msg.id) {
 			return nil, true
 		}
 		return m.handleTurnToolStart(msg), true
 	case turnToolOutMsg:
-		if !m.turnMsgLive(msg.id) {
+		if !m.markTurnProgress(msg.id) {
 			return nil, true
 		}
 		return m.handleTurnToolOut(msg), true
 	case turnToolMsg:
-		if !m.turnMsgLive(msg.id) {
+		if !m.markTurnProgress(msg.id) {
 			return nil, true
 		}
 		return m.handleTurnTool(msg), true
@@ -51,11 +51,20 @@ func (m *Model) dispatchTurnMsg(msg tea.Msg) (tea.Cmd, bool) {
 		if !m.turnMsgLive(msg.id) {
 			return nil, true
 		}
-		m.handleTurnErr(msg.err)
-		return nil, true
+		return m.handleTurnErr(msg.err), true
 	default:
 		return nil, false
 	}
+}
+
+// markTurnProgress is turnMsgLive plus the pre-progress auth-retry gate:
+// any content/tool event means a later 401 must not re-run the agent loop.
+func (m *Model) markTurnProgress(id int) bool {
+	if !m.turnMsgLive(id) {
+		return false
+	}
+	m.turn.progressed = true
+	return true
 }
 
 // turnMsgLive reports whether a turn*Msg still belongs to the active turn.

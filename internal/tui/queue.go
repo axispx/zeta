@@ -50,17 +50,6 @@ func (m *Model) finishTurn() {
 	m.history = compact.TrimIncomplete(m.history)
 }
 
-func (m *Model) handleTurnErr(err error) {
-	if m.turn == nil {
-		return
-	}
-	m.finishTurn()
-	errMsg := Message{Role: RoleError, Text: err.Error()}
-	m.messages = append(m.messages, errMsg)
-	m.persist(session.Record{Role: session.RoleError, Text: errMsg.Text})
-	m.refreshTranscript()
-}
-
 const (
 	followUpsTitle   = "follow-ups"
 	followUpsBullet  = "○ "
@@ -204,6 +193,10 @@ func (m *Model) handleQueueNavKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 func (m *Model) deliverQueued(id int) tea.Cmd {
 	m.unfocusQueue()
 	if id == 0 || m.editID == id {
+		return nil
+	}
+	// OAuth recover owns the busy slot — do not start a competing turn.
+	if m.authRetrying {
 		return nil
 	}
 	i := m.queueIndex(id)

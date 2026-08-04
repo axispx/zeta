@@ -38,6 +38,10 @@ type turnSession struct {
 	pending    *agent.Event       // set when coalesce peeks a non-matching event
 	thinking   string             // live reasoning tail; only while thinkingPhase
 	activeTool int                // index of open tool row in Model.messages; -1 if none
+	// progressed marks that content or a tool reached the UI. A 401 is only
+	// retried before any progress — re-running the agent loop after a tool
+	// executed would repeat its side effects.
+	progressed bool
 }
 
 // thinkingPhase is true before answer deltas or an open tool (pre-answer reasoning).

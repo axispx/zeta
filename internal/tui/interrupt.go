@@ -27,6 +27,11 @@ func (m *Model) tryInterrupt() bool {
 	case m.compacting:
 		m.cancelCompact()
 		return true
+	case m.authRetrying:
+		// Recover cmd still completes; result handler installs creds, no restart.
+		m.cancelAuthRetry()
+		m.noteSystem(turnCancelledText)
+		return true
 	case m.turn != nil:
 		// Late KindDone must not drain the queue.
 		m.finishTurn()

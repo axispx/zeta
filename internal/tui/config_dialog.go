@@ -154,11 +154,6 @@ func (d *configDialog) Update(msg tea.Msg) (tea.Cmd, bool) {
 		}
 		return d.handleKey(msg), true
 	default:
-		if d.oauth != nil && d.oauth.browser() {
-			var cmd tea.Cmd
-			d.oauth.pasteIn, cmd = d.oauth.pasteIn.Update(msg)
-			return cmd, true
-		}
 		if d.isForm() {
 			return d.UpdateForm(msg), true
 		}
@@ -191,11 +186,6 @@ func (d configDialog) View(chrome styles.Chrome, termW, areaW, areaH int) string
 }
 
 func (d *configDialog) paste(msg tea.PasteMsg) tea.Cmd {
-	if d.oauth != nil && d.oauth.browser() {
-		var cmd tea.Cmd
-		d.oauth.pasteIn, cmd = d.oauth.pasteIn.Update(msg)
-		return cmd
-	}
 	if d.isForm() {
 		return d.UpdateForm(msg)
 	}

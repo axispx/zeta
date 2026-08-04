@@ -39,7 +39,7 @@ type compactDoneMsg struct {
 
 // busy reports whether a turn or compaction is in flight.
 func (m *Model) busy() bool {
-	return m.turn != nil || m.compacting
+	return m.turn != nil || m.compacting || m.authRetrying
 }
 
 // compactConfig builds thresholds from the active model and prompt overhead.
@@ -80,7 +80,7 @@ func (m *Model) startCompact() tea.Cmd {
 		return nil
 	}
 	if err := m.ensureFreshClient(); err != nil {
-		m.noteError("oauth refresh: " + err.Error())
+		m.noteError(err.Error())
 		return nil
 	}
 	// Match submit: overhead estimate uses current system prompt.

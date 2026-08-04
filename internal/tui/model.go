@@ -59,6 +59,8 @@ type Model struct {
 	history       []ai.Message // durable API transcript (user/assistant/tool); no system/developer
 	contextTokens int64        // last response's context footprint (prompt+completion)
 	titlePending  bool
+	authRetried   bool // one 401 → OAuth refresh → retry per turn; reset on submit
+	authRetrying  bool // true while RecoverOAuth runs after a 401 (keeps busy())
 	compacting    bool // true while a compact LLM call is in flight (manual or auto)
 	compactCancel context.CancelFunc
 	mode          prompt.Mode
@@ -279,6 +281,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case compactDoneMsg:
 		return m, m.handleCompactDone(msg)
 
+	case authRetryResultMsg:
+		return m, m.handleAuthRetryResult(msg)
+
 	case fileListMsg:
 		m.applyFileListMsg(msg)
 		return m, nil
@@ -440,10 +445,16 @@ func (m *Model) submit(text string, imgs []image.Ref) tea.Cmd {
 		m.noteError("no provider configured, run /config to connect one")
 		return nil
 	}
-	if err := m.ensureFreshClient(); err != nil {
-		m.noteError("oauth refresh: " + err.Error())
+	// Compact / OAuth recover own the busy slot — callers should queue or
+	// no-op first; this is the last line of defense against a competing turn.
+	if m.compacting || m.authRetrying {
 		return nil
 	}
+	if err := m.ensureFreshClient(); err != nil {
+		m.noteError(err.Error())
+		return nil
+	}
+	m.authRetried = false
 
 	m.commitUserPrompt(text, imgs)
 	// Keep an in-progress follow-up edit in the composer (drain of another item).
@@ -479,6 +490,10 @@ func (m *Model) refreshWorkspace() {
 func (m *Model) beginTurn(titlePrompt string) tea.Cmd {
 	if m.client == nil {
 		return nil
+	}
+	// Defensive: never orphan an in-flight agent loop (e.g. race with submit).
+	if m.turn != nil {
+		m.finishTurn()
 	}
 	var cmds []tea.Cmd
 	var turnCmd tea.Cmd
@@ -520,6 +535,7 @@ func firstUserPrompt(msgs []Message) string {
 func (m *Model) requestQuit() tea.Cmd {
 	m.finishTurn()
 	m.cancelCompact()
+	m.cancelAuthRetry()
 	return m.quit()
 }
 

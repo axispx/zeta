@@ -3,7 +3,9 @@ package ai
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 
 	"github.com/openai/openai-go/v3"
@@ -13,6 +15,10 @@ import (
 	"github.com/axispx/zeta/internal/config"
 	"github.com/axispx/zeta/internal/image"
 )
+
+// ErrAuth reports the provider rejected the credential (HTTP 401).
+// The TUI refreshes OAuth tokens and retries the turn once when this surfaces.
+var ErrAuth = errors.New("authentication failed")
 
 // Role is an OpenAI chat message role.
 type Role string
@@ -168,11 +174,22 @@ func (c *Client) stream(ctx context.Context, msgs []Message, tools []Tool, out c
 			out <- Event{Type: EventDone}
 			return
 		}
-		out <- Event{Type: EventErr, Err: err}
+		out <- Event{Type: EventErr, Err: classifyErr(err)}
 		return
 	}
 
 	out <- Event{Type: EventDone, Message: assistantFromAcc(acc), Usage: usageFromAcc(acc)}
+}
+
+// classifyErr maps provider auth rejections to ErrAuth so callers can refresh
+// credentials and retry. The provider error is wrapped for display; other
+// errors pass through unchanged.
+func classifyErr(err error) error {
+	var apiErr *openai.Error
+	if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusUnauthorized {
+		return fmt.Errorf("%w: %v", ErrAuth, err)
+	}
+	return err
 }
 
 // reasoningFromRaw pulls OpenAI-compatible reasoning text from a stream delta's
@@ -268,7 +285,7 @@ func (c *Client) complete(ctx context.Context, msgs []Message, maxTokens int64) 
 
 	res, err := c.api.Chat.Completions.New(ctx, params)
 	if err != nil {
-		return "", err
+		return "", classifyErr(err)
 	}
 	if len(res.Choices) == 0 {
 		return "", fmt.Errorf("empty completion")

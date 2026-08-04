@@ -2,8 +2,13 @@ package ai
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
 	"strings"
 	"testing"
+
+	"github.com/openai/openai-go/v3"
 )
 
 func TestReasoningFromRaw(t *testing.T) {
@@ -29,6 +34,29 @@ func TestReasoningFromRaw(t *testing.T) {
 				t.Fatalf("reasoningFromRaw(%q) = %q, want %q", tt.raw, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestClassifyErr(t *testing.T) {
+	got := classifyErr(&openai.Error{StatusCode: http.StatusUnauthorized})
+	if !errors.Is(got, ErrAuth) {
+		t.Fatalf("401: got %v", got)
+	}
+	if got.Error() == ErrAuth.Error() {
+		t.Fatal("401 must wrap provider detail, not replace it")
+	}
+	// 403 (e.g. entitlement) is not an auth-refresh case.
+	if got := classifyErr(&openai.Error{StatusCode: http.StatusForbidden}); errors.Is(got, ErrAuth) {
+		t.Fatal("403 must not classify as ErrAuth")
+	}
+	plain := errors.New("boom")
+	if got := classifyErr(plain); got != plain {
+		t.Fatalf("plain error: got %v", got)
+	}
+	// Wrapped SDK errors still classify.
+	wrapped := fmt.Errorf("stream: %w", &openai.Error{StatusCode: http.StatusUnauthorized})
+	if got := classifyErr(wrapped); !errors.Is(got, ErrAuth) {
+		t.Fatalf("wrapped 401: got %v", got)
 	}
 }
 

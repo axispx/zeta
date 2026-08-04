@@ -2,56 +2,21 @@
 package oauth
 
 import (
-	"crypto/rand"
-	"crypto/sha256"
-	"encoding/base64"
 	"errors"
-	"fmt"
-	"io"
 )
 
 // Device-code polling signals from the token endpoint.
 var (
 	ErrAuthorizationPending = errors.New("authorization_pending")
 	ErrSlowDown             = errors.New("slow_down")
-	ErrPasteClosed          = errors.New("oauth paste closed")
+	// ErrInvalidGrant means the refresh token was rejected/consumed and the
+	// user must sign in again.
+	ErrInvalidGrant = errors.New("oauth grant rejected")
 )
 
 // Supports reports whether providerID has an OAuth login path.
 func Supports(providerID string) bool {
 	return providerID == "xai"
-}
-
-// PkceCodes holds the verifier and challenge for a PKCE exchange.
-type PkceCodes struct {
-	Verifier  string
-	Challenge string
-	Method    string // always "S256"
-}
-
-// GeneratePKCE creates a new PKCE verifier and its S256 challenge.
-func GeneratePKCE() (*PkceCodes, error) {
-	raw := make([]byte, 32)
-	if _, err := io.ReadFull(rand.Reader, raw); err != nil {
-		return nil, fmt.Errorf("pkce rand: %w", err)
-	}
-	verifier := base64.RawURLEncoding.EncodeToString(raw)
-	sum := sha256.Sum256([]byte(verifier))
-	challenge := base64.RawURLEncoding.EncodeToString(sum[:])
-	return &PkceCodes{
-		Verifier:  verifier,
-		Challenge: challenge,
-		Method:    "S256",
-	}, nil
-}
-
-// GenerateState returns a random URL-safe string for OAuth state / nonce.
-func GenerateState() string {
-	raw := make([]byte, 16)
-	if _, err := rand.Read(raw); err != nil {
-		panic("rand.Read: " + err.Error())
-	}
-	return base64.RawURLEncoding.EncodeToString(raw)
 }
 
 // TokenResponse is the OAuth token endpoint response.

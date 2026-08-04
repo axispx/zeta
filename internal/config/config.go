@@ -28,8 +28,14 @@ type ModeDefaults struct {
 type OAuthCredential struct {
 	AccessToken  string `json:"access_token"`
 	RefreshToken string `json:"refresh_token"`
-	ExpiresAt    int64  `json:"expires_at"` // unix millis
-	TokenType    string `json:"token_type"` // "bearer"
+	// ExpiresAt is unix millis. New tokens always get a concrete expiry
+	// (provider expires_in, or oauthDefaultTTLMs when omitted). 0 is legacy
+	// "unknown" and skips proactive refresh — RecoverOAuth handles 401s.
+	ExpiresAt int64  `json:"expires_at"`
+	TokenType string `json:"token_type"` // "bearer"
+	// RefreshFailed marks a refresh token rejected by the provider
+	// (invalid_grant). Refresh short-circuits until the user signs in again.
+	RefreshFailed bool `json:"refresh_failed,omitempty"`
 }
 
 // Provider is an OpenAI-compatible API endpoint. The map key is the provider id.
@@ -132,16 +138,7 @@ func Load() (Config, error) {
 	if path == "" {
 		return Config{}, fmt.Errorf("cannot resolve config path")
 	}
-
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return Config{}, nil
-		}
-		return Config{}, fmt.Errorf("read config: %w", err)
-	}
-
-	cfg, err := parseConfig(data)
+	cfg, err := readConfigFile(path)
 	if err != nil {
 		return Config{}, err
 	}
@@ -149,6 +146,19 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	return cfg, nil
+}
+
+// readConfigFile parses path. Missing file returns empty Config.
+// Does not Validate — callers that need it must check.
+func readConfigFile(path string) (Config, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return Config{}, nil
+		}
+		return Config{}, fmt.Errorf("read config: %w", err)
+	}
+	return parseConfig(data)
 }
 
 func parseConfig(data []byte) (Config, error) {
@@ -168,14 +178,22 @@ func parseConfig(data []byte) (Config, error) {
 	return cfg, nil
 }
 
-// Save writes the config to disk.
+// Save writes the config to disk (atomic replace under the config file lock).
 func (c Config) Save() error {
-	if err := c.Validate(); err != nil {
-		return err
-	}
 	path := Path()
 	if path == "" {
 		return fmt.Errorf("cannot resolve config path")
+	}
+	return withConfigFileLock(path, func() error {
+		return c.saveUnlocked(path)
+	})
+}
+
+// saveUnlocked validates and atomically writes path. Caller must hold the
+// config file lock when concurrent writers are possible.
+func (c Config) saveUnlocked(path string) error {
+	if err := c.Validate(); err != nil {
+		return err
 	}
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -186,7 +204,12 @@ func (c Config) Save() error {
 		return fmt.Errorf("marshal config: %w", err)
 	}
 	data = append(data, '\n')
-	if err := os.WriteFile(path, data, 0o600); err != nil {
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+		return fmt.Errorf("write config: %w", err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
 		return fmt.Errorf("write config: %w", err)
 	}
 	return nil

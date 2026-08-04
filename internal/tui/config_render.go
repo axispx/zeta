@@ -192,24 +192,6 @@ func (d configDialog) authBody(innerW int, chrome styles.Chrome, ink styles.Over
 	b.WriteString(configEscTitle(title, innerW, ink))
 	b.WriteByte('\n')
 	if d.oauth != nil {
-		if d.oauth.browser() {
-			footer = DialogFooter{Hint: strings.Join([]string{
-				ink.HintKbd("Submit", "enter"),
-				ink.HintKbd("Cancel", "esc"),
-			}, ink.Gap.Render("  "))}
-			b.WriteString(ink.Hint.Render("Copy the code from the browser, paste below, then enter"))
-			b.WriteString("\n\n")
-			label := "Code"
-			labelW := lipgloss.Width(label)
-			inputW := innerW - labelW - 2
-			if inputW < 10 {
-				inputW = 10
-			}
-			b.WriteString(ink.Selected.Width(labelW).Render(label))
-			b.WriteString(ink.Gap.Render("  "))
-			b.WriteString(formFieldView(d.oauth.pasteIn, inputW, chrome.Input, true))
-			return b.String(), footer
-		}
 		// Device-code flow: clickable verification URL + user code.
 		footer = DialogFooter{Hint: ink.HintKbd("Cancel", "esc")}
 		b.WriteString(ink.Hint.Render("Waiting for device authorization…"))

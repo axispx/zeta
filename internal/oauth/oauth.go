@@ -16,63 +16,6 @@ const userAgent = "zeta/oauth"
 
 var httpClient = &http.Client{Timeout: 30 * time.Second}
 
-// BrowserFlowOptions configures BrowserFlow.
-type BrowserFlowOptions struct {
-	OpenBrowser func(string) error
-	Statusf     func(string, ...any)
-	// Paste receives the authorization code from the provider's "copy this code"
-	// screen (or a full redirect URL / query string containing code=).
-	Paste <-chan string
-}
-
-// ParseAuthPaste extracts code (and optional state) from a pasted auth code
-// or callback URL / query string.
-func ParseAuthPaste(s string) (code, state string, err error) {
-	s = strings.TrimSpace(s)
-	s = strings.Trim(s, "\"'")
-	if s == "" {
-		return "", "", fmt.Errorf("empty paste")
-	}
-	if strings.Contains(s, "code=") {
-		raw := s
-		switch {
-		case strings.Contains(raw, "://"):
-			// full URL
-		case strings.HasPrefix(raw, "?"):
-			raw = "http://127.0.0.1/callback" + raw
-		case strings.HasPrefix(raw, "/"):
-			raw = "http://127.0.0.1" + raw
-		default:
-			raw = "http://127.0.0.1/callback?" + raw
-		}
-		u, err := url.Parse(raw)
-		if err != nil {
-			return "", "", fmt.Errorf("parse paste url: %w", err)
-		}
-		code = u.Query().Get("code")
-		state = u.Query().Get("state")
-		if code == "" {
-			return "", "", fmt.Errorf("paste url missing code")
-		}
-		return code, state, nil
-	}
-	// Raw authorization code from the provider's paste screen.
-	if strings.ContainsAny(s, " \t\n\r") {
-		return "", "", fmt.Errorf("paste looks like text, not an auth code")
-	}
-	return s, "", nil
-}
-
-// BrowserFlow runs provider browser OAuth + PKCE (paste-code completion).
-func BrowserFlow(ctx context.Context, providerID string, opts BrowserFlowOptions) (*TokenResponse, error) {
-	switch providerID {
-	case "xai":
-		return xaiBrowserFlow(ctx, opts)
-	default:
-		return nil, fmt.Errorf("oauth browser flow not supported for provider %q", providerID)
-	}
-}
-
 // StartDevice begins RFC 8628 device authorization for providerID.
 func StartDevice(ctx context.Context, providerID string) (DeviceCode, error) {
 	switch providerID {
@@ -101,95 +44,6 @@ func Refresh(ctx context.Context, providerID, refreshToken string) (*TokenRespon
 	default:
 		return nil, fmt.Errorf("oauth refresh not supported for provider %q", providerID)
 	}
-}
-
-func xaiBrowserFlow(ctx context.Context, opts BrowserFlowOptions) (*TokenResponse, error) {
-	if opts.Paste == nil {
-		return nil, fmt.Errorf("paste channel required")
-	}
-	if opts.OpenBrowser == nil {
-		return nil, fmt.Errorf("openBrowser required")
-	}
-
-	pkce, err := GeneratePKCE()
-	if err != nil {
-		return nil, err
-	}
-	state := GenerateState()
-	nonce := GenerateState()
-
-	// plan=generic is required for non-allowlisted clients.
-	// redirect_uri must match the registered Grok client even though we don't listen.
-	params := url.Values{
-		"response_type":         {"code"},
-		"client_id":             {XaiClientID},
-		"redirect_uri":          {XaiRedirectURI},
-		"scope":                 {XaiScope},
-		"code_challenge":        {pkce.Challenge},
-		"code_challenge_method": {pkce.Method},
-		"state":                 {state},
-		"nonce":                 {nonce},
-		"plan":                  {"generic"},
-		"referrer":              {"zeta"},
-	}
-	authURL := XaiAuthorizeURL + "?" + params.Encode()
-
-	if opts.Statusf != nil {
-		opts.Statusf("Opening browser…")
-	}
-	if err := opts.OpenBrowser(authURL); err != nil {
-		return nil, fmt.Errorf("open browser: %w\nopen manually: %s", err, authURL)
-	}
-	if opts.Statusf != nil {
-		opts.Statusf("Allow access, then paste the code here")
-	}
-
-	var code string
-	for {
-		select {
-		case pasted, ok := <-opts.Paste:
-			if !ok {
-				return nil, ErrPasteClosed
-			}
-			c, st, err := ParseAuthPaste(pasted)
-			if err != nil {
-				if opts.Statusf != nil {
-					opts.Statusf("Invalid paste: %v — try again", err)
-				}
-				continue
-			}
-			if st != "" && st != state {
-				if opts.Statusf != nil {
-					opts.Statusf("oauth state mismatch — try again")
-				}
-				continue
-			}
-			code = c
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		}
-		break
-	}
-
-	if opts.Statusf != nil {
-		opts.Statusf("Exchanging authorization code…")
-	}
-	tok, err := exchangeCode(ctx, pkce.Verifier, code)
-	if err != nil {
-		return nil, fmt.Errorf("token exchange: %w", err)
-	}
-	return tok, nil
-}
-
-func exchangeCode(ctx context.Context, codeVerifier, code string) (*TokenResponse, error) {
-	form := url.Values{
-		"grant_type":    {"authorization_code"},
-		"code":          {code},
-		"redirect_uri":  {XaiRedirectURI},
-		"client_id":     {XaiClientID},
-		"code_verifier": {codeVerifier},
-	}
-	return tokenRequest(ctx, XaiTokenURL, form)
 }
 
 func tokenRequest(ctx context.Context, tokenURL string, form url.Values) (*TokenResponse, error) {
@@ -224,6 +78,8 @@ func tokenRequest(ctx context.Context, tokenURL string, form url.Values) (*Token
 			return nil, ErrAuthorizationPending
 		case "slow_down":
 			return nil, ErrSlowDown
+		case "invalid_grant":
+			return nil, ErrInvalidGrant
 		default:
 			return nil, fmt.Errorf("token endpoint error: %s", tok.Error)
 		}

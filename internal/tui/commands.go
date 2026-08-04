@@ -492,6 +492,7 @@ func (m *Model) handleOverlayKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 // Overlay commits are handled in handleOverlayKey before this runs.
 // Empty Enter delivers the queue head now (interrupts a live turn when busy).
 func (m *Model) submitInput() tea.Cmd {
+	// Compact blocks all submit; auth recover queues like a live turn.
 	if m.compacting {
 		return nil
 	}
@@ -502,6 +503,10 @@ func (m *Model) submitInput() tea.Cmd {
 		if m.editID != 0 {
 			return nil
 		}
+		// Do not interrupt/replace an in-flight OAuth recover.
+		if m.authRetrying {
+			return nil
+		}
 		return m.drainNextQueuedPrompt()
 	}
 	// Saving an open follow-up beats slash / turn routing.
@@ -509,7 +514,7 @@ func (m *Model) submitInput() tea.Cmd {
 		m.saveEdit(text, imgs)
 		return nil
 	}
-	if m.turn == nil && text == ":q" { // vim
+	if m.turn == nil && !m.authRetrying && text == ":q" { // vim
 		return m.requestQuit()
 	}
 
@@ -519,21 +524,22 @@ func (m *Model) submitInput() tea.Cmd {
 			return m.submitHarnessSlash(text, imgs)
 		}
 	}
-	// Mid-turn: queue for later. Send-now is empty Enter / queue-focus Enter.
-	if m.turn != nil {
+	// Mid-turn / OAuth recover: queue for later. Send-now is empty Enter /
+	// queue-focus Enter (blocked while authRetrying).
+	if m.turn != nil || m.authRetrying {
 		return m.enqueuePrompt(text, imgs)
 	}
 	return m.submit(text, imgs)
 }
 
 // submitHarnessSlash runs a non-skill slash command, or rejects it when idle.
-// Mid-turn, all harness/unknown slashes are swallowed (no queue, no side effects).
+// Mid-turn / OAuth recover: all harness/unknown slashes are swallowed.
 func (m *Model) submitHarnessSlash(text string, imgs []image.Ref) tea.Cmd {
 	if len(imgs) > 0 {
 		m.noteSystem("slash commands cannot include images")
 		return nil
 	}
-	if m.turn != nil {
+	if m.turn != nil || m.authRetrying {
 		return nil
 	}
 	if c, ok := lookupCommand(text); ok && !c.skill {

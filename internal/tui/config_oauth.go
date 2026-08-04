@@ -5,9 +5,7 @@ import (
 	"errors"
 	"os/exec"
 	"runtime"
-	"strings"
 
-	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/axispx/zeta/internal/config"
@@ -17,8 +15,7 @@ import (
 type authMethodKind int
 
 const (
-	authBrowser authMethodKind = iota
-	authDevice
+	authDevice authMethodKind = iota
 	authAPIKey
 )
 
@@ -30,8 +27,7 @@ type authMethodRow struct {
 
 func authMethodRows() []authMethodRow {
 	return []authMethodRow{
-		{authBrowser, "Browser login", "paste code from browser"},
-		{authDevice, "Device code", "headless / remote"},
+		{authDevice, "OAuth", "sign in with your account"},
 		{authAPIKey, "API Key", "paste key"},
 	}
 }
@@ -42,13 +38,9 @@ type oauthSession struct {
 	gen       int
 	ctx       context.Context
 	cancel    context.CancelFunc
-	paste     chan string // browser flow only
-	pasteIn   textinput.Model
 	verifyURL string
 	userCode  string
 }
-
-func (s *oauthSession) browser() bool { return s != nil && s.paste != nil }
 
 type oauthDeviceMsg struct {
 	gen    int
@@ -91,29 +83,14 @@ func (d *configDialog) cancelOAuth() {
 	if d.oauth.cancel != nil {
 		d.oauth.cancel()
 	}
-	if d.oauth.paste != nil {
-		close(d.oauth.paste)
-	}
 	d.oauth = nil
 }
 
 func (d *configDialog) handleAuthKey(msg tea.KeyPressMsg) tea.Cmd {
 	if d.oauth != nil {
-		switch msg.String() {
-		case "esc":
+		if msg.String() == "esc" {
 			d.cancelOAuth()
 			d.status = "OAuth cancelled"
-			return nil
-		case "enter":
-			if d.oauth.browser() {
-				return d.submitOAuthPaste()
-			}
-			return nil
-		}
-		if d.oauth.browser() {
-			var cmd tea.Cmd
-			d.oauth.pasteIn, cmd = d.oauth.pasteIn.Update(msg)
-			return cmd
 		}
 		return nil
 	}
@@ -144,32 +121,11 @@ func (d *configDialog) handleAuthKey(msg tea.KeyPressMsg) tea.Cmd {
 	return nil
 }
 
-func (d *configDialog) submitOAuthPaste() tea.Cmd {
-	if d.oauth == nil || !d.oauth.browser() {
-		return nil
-	}
-	text := strings.TrimSpace(d.oauth.pasteIn.Value())
-	if text == "" {
-		d.status = "Paste the code from the browser first"
-		return nil
-	}
-	select {
-	case d.oauth.paste <- text:
-		d.status = "Exchanging code… (esc to cancel)"
-		d.oauth.pasteIn.Blur()
-	default:
-		d.status = "Already submitting…"
-	}
-	return nil
-}
-
 func (d *configDialog) activateAuthMethod(row authMethodRow) tea.Cmd {
 	switch row.kind {
 	case authAPIKey:
 		d.openAPIKeyForm(d.focusID)
 		return nil
-	case authBrowser:
-		return d.startBrowserOAuth()
 	case authDevice:
 		return d.startDeviceOAuth()
 	}
@@ -183,25 +139,6 @@ func (d *configDialog) beginOAuth() (gen int, ctx context.Context) {
 	ctx, cancel := context.WithCancel(context.Background())
 	d.oauth = &oauthSession{gen: gen, ctx: ctx, cancel: cancel}
 	return gen, ctx
-}
-
-func (d *configDialog) startBrowserOAuth() tea.Cmd {
-	gen, ctx := d.beginOAuth()
-	paste := make(chan string, 1)
-	in := newFormInput("paste authorization code…", false)
-	in.Focus()
-	d.oauth.paste = paste
-	d.oauth.pasteIn = in
-	d.status = "Opening browser… (esc to cancel)"
-	providerID := d.focusID
-
-	return func() tea.Msg {
-		tok, err := oauth.BrowserFlow(ctx, providerID, oauth.BrowserFlowOptions{
-			OpenBrowser: openBrowser,
-			Paste:       paste,
-		})
-		return oauthDoneMsg{gen: gen, tok: tok, err: err}
-	}
 }
 
 func (d *configDialog) startDeviceOAuth() tea.Cmd {
@@ -245,10 +182,10 @@ func (d *configDialog) handleOAuthDone(msg oauthDoneMsg) tea.Cmd {
 }
 
 func (d *configDialog) finishOAuth(tok *oauth.TokenResponse, err error) tea.Cmd {
-	// Flow finished — drop session without cancel/close (Cmd already returned).
+	// Flow finished — drop session without cancel (Cmd already returned).
 	d.oauth = nil
 	if err != nil {
-		if errors.Is(err, context.Canceled) || errors.Is(err, oauth.ErrPasteClosed) {
+		if errors.Is(err, context.Canceled) {
 			d.status = "OAuth cancelled"
 			return nil
 		}
