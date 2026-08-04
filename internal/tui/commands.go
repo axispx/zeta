@@ -33,6 +33,7 @@ var builtinCommands = []command{
 	{name: "/resume", desc: "open a previous session"},
 	{name: "/model", desc: "switch model"},
 	{name: "/config", desc: "manage providers & models"},
+	{name: "/update", desc: "update to latest version"},
 }
 
 // commands is builtins plus slash-bound bundled skills (init-time, fixed).
@@ -310,6 +311,8 @@ func (m *Model) runCommand(name string) tea.Cmd {
 		m.openModelOverlay()
 	case "/config":
 		return m.openConfigDialog()
+	case "/update":
+		return m.startUpdate()
 	}
 	return nil
 }
@@ -492,8 +495,8 @@ func (m *Model) handleOverlayKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 // Overlay commits are handled in handleOverlayKey before this runs.
 // Empty Enter delivers the queue head now (interrupts a live turn when busy).
 func (m *Model) submitInput() tea.Cmd {
-	// Compact blocks all submit; auth recover queues like a live turn.
-	if m.compacting {
+	// Exclusive jobs block all submit; auth recover queues like a live turn.
+	if m.exclusiveJob() {
 		return nil
 	}
 

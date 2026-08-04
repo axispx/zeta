@@ -102,6 +102,7 @@ Type `/` for autocomplete.
 | `/resume`  | Open a previous session                          |
 | `/model`   | Switch model                                     |
 | `/config`  | Manage providers and models                      |
+| `/update`  | Update to the latest release                     |
 | `/review`  | Strict code-quality review of the current branch |
 
 Long sessions compact automatically when context runs low; `/compact` does the same on demand.

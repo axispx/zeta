@@ -83,6 +83,28 @@ func TestTryInterruptCancelsCompact(t *testing.T) {
 	}
 }
 
+func TestTryInterruptCancelsUpdate(t *testing.T) {
+	m := testModel()
+	m.updating = true
+	cancelled := false
+	m.updateCancel = func() { cancelled = true }
+	if !m.tryInterrupt() {
+		t.Fatal("expected interrupt")
+	}
+	if !cancelled {
+		t.Fatal("update not cancelled")
+	}
+	if m.updateCancel != nil {
+		t.Fatal("updateCancel should be nil after cancelUpdate")
+	}
+	if m.updating {
+		t.Fatal("updating should clear immediately on cancel")
+	}
+	if n := len(m.messages); n == 0 || m.messages[n-1].Text != updateCancelledText {
+		t.Fatalf("messages=%+v", m.messages)
+	}
+}
+
 func TestTryInterruptPriorityConfigOverTurn(t *testing.T) {
 	m := testModel()
 	turnCancelled := false

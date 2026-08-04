@@ -37,9 +37,15 @@ type compactDoneMsg struct {
 	titlePrompt string // first-user-prompt title seed when kind == compactAuto
 }
 
-// busy reports whether a turn or compaction is in flight.
+// exclusiveJob freezes the composer while compact or self-update runs.
+// Auth recover is busy but still accepts queue input — not exclusive.
+func (m *Model) exclusiveJob() bool {
+	return m.compacting || m.updating
+}
+
+// busy reports whether a turn, exclusive job, or auth recover is in flight.
 func (m *Model) busy() bool {
-	return m.turn != nil || m.compacting || m.authRetrying
+	return m.turn != nil || m.exclusiveJob() || m.authRetrying
 }
 
 // compactConfig builds thresholds from the active model and prompt overhead.

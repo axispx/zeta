@@ -63,6 +63,8 @@ type Model struct {
 	authRetrying  bool // true while RecoverOAuth runs after a 401 (keeps busy())
 	compacting    bool // true while a compact LLM call is in flight (manual or auto)
 	compactCancel context.CancelFunc
+	updating      bool // true while /update downloads a release binary
+	updateCancel  context.CancelFunc
 	mode          prompt.Mode
 	grants        *permission.Session // "allow for session" (bash only); reset on /clear
 	todos         *todo.Store         // session checklist; non-nil after New/applySession
@@ -230,7 +232,7 @@ func (m *Model) syncTextareaStyles() {
 }
 
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(textarea.Blink, tea.RequestBackgroundColor)
+	return tea.Batch(textarea.Blink, tea.RequestBackgroundColor, checkUpdateCmd())
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -280,6 +282,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case compactDoneMsg:
 		return m, m.handleCompactDone(msg)
+
+	case updateDoneMsg:
+		return m, m.handleUpdateDone(msg)
+
+	case updateAvailableMsg:
+		m.handleUpdateAvailable(msg)
+		return m, nil
 
 	case authRetryResultMsg:
 		return m, m.handleAuthRetryResult(msg)
@@ -337,7 +346,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.handleSelectionMouse(msg) // cancel drag; fall through to viewport scroll
 
 	case tea.PasteMsg:
-		if m.config.active || m.picker.active || m.inputBlocked() || m.compacting {
+		if m.config.active || m.picker.active || m.inputBlocked() || m.exclusiveJob() {
 			break
 		}
 		// Path attach only; plain text falls through to the textarea.
@@ -377,8 +386,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.tryInterrupt()
 			return m, nil
-		case m.compacting:
-			// Block input while compaction runs (result arrives via compactDoneMsg).
+		case m.exclusiveJob():
+			// Block input while compact / self-update runs.
 			return m, nil
 		case msg.String() == "ctrl+q":
 			if m.toggleQueueFocus() {
@@ -445,9 +454,9 @@ func (m *Model) submit(text string, imgs []image.Ref) tea.Cmd {
 		m.noteError("no provider configured, run /config to connect one")
 		return nil
 	}
-	// Compact / OAuth recover own the busy slot — callers should queue or
-	// no-op first; this is the last line of defense against a competing turn.
-	if m.compacting || m.authRetrying {
+	// Exclusive jobs / OAuth recover own the busy slot — callers should queue
+	// or no-op first; this is the last line of defense against a competing turn.
+	if m.exclusiveJob() || m.authRetrying {
 		return nil
 	}
 	if err := m.ensureFreshClient(); err != nil {
@@ -535,6 +544,7 @@ func firstUserPrompt(msgs []Message) string {
 func (m *Model) requestQuit() tea.Cmd {
 	m.finishTurn()
 	m.cancelCompact()
+	m.cancelUpdate()
 	m.cancelAuthRetry()
 	return m.quit()
 }

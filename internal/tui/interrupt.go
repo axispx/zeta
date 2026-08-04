@@ -6,7 +6,7 @@ import tea "charm.land/bubbletea/v2"
 const turnCancelledText = "Cancelled"
 
 // tryInterrupt cancels the topmost interruptible UI/work state.
-// Order: config → picker → bottom panel → overlays → compact → turn.
+// Order: config → picker → bottom panel → overlays → compact → update → turn.
 // Returns true when something was interrupted (Ctrl+C should not quit yet).
 func (m *Model) tryInterrupt() bool {
 	switch {
@@ -26,6 +26,11 @@ func (m *Model) tryInterrupt() bool {
 		return true
 	case m.compacting:
 		m.cancelCompact()
+		return true
+	case m.updating:
+		// Busy clears immediately; late updateDoneMsg is ignored.
+		m.cancelUpdate()
+		m.noteSystem(updateCancelledText)
 		return true
 	case m.authRetrying:
 		// Recover cmd still completes; result handler installs creds, no restart.

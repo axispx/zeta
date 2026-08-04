@@ -45,6 +45,9 @@ func TestLookupCommand(t *testing.T) {
 	if _, ok := lookupCommand("/config"); !ok {
 		t.Fatal("expected /config")
 	}
+	if _, ok := lookupCommand("/update"); !ok {
+		t.Fatal("expected /update")
+	}
 	if _, ok := lookupCommand("/review"); !ok {
 		t.Fatal("expected /review skill slash")
 	}

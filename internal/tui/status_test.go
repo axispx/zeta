@@ -23,6 +23,12 @@ func TestBusyLabel(t *testing.T) {
 	}
 	m.compacting = false
 
+	m.updating = true
+	if got := m.busyLabel(); got != statusUpdating {
+		t.Fatalf("updating = %q, want %q", got, statusUpdating)
+	}
+	m.updating = false
+
 	m.turn = &turnSession{streaming: false, activeTool: -1}
 	if got := m.busyLabel(); got != statusWaiting {
 		t.Fatalf("pre-delta = %q, want %q", got, statusWaiting)
