@@ -114,27 +114,55 @@ func Run(ctx context.Context, ts []Tool, root, name string, args json.RawMessage
 	return limitToolOutput(out)
 }
 
-// resolvePath joins root with a relative path and rejects escapes.
-func resolvePath(root, path string) (string, error) {
+// resolvePath joins root with a relative path and returns the cleaned absolute
+// path plus whether it escapes the workspace root. Escapes are allowed; the
+// caller decides how to gate them (see resolveConfinedPath for search tools).
+func resolvePath(root, path string) (abs string, outside bool, err error) {
 	path = strings.TrimSpace(path)
 	if path == "" {
-		return "", fmt.Errorf("path is required")
+		return "", false, fmt.Errorf("path is required")
 	}
 	rootAbs, err := filepath.Abs(root)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
-	var abs string
 	if filepath.IsAbs(path) {
 		abs = filepath.Clean(path)
 	} else {
 		abs = filepath.Clean(filepath.Join(rootAbs, path))
 	}
 	rel, err := filepath.Rel(rootAbs, abs)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+	if err != nil {
+		// Different volumes / non-comparable roots: treat as outside.
+		return abs, true, nil
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return abs, true, nil
+	}
+	return abs, false, nil
+}
+
+// resolveConfinedPath is resolvePath plus a workspace-escape rejection. Used by
+// tools that must stay inside the workspace (grep/glob targets, bash workdir).
+func resolveConfinedPath(root, path string) (string, error) {
+	abs, outside, err := resolvePath(root, path)
+	if err != nil {
+		return "", err
+	}
+	if outside {
 		return "", fmt.Errorf("path %q is outside the workspace", path)
 	}
 	return abs, nil
+}
+
+// OutsideWorkspace reports whether a path argument escapes root. The harness
+// uses it to flag out-of-tree edits in the approval prompt.
+func OutsideWorkspace(root, path string) bool {
+	if strings.TrimSpace(path) == "" {
+		return false
+	}
+	_, outside, err := resolvePath(root, path)
+	return err == nil && outside
 }
 
 // displayPath returns path relative to root when possible.

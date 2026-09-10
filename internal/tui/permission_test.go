@@ -11,6 +11,7 @@ import (
 	"github.com/axispx/zeta/internal/agent"
 	"github.com/axispx/zeta/internal/permission"
 	"github.com/axispx/zeta/internal/prompt"
+	"github.com/axispx/zeta/internal/workspace"
 )
 
 func TestHandlePermissionKey(t *testing.T) {
@@ -424,6 +425,33 @@ func TestEditAlwaysPromptsEvenAfterBashGrant(t *testing.T) {
 	case <-replies:
 		t.Fatal("should wait for human")
 	default:
+	}
+}
+
+func TestEditOutsideWorkspacePromptFlagsOutside(t *testing.T) {
+	replies := make(chan agent.Reply, 1)
+	m := testModel()
+	m.ws = workspace.Context{Abs: t.TempDir()}
+	m.turn = &turnSession{
+		activeTool: -1,
+		ch:         make(chan agent.Event),
+		reply:      replies,
+		cancel:     func() {},
+	}
+	_ = m.handleTurnToolStart(turnToolStartMsg{name: tools.Edit, label: "edit ../x.txt", path: "../x.txt"})
+	if m.bottom.perm == nil || !m.bottom.perm.outside {
+		t.Fatalf("outside edit must flag prompt: %+v", m.bottom.perm)
+	}
+	if view := m.renderPermission(80); !strings.Contains(view, "outside workspace") {
+		t.Fatalf("prompt must show outside marker: %s", view)
+	}
+
+	_ = m.handleTurnToolStart(turnToolStartMsg{name: tools.Edit, label: "edit a.go", path: "a.go"})
+	if m.bottom.perm == nil || m.bottom.perm.outside {
+		t.Fatalf("in-tree edit must not be flagged: %+v", m.bottom.perm)
+	}
+	if view := m.renderPermission(80); strings.Contains(view, "outside workspace") {
+		t.Fatalf("in-tree prompt must not show marker: %s", view)
 	}
 }
 

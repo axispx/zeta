@@ -6,6 +6,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/axispx/zeta/internal/prompt"
+	"github.com/axispx/zeta/internal/tools"
 )
 
 // dispatchTurnMsg routes live turn events. Returns (cmd, true) when msg was a
@@ -153,7 +154,9 @@ func (m *Model) handleTurnToolStart(msg turnToolStartMsg) tea.Cmd {
 	case waitInteractive:
 		m.openInteractiveTool(msg.name, msg.args)
 	case waitPermission:
-		m.bottom.setPerm(newPermissionPrompt(label, msg.name, msg.path))
+		p := newPermissionPrompt(label, msg.name, msg.path)
+		p.outside = tools.OutsideWorkspace(m.ws.Abs, msg.path)
+		m.bottom.setPerm(p)
 		m.afterSetBottom()
 	}
 	return waitTurn(m.turn)

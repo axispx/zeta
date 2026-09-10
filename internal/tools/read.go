@@ -16,7 +16,8 @@ const Read = "read"
 
 func (readTool) Name() string { return Read }
 func (readTool) Description() string {
-	return "Read a file or list a directory from the workspace. " +
+	return "Read a file or list a directory. " +
+		"Paths are relative to the workspace root; absolute paths and ../ escapes are allowed and read anywhere. " +
 		"For directories, returns immediate children (one per line; trailing / for subdirs). " +
 		"For files, optionally slice by 1-based line offset and limit."
 }
@@ -26,7 +27,7 @@ func (readTool) Parameters() map[string]any {
 		"properties": map[string]any{
 			"path": map[string]any{
 				"type":        "string",
-				"description": "Path relative to the workspace root (file or directory)",
+				"description": "Path relative to the workspace root. Absolute paths and ../ escapes are allowed; edits outside the workspace still require approval.",
 			},
 			"offset": map[string]any{
 				"type":        "integer",
@@ -64,7 +65,7 @@ func (readTool) Run(ctx context.Context, root string, raw json.RawMessage) (stri
 	if err := json.Unmarshal(raw, &args); err != nil {
 		return "", fmt.Errorf("invalid arguments: %w", err)
 	}
-	abs, err := resolvePath(root, args.Path)
+	abs, _, err := resolvePath(root, args.Path)
 	if err != nil {
 		return "", err
 	}

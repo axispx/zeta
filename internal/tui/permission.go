@@ -47,10 +47,11 @@ func permOptionRows(tool string) []optionRow {
 // Diff/command payloads live on the active transcript tool row (Message.Out /
 // label), not in this panel. Decisions go through turnSession.reply (harness-owned).
 type permissionPrompt struct {
-	label string
-	name  string
-	path  string
-	list  optionList
+	label   string
+	name    string
+	path    string
+	outside bool // path escapes the workspace root
+	list    optionList
 }
 
 func newPermissionPrompt(label, name, path string) *permissionPrompt {
@@ -200,6 +201,9 @@ func (m Model) renderPermissionTitle(contentW int, ink styles.OverlayInk) string
 		}
 		if p.path != "" {
 			line = ink.Header.Render(verb) + ink.Gap.Render(styles.DiffFile.Render(p.path))
+			if p.outside {
+				line += ink.Gap.Render(styles.OutsideWarn.Render(" (outside workspace)"))
+			}
 		} else {
 			line = ink.Header.Render(strings.TrimSpace(verb) + " file")
 		}

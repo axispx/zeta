@@ -33,7 +33,7 @@ func resolveSearchPath(root, path string) (string, error) {
 	if strings.TrimSpace(path) == "" {
 		return root, nil
 	}
-	return resolvePath(root, path)
+	return resolveConfinedPath(root, path)
 }
 
 // resolveSearchDir is resolveSearchPath plus a directory check when path is set

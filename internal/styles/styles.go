@@ -94,6 +94,9 @@ var (
 	FollowUpsHeader = lipgloss.NewStyle().Bold(true).Foreground(Yellow)
 	FollowUpsHint   = lipgloss.NewStyle().Foreground(Dim).Faint(true)
 
+	// OutsideWarn flags a path outside the workspace in permission prompts.
+	OutsideWarn = lipgloss.NewStyle().Bold(true).Foreground(Yellow)
+
 	// Overlay / accent-list rows (command palette, model overlay, session picker).
 	// OverlayRow uses default terminal fg (same as input text).
 	OverlayRow         = lipgloss.NewStyle()

@@ -25,7 +25,7 @@ func (writeTool) Parameters() map[string]any {
 		"properties": map[string]any{
 			"path": map[string]any{
 				"type":        "string",
-				"description": "Path relative to the workspace root",
+				"description": "Path relative to the workspace root. Absolute paths and ../ escapes are allowed; writes outside the workspace still require approval.",
 			},
 			"content": map[string]any{
 				"type":        "string",
@@ -53,7 +53,7 @@ type writeArgs struct {
 }
 
 func planWrite(root string, args writeArgs) (fileChange, error) {
-	abs, err := resolvePath(root, args.Path)
+	abs, _, err := resolvePath(root, args.Path)
 	if err != nil {
 		return fileChange{}, err
 	}

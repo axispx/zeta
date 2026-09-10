@@ -15,16 +15,74 @@ import (
 
 func TestResolvePath(t *testing.T) {
 	root := t.TempDir()
-	abs, err := resolvePath(root, "foo/bar.go")
+	abs, outside, err := resolvePath(root, "foo/bar.go")
 	if err != nil {
 		t.Fatal(err)
+	}
+	if outside {
+		t.Fatal("in-tree path reported outside")
 	}
 	want := filepath.Join(root, "foo", "bar.go")
 	if abs != want {
 		t.Fatalf("got %q want %q", abs, want)
 	}
-	if _, err := resolvePath(root, "../outside"); err == nil {
-		t.Fatal("expected escape error")
+
+	esc, outside, err := resolvePath(root, "../outside")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !outside {
+		t.Fatalf("escape not flagged: %q", esc)
+	}
+	if _, err := resolveConfinedPath(root, "../outside"); err == nil {
+		t.Fatal("expected escape error from resolveConfinedPath")
+	}
+}
+
+func TestOutsideWorkspace(t *testing.T) {
+	root := t.TempDir()
+	inside := filepath.Join(root, "a", "b.txt")
+	if OutsideWorkspace(root, "a/b.txt") || OutsideWorkspace(root, inside) {
+		t.Fatal("in-tree paths must not be flagged")
+	}
+	if !OutsideWorkspace(root, "../b.txt") || !OutsideWorkspace(root, filepath.Join(root, "..", "b.txt")) {
+		t.Fatal("escapes must be flagged")
+	}
+	if OutsideWorkspace(root, "") {
+		t.Fatal("empty path must not be flagged")
+	}
+}
+
+func TestEditOutsideWorkspace(t *testing.T) {
+	root := t.TempDir()
+	parent := filepath.Dir(root)
+	outside := filepath.Join(parent, "zeta-outside.txt")
+	t.Cleanup(func() { _ = os.Remove(outside) })
+
+	ctx := context.Background()
+	ts := Build()
+
+	// Create outside the workspace; the diff labels the absolute path.
+	out := Run(ctx, ts, root, Edit, mustRaw(t, map[string]any{
+		"path": outside, "old_string": "", "new_string": "hello\n",
+	}))
+	if !strings.Contains(out, outside) || !strings.Contains(out, "+hello") {
+		t.Fatalf("outside create: %s", out)
+	}
+	if data, err := os.ReadFile(outside); err != nil || string(data) != "hello\n" {
+		t.Fatalf("outside file: %q %v", data, err)
+	}
+	// Read outside the workspace is allowed too.
+	readOut := Run(ctx, ts, root, Read, mustRaw(t, map[string]any{"path": outside}))
+	if !strings.Contains(readOut, "hello") {
+		t.Fatalf("outside read: %s", readOut)
+	}
+	// Preview resolves a real diff (not the summary fallback) for review.
+	prev := Preview(ts, Edit, root, mustRaw(t, map[string]any{
+		"path": outside, "old_string": "hello", "new_string": "bye",
+	}))
+	if !strings.Contains(prev, outside) || !strings.Contains(prev, "-hello") {
+		t.Fatalf("outside preview: %s", prev)
 	}
 }
 

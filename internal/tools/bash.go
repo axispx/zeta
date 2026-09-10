@@ -84,7 +84,7 @@ func (bashTool) Run(ctx context.Context, root string, raw json.RawMessage) (stri
 	if workdir == "" {
 		workdir = "."
 	}
-	dir, err := resolvePath(root, workdir)
+	dir, err := resolveConfinedPath(root, workdir)
 	if err != nil {
 		return "", err
 	}

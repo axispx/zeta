@@ -69,6 +69,8 @@ When the agent wants to run a shell command or change a file:
 
 You can also click, or use `↑`/`↓` + Enter. `Esc` cancels. Ask and Plan never ask for permission.
 
+Edit/write paths resolve relative to the workspace root, but absolute paths and `..` escapes are allowed — when the target is outside the workspace, the prompt is marked `(outside workspace)` and still needs per-call approval. Reads are never prompted. `grep`/`glob` and `bash`'s `workdir` stay inside the workspace.
+
 ### Choosing options
 
 Sometimes the agent asks a multiple-choice question (plus freeform **Other**):

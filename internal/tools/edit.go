@@ -27,7 +27,7 @@ func (editTool) Parameters() map[string]any {
 		"properties": map[string]any{
 			"path": map[string]any{
 				"type":        "string",
-				"description": "Path relative to the workspace root",
+				"description": "Path relative to the workspace root. Absolute paths and ../ escapes are allowed; edits outside the workspace still require approval.",
 			},
 			"old_string": map[string]any{
 				"type": "string",
@@ -71,7 +71,7 @@ type editArgs struct {
 }
 
 func planEdit(root string, args editArgs) (fileChange, error) {
-	abs, err := resolvePath(root, args.Path)
+	abs, _, err := resolvePath(root, args.Path)
 	if err != nil {
 		return fileChange{}, err
 	}
