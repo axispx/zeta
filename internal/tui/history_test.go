@@ -14,6 +14,7 @@ import (
 	"github.com/axispx/zeta/internal/compact"
 	"github.com/axispx/zeta/internal/config"
 	"github.com/axispx/zeta/internal/permission"
+	"github.com/axispx/zeta/internal/policy"
 	"github.com/axispx/zeta/internal/session"
 )
 
@@ -25,6 +26,7 @@ func testModel() Model {
 		height:   24,
 		ready:    true,
 		grants:   &permission.Session{},
+		rules:    permission.NewRules(policy.Policy{}),
 	}
 	m.promptHist.reset() // at=-1 (live draft); zero value is not live
 	return m

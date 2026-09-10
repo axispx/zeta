@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/axispx/zeta/internal/ai"
@@ -69,13 +70,20 @@ const (
 type Reply struct {
 	Kind   ReplyKind
 	Result string // only for ReplyInject
+	Reason string // only for ReplyDeny; shown in the tool result
 }
 
 // RunTool allows the tool to execute normally.
 func RunTool() Reply { return Reply{Kind: ReplyRun} }
 
 // DenyTool rejects the tool call.
-func DenyTool() Reply { return Reply{Kind: ReplyDeny} }
+func DenyTool() Reply { return DenyToolReason("the user denied this call") }
+
+// DenyToolReason rejects the tool call with a harness-supplied reason. The
+// reason reaches the model as "rejected: <reason>".
+func DenyToolReason(reason string) Reply {
+	return Reply{Kind: ReplyDeny, Reason: reason}
+}
 
 // InjectResult supplies tool output without calling Tool.Run.
 func InjectResult(result string) Reply {
@@ -93,7 +101,7 @@ type Config struct {
 	Replies <-chan Reply
 	// Gate reports whether the harness must decide before this tool runs.
 	// Nil means never wait. Ignored when Replies is nil.
-	Gate func(name string) bool
+	Gate func(name string, args json.RawMessage) bool
 	// StreamFn replaces Client.Stream when set (tests).
 	StreamFn func(context.Context, []ai.Message, []ai.Tool) <-chan ai.Event
 }
@@ -207,9 +215,9 @@ func (c Config) execTool(ctx context.Context, call ai.ToolCall, ev chan<- Event)
 		Detail: tools.Preview(c.Tools, call.Name, c.Root, args),
 		Args:   args,
 	}
-	reply, err := c.awaitReply(ctx, call.Name)
+	reply, err := c.awaitReply(ctx, call.Name, args)
 	if err != nil {
-		return label, denialResult(call, err.Error()), true
+		return label, denialResult(call, denyReason(reply, err)), true
 	}
 
 	var out string
@@ -235,20 +243,34 @@ func (c Config) execTool(ctx context.Context, call ai.ToolCall, ev chan<- Event)
 // awaitReply waits for a harness decision when Replies is set and Gate asks.
 // Nil Replies or a false/nil Gate skips the wait (ReplyRun → execute tool).
 // ReplyDeny / cancel reject.
-func (c Config) awaitReply(ctx context.Context, name string) (Reply, error) {
-	if c.Replies == nil || c.Gate == nil || !c.Gate(name) {
+func (c Config) awaitReply(ctx context.Context, name string, args json.RawMessage) (Reply, error) {
+	if c.Replies == nil || c.Gate == nil || !c.Gate(name, args) {
 		return RunTool(), nil
 	}
 	select {
 	case r := <-c.Replies:
 		if r.Kind == ReplyDeny {
-			return Reply{}, fmt.Errorf("the user denied this call")
+			return r, errUserDenied
 		}
 		return r, nil
 	case <-ctx.Done():
-		return Reply{}, fmt.Errorf("cancelled")
+		return Reply{}, errCancelled
 	}
 }
+
+// denyReason prefers the harness-supplied deny reason, falling back to the
+// await error (cancel, or a bare ReplyDeny with no reason).
+func denyReason(r Reply, err error) string {
+	if r.Kind == ReplyDeny && r.Reason != "" {
+		return r.Reason
+	}
+	return err.Error()
+}
+
+var (
+	errUserDenied = errors.New("the user denied this call")
+	errCancelled  = errors.New("cancelled")
+)
 
 func toolLabel(ts []tools.Tool, name string, args json.RawMessage) string {
 	if t, ok := tools.ByName(ts, name); ok {

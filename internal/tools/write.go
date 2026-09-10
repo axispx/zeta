@@ -53,7 +53,7 @@ type writeArgs struct {
 }
 
 func planWrite(root string, args writeArgs) (fileChange, error) {
-	abs, _, err := resolvePath(root, args.Path)
+	abs, _, _, err := resolvePath(root, args.Path)
 	if err != nil {
 		return fileChange{}, err
 	}

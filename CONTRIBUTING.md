@@ -25,6 +25,7 @@ internal/tui/        bubbletea UI
 internal/ai/         OpenAI-compatible streaming + tools
 internal/agent/      tool loop + permission gate
 internal/permission/ allow | deny for side-effect tools
+internal/policy/     persisted permission rules (~/.zeta/permissions.json)
 internal/compact/    context compaction
 internal/tools/      read / edit / write / grep / glob / bash / websearch / webfetch / skill / todo / ask_user
 internal/todo/       session-scoped checklist store (model-owned)

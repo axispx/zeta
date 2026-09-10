@@ -29,6 +29,15 @@ func ArgPath(raw json.RawMessage) string {
 	return strings.TrimSpace(a.Path)
 }
 
+// ArgCommand returns the "command" JSON argument for bash, or "".
+func ArgCommand(raw json.RawMessage) string {
+	var a struct {
+		Command string `json:"command"`
+	}
+	_ = json.Unmarshal(raw, &a)
+	return strings.TrimSpace(a.Command)
+}
+
 // Env carries session-scoped tool dependencies the harness wires per turn.
 type Env struct {
 	Todos *todo.Store
@@ -76,7 +85,7 @@ func ByName(ts []Tool, name string) (Tool, bool) {
 
 // interactiveTool is implemented by tools that never auto-run: the harness
 // must supply a Reply (Deny / Inject) before the agent loop continues.
-// Side-effect tools use permission.NeedsDecision separately.
+// Side-effect tools are classified separately by permission.Classify.
 type interactiveTool interface {
 	Interactive() bool
 }
@@ -115,37 +124,38 @@ func Run(ctx context.Context, ts []Tool, root, name string, args json.RawMessage
 }
 
 // resolvePath joins root with a relative path and returns the cleaned absolute
-// path plus whether it escapes the workspace root. Escapes are allowed; the
-// caller decides how to gate them (see resolveConfinedPath for search tools).
-func resolvePath(root, path string) (abs string, outside bool, err error) {
+// path, the path relative to root using '/' separators (empty when it escapes),
+// and whether it escapes the workspace root. Escapes are allowed; the caller
+// decides how to gate them (see resolveConfinedPath for search tools).
+func resolvePath(root, path string) (abs, rel string, outside bool, err error) {
 	path = strings.TrimSpace(path)
 	if path == "" {
-		return "", false, fmt.Errorf("path is required")
+		return "", "", false, fmt.Errorf("path is required")
 	}
 	rootAbs, err := filepath.Abs(root)
 	if err != nil {
-		return "", false, err
+		return "", "", false, err
 	}
 	if filepath.IsAbs(path) {
 		abs = filepath.Clean(path)
 	} else {
 		abs = filepath.Clean(filepath.Join(rootAbs, path))
 	}
-	rel, err := filepath.Rel(rootAbs, abs)
+	rel, err = filepath.Rel(rootAbs, abs)
 	if err != nil {
 		// Different volumes / non-comparable roots: treat as outside.
-		return abs, true, nil
+		return abs, "", true, nil
 	}
 	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return abs, true, nil
+		return abs, "", true, nil
 	}
-	return abs, false, nil
+	return abs, filepath.ToSlash(rel), false, nil
 }
 
 // resolveConfinedPath is resolvePath plus a workspace-escape rejection. Used by
 // tools that must stay inside the workspace (grep/glob targets, bash workdir).
 func resolveConfinedPath(root, path string) (string, error) {
-	abs, outside, err := resolvePath(root, path)
+	abs, _, outside, err := resolvePath(root, path)
 	if err != nil {
 		return "", err
 	}
@@ -155,14 +165,17 @@ func resolveConfinedPath(root, path string) (string, error) {
 	return abs, nil
 }
 
-// OutsideWorkspace reports whether a path argument escapes root. The harness
-// uses it to flag out-of-tree edits in the approval prompt.
-func OutsideWorkspace(root, path string) bool {
-	if strings.TrimSpace(path) == "" {
-		return false
+// EditTarget resolves an edit/write path argument against root. rel is the
+// workspace-relative target (empty when argPath escapes root or cannot be
+// resolved) and outside reports an escape. One resolution serves both the
+// approval prompt's "(outside workspace)" mark and the path a permission rule
+// would remember.
+func EditTarget(root, argPath string) (rel string, outside bool) {
+	_, rel, outside, err := resolvePath(root, argPath)
+	if err != nil {
+		return "", false
 	}
-	_, outside, err := resolvePath(root, path)
-	return err == nil && outside
+	return rel, outside
 }
 
 // displayPath returns path relative to root when possible.

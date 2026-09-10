@@ -7,7 +7,7 @@ Use any OpenAI-compatible provider — OpenAI, xAI, DeepSeek, Kimi, and more, pl
 ## Features
 
 - **Build / Ask / Plan** — implement with tools, read-only Q&A, or plan first then approve into Build
-- **Permission prompts** — shell and file changes ask before running (Build mode)
+- **Permission prompts** — shell and file changes ask before running (Build mode), with optional remembered rules
 - **Folder trust** — first open in a directory asks before loading project files
 - **Local sessions** — chat history stays on your machine; resume anytime with `/resume`
 - **Auto-compaction** — long chats summarize older context when the model window fills up
@@ -62,14 +62,38 @@ Type `@` in the composer to fuzzy-find a workspace file (respects `.gitignore` v
 
 When the agent wants to run a shell command or change a file:
 
-| Action       | Keys                                                         |
-| ------------ | ------------------------------------------------------------ |
-| Shell        | `[a]` allow once · `[s]` allow for this session · `[d]` deny |
-| Edit / write | `[a]` allow · `[d]` deny (every time)                        |
+| Action       | Keys                                                                            |
+| ------------ | ------------------------------------------------------------------------------- |
+| Shell        | `[a]` allow once · `[p]` always allow · `[s]` allow for session · `[d]` deny     |
+| Edit / write | `[a]` allow · `[p]` always allow · `[d]` deny                                   |
 
-You can also click, or use `↑`/`↓` + Enter. `Esc` cancels. Ask and Plan never ask for permission.
+You can also click, or use `↑`/`↓` + Enter. `Esc` cancels. Ask and Plan never ask for permission. The `[p]` row appears only when a rule can be remembered — see [Remembered rules](#remembered-rules).
 
 Edit/write paths resolve relative to the workspace root, but absolute paths and `..` escapes are allowed — when the target is outside the workspace, the prompt is marked `(outside workspace)` and still needs per-call approval. Reads are never prompted. `grep`/`glob` and `bash`'s `workdir` stay inside the workspace.
+
+#### Remembered rules
+
+When a prompt can be remembered it also offers `[p]` **always allow** — for a shell command prefix, or for an in-workspace edit/write file. Out-of-workspace targets, and shell commands with chaining (`&&`, `|`, `;`, redirects, `$(…)`), keep the plain allow/deny prompt.
+
+Remembered rules live in `~/.zeta/permissions.json` (or `$ZETA_HOME/permissions.json`), separate from `config.json`, and are loaded at startup. The prompt only ever writes `allow` rules; add `deny` rules by hand-editing the file.
+
+Rules are evaluated with deny-precedence: any matching `deny` wins (even over an `allow` or a session grant); otherwise a matching `allow` runs; otherwise zeta asks as usual. Rules are checked for every tool call, so a tool-level (or `"*"`) `deny` also blocks tools that never prompt (`read`, `grep`, …), while an `allow` for those tools is simply redundant. Prompts that are always interactive — `ask_user` — still reach you regardless of rules. A rule matches on tool (`"bash"`, `"edit"`, `"write"`, or `"*"`) plus one optional field:
+
+- `command_prefix` (bash) — "commands that start with…", matched on whole words. Remembering `go test ./...` stores `go test` and also covers `go test -v`. A command whose second word is a flag keeps the whole string (`rm -rf /`), so it never broadens to every `rm`. `bash` is unsandboxed, so this is a guardrail, not a sandbox.
+- `command` (bash) — a glob against the raw command string: `*` matches within a segment, `**` crosses `/`, `?` matches one character, and a pattern without `*` is exact.
+- `path` (edit/write) — a glob against the workspace-relative path; out-of-workspace targets never match one.
+
+```json
+{
+  "rules": [
+    { "tool": "bash", "command_prefix": "go test", "action": "allow" },
+    { "tool": "bash", "command_prefix": "git push", "action": "deny" },
+    { "tool": "edit", "path": "src/**", "action": "deny" }
+  ]
+}
+```
+
+Hand-edit the file to add rules or to broaden one beyond what the prompt remembers.
 
 ### Choosing options
 
@@ -158,6 +182,7 @@ Everything is under `~/.zeta` (override with `ZETA_HOME`):
 ```
 ~/.zeta/
   config.json
+  permissions.json
   sessions/…   # your chat history
 ```
 

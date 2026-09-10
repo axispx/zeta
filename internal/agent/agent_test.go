@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -23,7 +24,44 @@ func TestEmitToolOutNonBlocking(t *testing.T) {
 	}
 }
 
-func alwaysGate(string) bool { return true }
+func alwaysGate(string, json.RawMessage) bool { return true }
+
+func TestGateReceivesArgs(t *testing.T) {
+	replies := make(chan Reply, 1)
+	var gotName string
+	var gotArgs json.RawMessage
+	c := Config{
+		Tools: tools.Build(), Root: t.TempDir(), Replies: replies,
+		Gate: func(name string, args json.RawMessage) bool {
+			gotName, gotArgs = name, args
+			return true
+		},
+	}
+	ev := make(chan Event, 4)
+	go replyStart(t, ev, replies, false)
+	_, _, _ = c.execTool(t.Context(), ai.ToolCall{
+		ID: "c1", Name: tools.Bash, Arguments: `{"command":"echo hi"}`,
+	}, ev)
+	if gotName != tools.Bash || !json.Valid(gotArgs) || tools.ArgCommand(gotArgs) != "echo hi" {
+		t.Fatalf("gate name=%q args=%s", gotName, gotArgs)
+	}
+}
+
+func TestExecToolPolicyDenyReason(t *testing.T) {
+	replies := make(chan Reply, 1)
+	c := Config{Tools: tools.Build(), Root: t.TempDir(), Replies: replies, Gate: alwaysGate}
+	ev := make(chan Event, 4)
+	go func() {
+		_ = recvStart(t, ev)
+		replies <- DenyToolReason("denied by permission policy")
+	}()
+	_, result, denied := c.execTool(t.Context(), ai.ToolCall{
+		ID: "c1", Name: tools.Bash, Arguments: `{"command":"echo hi"}`,
+	}, ev)
+	if !denied || result.Text != "rejected: denied by permission policy" {
+		t.Errorf("denied=%v text=%q", denied, result.Text)
+	}
+}
 
 func TestExecToolGateDeny(t *testing.T) {
 	replies := make(chan Reply, 1)
@@ -138,7 +176,7 @@ func TestExecToolGateFalseSkipsWait(t *testing.T) {
 	replies := make(chan Reply, 1)
 	c := Config{
 		Tools: tools.Build(), Root: t.TempDir(), Replies: replies,
-		Gate: func(string) bool { return false },
+		Gate: func(string, json.RawMessage) bool { return false },
 	}
 	ev := make(chan Event, 4)
 	_, _, denied := c.execTool(t.Context(), ai.ToolCall{

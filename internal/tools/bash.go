@@ -54,11 +54,7 @@ func (bashTool) Parameters() map[string]any {
 }
 
 func (bashTool) Summary(raw json.RawMessage) string {
-	var a struct {
-		Command string `json:"command"`
-	}
-	_ = json.Unmarshal(raw, &a)
-	cmd := strings.TrimSpace(a.Command)
+	cmd := ArgCommand(raw)
 	if cmd == "" {
 		return Bash
 	}

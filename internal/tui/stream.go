@@ -271,7 +271,7 @@ func turnEventMsg(id int, evt agent.Event) tea.Msg {
 	}
 }
 
-func startTurn(id int, client *ai.Client, ws workspace.Context, mode prompt.Mode, history []ai.Message, grants *permission.Session, todos *todo.Store) (*turnSession, tea.Cmd) {
+func startTurn(id int, client *ai.Client, ws workspace.Context, mode prompt.Mode, history []ai.Message, grants *permission.Session, todos *todo.Store, rules *permission.Rules) (*turnSession, tea.Cmd) {
 	ctx, cancel := context.WithCancel(context.Background())
 	replies := make(chan agent.Reply, 1)
 	cfg := agent.Config{
@@ -279,10 +279,9 @@ func startTurn(id int, client *ai.Client, ws workspace.Context, mode prompt.Mode
 		Tools:   toolsForMode(mode, todos),
 		Root:    ws.Abs,
 		Replies: replies,
-		// Same classifier as handleTurnToolStart (waitFor).
-		Gate: func(name string) bool {
-			return waitFor(name, grants) != waitNone
-		},
+		// Same classifier as handleTurnToolStart (waitFor), over the same live
+		// rules/grants holders the harness mutates.
+		Gate: gateFor(rules, grants, ws.Abs),
 	}
 	ch := cfg.Run(ctx, requestMsgs(ws, mode, history, todos))
 	t := &turnSession{

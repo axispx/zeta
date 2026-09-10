@@ -1,7 +1,7 @@
 package tui
 
 import (
-	"github.com/axispx/zeta/internal/tools"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -11,6 +11,7 @@ import (
 	"github.com/axispx/zeta/internal/agent"
 	"github.com/axispx/zeta/internal/permission"
 	"github.com/axispx/zeta/internal/prompt"
+	"github.com/axispx/zeta/internal/tools"
 	"github.com/axispx/zeta/internal/workspace"
 )
 
@@ -438,7 +439,10 @@ func TestEditOutsideWorkspacePromptFlagsOutside(t *testing.T) {
 		reply:      replies,
 		cancel:     func() {},
 	}
-	_ = m.handleTurnToolStart(turnToolStartMsg{name: tools.Edit, label: "edit ../x.txt", path: "../x.txt"})
+	_ = m.handleTurnToolStart(turnToolStartMsg{
+		name: tools.Edit, label: "edit ../x.txt", path: "../x.txt",
+		args: json.RawMessage(`{"path":"../x.txt"}`),
+	})
 	if m.bottom.perm == nil || !m.bottom.perm.outside {
 		t.Fatalf("outside edit must flag prompt: %+v", m.bottom.perm)
 	}
@@ -446,7 +450,10 @@ func TestEditOutsideWorkspacePromptFlagsOutside(t *testing.T) {
 		t.Fatalf("prompt must show outside marker: %s", view)
 	}
 
-	_ = m.handleTurnToolStart(turnToolStartMsg{name: tools.Edit, label: "edit a.go", path: "a.go"})
+	_ = m.handleTurnToolStart(turnToolStartMsg{
+		name: tools.Edit, label: "edit a.go", path: "a.go",
+		args: json.RawMessage(`{"path":"a.go"}`),
+	})
 	if m.bottom.perm == nil || m.bottom.perm.outside {
 		t.Fatalf("in-tree edit must not be flagged: %+v", m.bottom.perm)
 	}

@@ -65,7 +65,7 @@ func (readTool) Run(ctx context.Context, root string, raw json.RawMessage) (stri
 	if err := json.Unmarshal(raw, &args); err != nil {
 		return "", fmt.Errorf("invalid arguments: %w", err)
 	}
-	abs, _, err := resolvePath(root, args.Path)
+	abs, _, _, err := resolvePath(root, args.Path)
 	if err != nil {
 		return "", err
 	}

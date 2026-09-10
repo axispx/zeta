@@ -5,6 +5,7 @@ import (
 
 	"github.com/axispx/zeta/internal/agent"
 	"github.com/axispx/zeta/internal/permission"
+	"github.com/axispx/zeta/internal/policy"
 	"github.com/axispx/zeta/internal/tools"
 )
 
@@ -15,19 +16,34 @@ const (
 	waitNone waitKind = iota
 	waitPermission
 	waitInteractive
+	waitAutoDeny
 )
 
 // waitFor classifies whether the harness must decide before a tool runs, and how.
-// Interactive tools always wait; side-effect tools wait unless session-granted.
-// Gate and handleTurnToolStart both use this — do not re-branch the policy elsewhere.
-func waitFor(name string, grants *permission.Session) waitKind {
+// Interactive tools always wait; otherwise permission.Classify decides run / ask /
+// deny (policy rules first, then session grants). Gate and handleTurnToolStart
+// both use this — do not re-branch the policy elsewhere.
+func waitFor(rules *permission.Rules, grants *permission.Session, root, name string, args json.RawMessage) waitKind {
 	if tools.Interactive(name) {
 		return waitInteractive
 	}
-	if permission.NeedsDecision(grants, name) {
+	switch permission.Classify(rules, grants, root, name, args) {
+	case policy.Deny:
+		return waitAutoDeny
+	case policy.Ask:
 		return waitPermission
+	default:
+		return waitNone
 	}
-	return waitNone
+}
+
+// gateFor is the agent-side Gate: it waits exactly when the harness will handle
+// the tool start. It closes over the live rules/grants holders, so a mid-turn
+// rule persist is visible to both sides of the decision.
+func gateFor(rules *permission.Rules, grants *permission.Session, root string) func(string, json.RawMessage) bool {
+	return func(name string, args json.RawMessage) bool {
+		return waitFor(rules, grants, root, name, args) != waitNone
+	}
 }
 
 // interactiveOpener opens harness UI for an interactive tool.

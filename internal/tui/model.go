@@ -18,6 +18,7 @@ import (
 	"github.com/axispx/zeta/internal/config"
 	"github.com/axispx/zeta/internal/image"
 	"github.com/axispx/zeta/internal/permission"
+	"github.com/axispx/zeta/internal/policy"
 	"github.com/axispx/zeta/internal/prompt"
 	"github.com/axispx/zeta/internal/session"
 	"github.com/axispx/zeta/internal/styles"
@@ -67,6 +68,7 @@ type Model struct {
 	updateCancel  context.CancelFunc
 	mode          prompt.Mode
 	grants        *permission.Session // "allow for session" (bash only); reset on /clear
+	rules         *permission.Rules   // persisted permission rules; nil = none
 	todos         *todo.Store         // session checklist; non-nil after New/applySession
 	bottom        bottomSlot          // exclusive input-slot panel (perm | ask | plan)
 	pendingPlan   string              // plan body produced this turn; offered once on turnDone
@@ -95,8 +97,9 @@ type Model struct {
 
 // Options controls how the TUI starts a session.
 type Options struct {
-	ResumeID string // non-empty → open that session
-	Picker   bool   // true → open session list on start
+	ResumeID string        // non-empty → open that session
+	Picker   bool          // true → open session list on start
+	Rules    policy.Policy // persisted permission rules (loaded by main)
 }
 
 // New creates the initial TUI model.
@@ -152,6 +155,7 @@ func New(cfg config.Config, opts Options) (Model, error) {
 		ws:        ws,
 		spinner:   spinner.New(spinner.WithSpinner(spinner.MiniDot)),
 		grants:    &permission.Session{},
+		rules:     permission.NewRules(opts.Rules),
 		mainCache: &mainViewCache{},
 		todos:     todo.NewStore(),
 	}
@@ -507,7 +511,7 @@ func (m *Model) beginTurn(titlePrompt string) tea.Cmd {
 	var cmds []tea.Cmd
 	var turnCmd tea.Cmd
 	m.nextTurnID++
-	m.turn, turnCmd = startTurn(m.nextTurnID, m.client, m.ws, m.mode, m.history, m.grants, m.todos)
+	m.turn, turnCmd = startTurn(m.nextTurnID, m.client, m.ws, m.mode, m.history, m.grants, m.todos, m.rules)
 	// Busy gap grows (GapBeforeInput → busyStatusRows); shrink transcript now.
 	m.layoutPreservingBottom()
 	cmds = append(cmds, turnCmd, m.spinner.Tick)

@@ -15,7 +15,7 @@ import (
 
 func TestResolvePath(t *testing.T) {
 	root := t.TempDir()
-	abs, outside, err := resolvePath(root, "foo/bar.go")
+	abs, rel, outside, err := resolvePath(root, "foo/bar.go")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -26,30 +26,44 @@ func TestResolvePath(t *testing.T) {
 	if abs != want {
 		t.Fatalf("got %q want %q", abs, want)
 	}
+	if rel != "foo/bar.go" {
+		t.Fatalf("rel=%q want foo/bar.go", rel)
+	}
 
-	esc, outside, err := resolvePath(root, "../outside")
+	esc, rel, outside, err := resolvePath(root, "../outside")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !outside {
-		t.Fatalf("escape not flagged: %q", esc)
+	if !outside || rel != "" {
+		t.Fatalf("escape not flagged: %q rel=%q", esc, rel)
 	}
 	if _, err := resolveConfinedPath(root, "../outside"); err == nil {
 		t.Fatal("expected escape error from resolveConfinedPath")
 	}
 }
 
-func TestOutsideWorkspace(t *testing.T) {
+func TestEditTarget(t *testing.T) {
 	root := t.TempDir()
 	inside := filepath.Join(root, "a", "b.txt")
-	if OutsideWorkspace(root, "a/b.txt") || OutsideWorkspace(root, inside) {
-		t.Fatal("in-tree paths must not be flagged")
+	cases := []struct {
+		name        string
+		arg         string
+		wantRel     string
+		wantOutside bool
+	}{
+		{"relative-inside", "a/b.txt", "a/b.txt", false},
+		{"absolute-inside", inside, "a/b.txt", false},
+		{"dotdot-escape", "../b.txt", "", true},
+		{"absolute-escape", filepath.Join(root, "..", "b.txt"), "", true},
+		{"empty", "", "", false},
 	}
-	if !OutsideWorkspace(root, "../b.txt") || !OutsideWorkspace(root, filepath.Join(root, "..", "b.txt")) {
-		t.Fatal("escapes must be flagged")
-	}
-	if OutsideWorkspace(root, "") {
-		t.Fatal("empty path must not be flagged")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rel, outside := EditTarget(root, tc.arg)
+			if rel != tc.wantRel || outside != tc.wantOutside {
+				t.Fatalf("EditTarget(%q) = (%q, %v), want (%q, %v)", tc.arg, rel, outside, tc.wantRel, tc.wantOutside)
+			}
+		})
 	}
 }
 

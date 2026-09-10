@@ -9,6 +9,7 @@ import (
 
 	"github.com/axispx/zeta/internal/cli"
 	"github.com/axispx/zeta/internal/config"
+	"github.com/axispx/zeta/internal/policy"
 	"github.com/axispx/zeta/internal/tui"
 )
 
@@ -35,6 +36,15 @@ func main() {
 		os.Exit(1)
 	}
 
+	rules, err := policy.Load()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "permissions: %v\n", err)
+		if path := policy.Path(); path != "" {
+			fmt.Fprintf(os.Stderr, "Fix %s or delete it, then run zeta again.\n", path)
+		}
+		os.Exit(1)
+	}
+
 	// Folder trust before workspace/session load (AGENTS.md, project sessions).
 	if err := cli.EnsureTrusted(); err != nil {
 		if errors.Is(err, cli.ErrTrustDeclined) {
@@ -44,7 +54,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	tuiOpts := tui.Options{}
+	tuiOpts := tui.Options{Rules: rules}
 	if opts.Resume {
 		if opts.ResumeID != "" {
 			tuiOpts.ResumeID = opts.ResumeID

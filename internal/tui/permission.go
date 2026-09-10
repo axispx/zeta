@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"encoding/json"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/axispx/zeta/internal/agent"
 	"github.com/axispx/zeta/internal/permission"
+	"github.com/axispx/zeta/internal/policy"
 	"github.com/axispx/zeta/internal/styles"
 	"github.com/axispx/zeta/internal/tools"
 )
@@ -20,27 +22,32 @@ type permOption struct {
 
 // permOptionsFor returns the approval choices for a tool.
 // bash offers session grant; edit/write stay once-only so every diff is reviewed.
-func permOptionsFor(tool string) []permOption {
+// When canPersist, an "always allow" row is added that writes a permission rule:
+// a bash command prefix or an in-workspace edit/write file. prefix is the derived
+// bash prefix, shown so the user sees the scope they are agreeing to.
+// Keys mirror codex's approval shortcuts where they overlap (p = persist).
+// Deny is per-call only; a persistent deny is a hand-edit of permissions.json.
+func permOptionsFor(tool string, canPersist bool, prefix string) []permOption {
 	if permission.SessionGrantable(tool) {
-		return []permOption{
-			{"a", "Allow once", permission.AllowOnce},
-			{"s", "Allow for session", permission.AllowSession},
-			{"d", "Deny", permission.Deny},
+		opts := []permOption{{"a", "Allow once", permission.AllowOnce}}
+		if canPersist {
+			opts = append(opts, permOption{"p", "Always allow " + codePrefix(prefix), permission.AllowAlways})
 		}
+		opts = append(opts, permOption{"s", "Allow for session", permission.AllowSession})
+		opts = append(opts, permOption{"d", "Deny", permission.Deny})
+		return opts
 	}
-	return []permOption{
-		{"a", "Allow", permission.AllowOnce},
-		{"d", "Deny", permission.Deny},
+	opts := []permOption{{"a", "Allow", permission.AllowOnce}}
+	if canPersist {
+		opts = append(opts, permOption{"p", "Always allow this file", permission.AllowAlways})
 	}
+	opts = append(opts, permOption{"d", "Deny", permission.Deny})
+	return opts
 }
 
-func permOptionRows(tool string) []optionRow {
-	opts := permOptionsFor(tool)
-	rows := make([]optionRow, len(opts))
-	for i, o := range opts {
-		rows[i] = optionRow{key: o.key, label: o.label}
-	}
-	return rows
+// codePrefix renders a command prefix as `code`, trimming overly long commands.
+func codePrefix(prefix string) string {
+	return "`" + truncateRight(prefix, 24) + "`"
 }
 
 // permissionPrompt is the modal approval surface (replaces the input while open).
@@ -51,13 +58,38 @@ type permissionPrompt struct {
 	name    string
 	path    string
 	outside bool // path escapes the workspace root
-	list    optionList
+	// rule + canPersist are the persisted rule an "always allow" decision writes.
+	rule       policy.Rule
+	canPersist bool
+	// opts is the single source of truth for the rendered rows and the decision
+	// dispatched for a chosen index.
+	opts []permOption
+	list optionList
 }
 
 func newPermissionPrompt(label, name, path string) *permissionPrompt {
 	p := &permissionPrompt{label: label, name: name, path: path}
-	p.list.setRows(permOptionRows(name))
+	p.setOptions(permOptionsFor(name, false, ""))
 	return p
+}
+
+// setOptions records the current choices and mirrors them into the row list.
+func (p *permissionPrompt) setOptions(opts []permOption) {
+	p.opts = opts
+	rows := make([]optionRow, len(opts))
+	for i, o := range opts {
+		rows[i] = optionRow{key: o.key, label: o.label}
+	}
+	p.list.setRows(rows)
+}
+
+// setArgs derives everything a persist decision needs from the raw call args, in
+// one pass: the allow rule to write, whether it is rememberable, and whether the
+// edit/write target escapes the workspace.
+func (p *permissionPrompt) setArgs(args json.RawMessage, root string) {
+	call := permission.CallFor(root, p.name, args)
+	p.rule, p.canPersist, p.outside = call.Rule, call.Persist, call.Outside
+	p.setOptions(permOptionsFor(p.name, p.canPersist, p.rule.CommandPrefix))
 }
 
 // sendReply delivers a harness decision to the agent. Non-blocking: on cancel the
@@ -72,11 +104,24 @@ func (m *Model) sendReply(r agent.Reply) {
 }
 
 func (m *Model) decidePermission(d permission.Decision) {
-	if m.bottom.perm == nil {
+	p := m.bottom.perm
+	if p == nil {
 		return
 	}
-	if d == permission.AllowSession {
-		m.grants.Grant(m.bottom.perm.name)
+	switch d {
+	case permission.AllowSession:
+		m.grants.Grant(p.name)
+	case permission.AllowAlways:
+		if p.canPersist {
+			pol, err := policy.Add(p.rule)
+			if err != nil {
+				// Keep the decision even when the rule cannot be saved.
+				m.noteError("permissions: " + err.Error())
+			} else {
+				// Replace in place so the agent's Gate sees the new rule too.
+				m.rules.Replace(pol)
+			}
+		}
 	}
 	if d == permission.Deny {
 		m.sendReply(agent.DenyTool())
@@ -108,9 +153,8 @@ func (m *Model) handlePermissionKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 		return nil, false
 	}
 	if chose {
-		opts := permOptionsFor(p.name)
-		if idx >= 0 && idx < len(opts) {
-			m.decidePermission(opts[idx].decide)
+		if idx >= 0 && idx < len(p.opts) {
+			m.decidePermission(p.opts[idx].decide)
 		}
 	}
 	return nil, true
@@ -127,9 +171,8 @@ func (m *Model) handlePermissionClick(msg tea.MouseClickMsg) (tea.Cmd, bool) {
 	if !chose {
 		return nil, false
 	}
-	opts := permOptionsFor(p.name)
-	if idx >= 0 && idx < len(opts) {
-		m.decidePermission(opts[idx].decide)
+	if idx >= 0 && idx < len(p.opts) {
+		m.decidePermission(p.opts[idx].decide)
 		return nil, true
 	}
 	return nil, false
