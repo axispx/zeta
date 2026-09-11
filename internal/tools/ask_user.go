@@ -120,7 +120,7 @@ func (askUserTool) Interactive() bool { return true }
 
 func (askUserTool) Description() string {
 	return "Pause and ask the user a multiple-choice question in the terminal UI. " +
-		"Use only for choices that change the plan, load-bearing assumptions, " +
+		"Use only for choices that change the plan, assumptions the work depends on, " +
 		"or preferences the codebase cannot settle. " +
 		"Each question needs 2–4 real options; put the preferred option first and " +
 		"suffix its label with \"(Recommended)\". Do not include an Other row — the UI adds freeform. " +

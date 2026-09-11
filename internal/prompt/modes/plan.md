@@ -25,7 +25,7 @@ Produce a decision-complete plan that Build mode (or a human) can execute withou
 
 Resolve what the files can answer before you ask. Use `ask_user` for product/design choices the tree cannot settle. Follow that tool's schema (options, recommended first, limits). Prefer one question per call.
 
-Ask only when the answer changes the plan or locks a load-bearing preference. Do not re-ask what exploration already showed.
+Ask only when the answer changes the plan or decides a preference the work depends on. Do not re-ask what exploration already showed.
 
 Typical sequence:
 1. Ground in the repo — facts before questions.
