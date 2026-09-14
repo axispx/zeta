@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -165,17 +166,37 @@ func resolveConfinedPath(root, path string) (string, error) {
 	return abs, nil
 }
 
-// EditTarget resolves an edit/write path argument against root. rel is the
-// workspace-relative target (empty when argPath escapes root or cannot be
-// resolved) and outside reports an escape. One resolution serves both the
-// approval prompt's "(outside workspace)" mark and the path a permission rule
-// would remember.
-func EditTarget(root, argPath string) (rel string, outside bool) {
-	_, rel, outside, err := resolvePath(root, argPath)
+// ResolveTarget resolves a read/edit/write path argument against root. abs is
+// the cleaned absolute path (empty when argPath cannot be resolved). rel is
+// workspace-relative with '/' separators (empty when it escapes). outside
+// reports an escape. One resolution serves the approval prompt's
+// "(outside workspace)" mark and the path a permission rule would remember.
+func ResolveTarget(root, argPath string) (abs, rel string, outside bool) {
+	abs, rel, outside, err := resolvePath(root, argPath)
 	if err != nil {
-		return "", false
+		return "", "", false
 	}
+	return abs, rel, outside
+}
+
+// EditTarget is ResolveTarget without the absolute path. Kept for edit/write
+// permission matching, which never remembers or matches an escaped target.
+func EditTarget(root, argPath string) (rel string, outside bool) {
+	_, rel, outside = ResolveTarget(root, argPath)
 	return rel, outside
+}
+
+// ExternalDir is the outside-workspace approval boundary for abs: the path
+// itself when it is a directory, otherwise its parent. Empty abs returns "".
+func ExternalDir(abs string) string {
+	abs = filepath.Clean(abs)
+	if abs == "" || abs == "." {
+		return ""
+	}
+	if info, err := os.Stat(abs); err == nil && info.IsDir() {
+		return abs
+	}
+	return filepath.Dir(abs)
 }
 
 // displayPath returns path relative to root when possible.

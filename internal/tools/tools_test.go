@@ -63,7 +63,41 @@ func TestEditTarget(t *testing.T) {
 			if rel != tc.wantRel || outside != tc.wantOutside {
 				t.Fatalf("EditTarget(%q) = (%q, %v), want (%q, %v)", tc.arg, rel, outside, tc.wantRel, tc.wantOutside)
 			}
+			abs, gotRel, gotOutside := ResolveTarget(root, tc.arg)
+			if gotRel != rel || gotOutside != outside {
+				t.Fatalf("ResolveTarget rel/outside mismatch: (%q, %v)", gotRel, gotOutside)
+			}
+			if tc.wantRel != "" {
+				wantAbs := filepath.Join(root, filepath.FromSlash(tc.wantRel))
+				if abs != wantAbs {
+					t.Fatalf("ResolveTarget abs=%q want %q", abs, wantAbs)
+				}
+			}
+			if tc.arg == "" && abs != "" {
+				t.Fatalf("empty arg abs=%q", abs)
+			}
 		})
+	}
+}
+
+func TestExternalDir(t *testing.T) {
+	root := t.TempDir()
+	file := filepath.Join(root, "a.txt")
+	if err := os.WriteFile(file, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := ExternalDir(file); got != root {
+		t.Fatalf("file → parent: %q want %q", got, root)
+	}
+	if got := ExternalDir(root); got != root {
+		t.Fatalf("directory → itself: %q", got)
+	}
+	missing := filepath.Join(root, "nope.txt")
+	if got := ExternalDir(missing); got != root {
+		t.Fatalf("missing file → parent: %q", got)
+	}
+	if got := ExternalDir(""); got != "" {
+		t.Fatalf("empty: %q", got)
 	}
 }
 
@@ -86,7 +120,7 @@ func TestEditOutsideWorkspace(t *testing.T) {
 	if data, err := os.ReadFile(outside); err != nil || string(data) != "hello\n" {
 		t.Fatalf("outside file: %q %v", data, err)
 	}
-	// Read outside the workspace is allowed too.
+	// The read tool itself can open outside paths; the harness gates that.
 	readOut := Run(ctx, ts, root, Read, mustRaw(t, map[string]any{"path": outside}))
 	if !strings.Contains(readOut, "hello") {
 		t.Fatalf("outside read: %s", readOut)

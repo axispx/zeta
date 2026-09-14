@@ -81,8 +81,9 @@ type Policy struct {
 	Rules []Rule `json:"rules"`
 }
 
-// Match is the policy input for one tool call. Command/Path are empty when
-// unknown or when the target is outside the workspace.
+// Match is the policy input for one tool call. Command is empty when unknown.
+// Path is empty when unknown, or when an edit/write target is outside the
+// workspace (those never match a path rule). Outside reads use the absolute path.
 type Match struct {
 	Tool    string
 	Command string

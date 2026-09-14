@@ -2,6 +2,7 @@ package permission
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"testing"
 
 	"github.com/axispx/zeta/internal/policy"
@@ -48,7 +49,54 @@ func TestClassifyNilRules(t *testing.T) {
 func TestClassifyNonSideEffectRuns(t *testing.T) {
 	var none Session
 	if got := Classify(NewRules(policy.Policy{}), &none, t.TempDir(), tools.Read, json.RawMessage(`{"path":"a.go"}`)); got != policy.Allow {
-		t.Fatalf("read should run, got %v", got)
+		t.Fatalf("in-workspace read should run, got %v", got)
+	}
+}
+
+func TestClassifyOutsideReadAsks(t *testing.T) {
+	root := t.TempDir()
+	var none Session
+	args := json.RawMessage(`{"path":"../secret.txt"}`)
+	if got := Classify(NewRules(policy.Policy{}), &none, root, tools.Read, args); got != policy.Ask {
+		t.Fatalf("outside read should ask, got %v", got)
+	}
+	if call := CallFor(root, tools.Read, args); call.Dir == "" || !call.Outside {
+		t.Fatalf("outside read should have a grant directory: %+v", call)
+	}
+
+	deny := NewRules(policy.Policy{Rules: []policy.Rule{{Tool: tools.Read, Action: policy.ActionDeny}}})
+	if got := Classify(deny, &none, root, tools.Read, args); got != policy.Deny {
+		t.Fatalf("deny must beat outside read, got %v", got)
+	}
+
+	allow := NewRules(policy.Policy{Rules: []policy.Rule{{Tool: tools.Read, Action: policy.ActionAllow}}})
+	if got := Classify(allow, &none, root, tools.Read, args); got != policy.Allow {
+		t.Fatalf("tool-level read allow should skip outside prompt, got %v", got)
+	}
+}
+
+func TestClassifyReadPathDeny(t *testing.T) {
+	root := t.TempDir()
+	var none Session
+	dot := NewRules(policy.Policy{Rules: []policy.Rule{{Tool: tools.Read, Path: ".env", Action: policy.ActionDeny}}})
+	if got := Classify(dot, &none, root, tools.Read, json.RawMessage(`{"path":".env"}`)); got != policy.Deny {
+		t.Fatalf("in-workspace .env deny, got %v", got)
+	}
+	nested := NewRules(policy.Policy{Rules: []policy.Rule{{Tool: tools.Read, Path: "**/.env", Action: policy.ActionDeny}}})
+	if got := Classify(nested, &none, root, tools.Read, json.RawMessage(`{"path":"app/.env"}`)); got != policy.Deny {
+		t.Fatalf("nested .env deny, got %v", got)
+	}
+	if got := Classify(dot, &none, root, tools.Read, json.RawMessage(`{"path":"a.go"}`)); got != policy.Allow {
+		t.Fatalf("unrelated in-workspace read should run, got %v", got)
+	}
+
+	outside := json.RawMessage(`{"path":"../.ssh/id_rsa"}`)
+	ssh := NewRules(policy.Policy{Rules: []policy.Rule{{Tool: tools.Read, Path: "**/.ssh/**", Action: policy.ActionDeny}}})
+	if got := Classify(ssh, &none, root, tools.Read, outside); got != policy.Deny {
+		t.Fatalf("outside .ssh deny should match absolute path, got %v", got)
+	}
+	if got := Classify(dot, &none, root, tools.Read, outside); got != policy.Ask {
+		t.Fatalf("unrelated outside read should still ask, got %v", got)
 	}
 }
 
@@ -96,6 +144,7 @@ func TestCallFor(t *testing.T) {
 		wantRule    policy.Rule
 		wantPersist bool
 		wantOutside bool
+		wantDir     string
 	}{
 		{
 			name: "bash-prefix", tool: tools.Bash, args: `{"command":"  go test ./...  "}`,
@@ -125,8 +174,23 @@ func TestCallFor(t *testing.T) {
 			wantPersist: true,
 		},
 		{
-			name: "read-no-rule", tool: tools.Read, args: `{"path":"a.go"}`,
-			wantMatch: policy.Match{Tool: tools.Read},
+			name: "read-inside", tool: tools.Read, args: `{"path":"a.go"}`,
+			wantMatch: policy.Match{Tool: tools.Read, Path: "a.go"},
+		},
+		{
+			name: "read-env", tool: tools.Read, args: `{"path":".env"}`,
+			wantMatch:   policy.Match{Tool: tools.Read, Path: ".env"},
+			wantRule:    policy.Rule{Tool: tools.Read, Path: ".env", Action: policy.ActionAllow},
+			wantPersist: true,
+		},
+		{
+			name: "read-outside", tool: tools.Read, args: `{"path":"../a.go"}`,
+			wantMatch: policy.Match{
+				Tool: tools.Read,
+				Path: filepath.ToSlash(filepath.Join(filepath.Dir(root), "a.go")),
+			},
+			wantOutside: true,
+			wantDir:     filepath.Dir(root),
 		},
 	}
 	for _, tc := range cases {
@@ -140,6 +204,9 @@ func TestCallFor(t *testing.T) {
 			}
 			if got.Outside != tc.wantOutside {
 				t.Errorf("Outside = %v, want %v", got.Outside, tc.wantOutside)
+			}
+			if got.Dir != tc.wantDir {
+				t.Errorf("Dir = %q, want %q", got.Dir, tc.wantDir)
 			}
 		})
 	}
@@ -194,8 +261,46 @@ func TestSessionGrant(t *testing.T) {
 	if s.Granted(tools.Edit) || s.Granted(tools.Write) {
 		t.Fatal("edit/write must never receive a session grant")
 	}
+	s.Grant(tools.Read)
 	if s.Granted(tools.Read) {
-		t.Fatal("read has no class")
+		t.Fatal("read must not receive a class grant")
+	}
+	if !s.Granted(tools.Bash) {
+		t.Fatal("read grant must not drop bash")
+	}
+}
+
+func TestDirGrant(t *testing.T) {
+	root := t.TempDir()
+	outer := t.TempDir()
+	a, _ := json.Marshal(map[string]string{"path": filepath.Join(outer, "one", "a.txt")})
+	b, _ := json.Marshal(map[string]string{"path": filepath.Join(outer, "one", "b.txt")})
+	c, _ := json.Marshal(map[string]string{"path": filepath.Join(outer, "two", "c.txt")})
+
+	var s Session
+	call := CallFor(root, tools.Read, a)
+	if !call.Outside || call.Dir != filepath.Join(outer, "one") {
+		t.Fatalf("boundary: outside=%v dir=%q", call.Outside, call.Dir)
+	}
+	s.GrantDir(call.Dir)
+	if got := Classify(nil, &s, root, tools.Read, a); got != policy.Allow {
+		t.Fatalf("same file, got %v", got)
+	}
+	if got := Classify(nil, &s, root, tools.Read, b); got != policy.Allow {
+		t.Fatalf("sibling file, got %v", got)
+	}
+	if got := Classify(nil, &s, root, tools.Read, c); got != policy.Ask {
+		t.Fatalf("cousin directory, got %v", got)
+	}
+	for _, name := range []string{".env", ".env.local"} {
+		env, _ := json.Marshal(map[string]string{"path": filepath.Join(outer, "one", name)})
+		if got := Classify(nil, &s, root, tools.Read, env); got != policy.Ask {
+			t.Fatalf("directory grant must not skip %s, got %v", name, got)
+		}
+	}
+	deny := NewRules(policy.Policy{Rules: []policy.Rule{{Tool: tools.Read, Action: policy.ActionDeny}}})
+	if got := Classify(deny, &s, root, tools.Read, a); got != policy.Deny {
+		t.Fatalf("deny must beat directory grant, got %v", got)
 	}
 }
 
@@ -205,6 +310,10 @@ func TestNilSession(t *testing.T) {
 		t.Fatal("nil")
 	}
 	s.Grant(tools.Bash) // must not panic
+	s.GrantDir("/tmp")  // must not panic
+	if s.DirGranted(Call{}) {
+		t.Fatal("nil DirGranted")
+	}
 	var none Session
 	if got := Classify(nil, &none, t.TempDir(), tools.Bash, json.RawMessage(`{"command":"ls"}`)); got != policy.Ask {
 		t.Fatalf("bash needs decision, got %v", got)
@@ -212,8 +321,58 @@ func TestNilSession(t *testing.T) {
 	if got := Classify(nil, &none, t.TempDir(), tools.Edit, json.RawMessage(`{"path":"a.go"}`)); got != policy.Ask {
 		t.Fatalf("edit needs decision, got %v", got)
 	}
-	if got := Classify(nil, &none, t.TempDir(), tools.Read, json.RawMessage(`{"path":"a.go"}`)); got != policy.Allow {
-		t.Fatalf("read never needs decision, got %v", got)
+	root := t.TempDir()
+	if got := Classify(nil, &none, root, tools.Read, json.RawMessage(`{"path":"a.go"}`)); got != policy.Allow {
+		t.Fatalf("in-workspace read never needs decision, got %v", got)
+	}
+	if got := Classify(nil, &none, root, tools.Read, json.RawMessage(`{"path":"../x.txt"}`)); got != policy.Ask {
+		t.Fatalf("outside read needs decision, got %v", got)
+	}
+	if got := Classify(nil, &none, root, tools.Read, json.RawMessage(`{"path":".env"}`)); got != policy.Ask {
+		t.Fatalf(".env needs decision, got %v", got)
+	}
+}
+
+func TestEnvFile(t *testing.T) {
+	cases := []struct {
+		path string
+		want bool
+	}{
+		{".env", true},
+		{".env.local", true},
+		{".env.production", true},
+		{".env.development.local", true},
+		{"app/.env", true},
+		{"foo.env", true},
+		{".env.example", false},
+		{"app/.env.example", false},
+		{".envrc", false},
+		{"environment.ts", false},
+		{"a.go", false},
+		{"", false},
+	}
+	for _, tc := range cases {
+		if got := EnvFile(tc.path); got != tc.want {
+			t.Errorf("EnvFile(%q) = %v, want %v", tc.path, got, tc.want)
+		}
+	}
+}
+
+func TestClassifyEnvRead(t *testing.T) {
+	root := t.TempDir()
+	var none Session
+	if got := Classify(nil, &none, root, tools.Read, json.RawMessage(`{"path":".env"}`)); got != policy.Ask {
+		t.Fatalf(".env should ask, got %v", got)
+	}
+	if got := Classify(nil, &none, root, tools.Read, json.RawMessage(`{"path":"app/.env.local"}`)); got != policy.Ask {
+		t.Fatalf("nested .env.local should ask, got %v", got)
+	}
+	if got := Classify(nil, &none, root, tools.Read, json.RawMessage(`{"path":".env.example"}`)); got != policy.Allow {
+		t.Fatalf(".env.example should run, got %v", got)
+	}
+	allow := NewRules(policy.Policy{Rules: []policy.Rule{{Tool: tools.Read, Path: ".env", Action: policy.ActionAllow}}})
+	if got := Classify(allow, &none, root, tools.Read, json.RawMessage(`{"path":".env"}`)); got != policy.Allow {
+		t.Fatalf("explicit allow should skip .env prompt, got %v", got)
 	}
 }
 

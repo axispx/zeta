@@ -2,6 +2,7 @@ package tui
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"testing"
 
 	"github.com/axispx/zeta/internal/agent"
@@ -38,7 +39,16 @@ func TestWaitFor(t *testing.T) {
 		t.Fatalf("edit: %v", g)
 	}
 	if g := waitFor(empty, &grants, root, tools.Read, json.RawMessage(`{"path":"a.go"}`)); g != waitNone {
-		t.Fatalf("read: %v", g)
+		t.Fatalf("in-workspace read: %v", g)
+	}
+	if g := waitFor(empty, &grants, root, tools.Read, json.RawMessage(`{"path":"../x.txt"}`)); g != waitPermission {
+		t.Fatalf("outside read: %v", g)
+	}
+	if g := waitFor(empty, &grants, root, tools.Read, json.RawMessage(`{"path":".env"}`)); g != waitPermission {
+		t.Fatalf(".env read: %v", g)
+	}
+	if g := waitFor(empty, &grants, root, tools.Read, json.RawMessage(`{"path":".env.example"}`)); g != waitNone {
+		t.Fatalf(".env.example: %v", g)
 	}
 
 	grants.Grant(tools.Bash)
@@ -49,6 +59,19 @@ func TestWaitFor(t *testing.T) {
 	grants.Grant(tools.Edit)
 	if g := waitFor(empty, &grants, root, tools.Edit, json.RawMessage(`{"path":"a.go"}`)); g != waitPermission {
 		t.Fatalf("edit still waits: %v", g)
+	}
+	outside := json.RawMessage(`{"path":"../x.txt"}`)
+	grants.Grant(tools.Read)
+	if g := waitFor(empty, &grants, root, tools.Read, outside); g != waitPermission {
+		t.Fatalf("read class grant must not skip outside read: %v", g)
+	}
+	grants.GrantDir(permission.CallFor(root, tools.Read, outside).Dir)
+	if g := waitFor(empty, &grants, root, tools.Read, outside); g != waitNone {
+		t.Fatalf("directory grant should skip outside read: %v", g)
+	}
+	envOutside, _ := json.Marshal(map[string]string{"path": filepath.Join(permission.CallFor(root, tools.Read, outside).Dir, ".env.local")})
+	if g := waitFor(empty, &grants, root, tools.Read, envOutside); g != waitPermission {
+		t.Fatalf("directory grant must not skip .env.*: %v", g)
 	}
 	// interactive wins even if somehow permission would also apply
 	if g := waitFor(empty, &grants, root, tools.AskUser, nil); g != waitInteractive {
@@ -75,6 +98,15 @@ func TestWaitForPolicy(t *testing.T) {
 	grants.Grant(tools.Bash)
 	if g := waitFor(deny, &grants, root, tools.Bash, args); g != waitAutoDeny {
 		t.Fatalf("deny must beat grant: %v", g)
+	}
+
+	readDeny := permission.NewRules(policy.Policy{Rules: []policy.Rule{{Tool: tools.Read, Action: policy.ActionDeny}}})
+	if g := waitFor(readDeny, &grants, root, tools.Read, json.RawMessage(`{"path":"../x.txt"}`)); g != waitAutoDeny {
+		t.Fatalf("tool-level read deny: %v", g)
+	}
+	readAllow := permission.NewRules(policy.Policy{Rules: []policy.Rule{{Tool: tools.Read, Action: policy.ActionAllow}}})
+	if g := waitFor(readAllow, &grants, root, tools.Read, json.RawMessage(`{"path":"../x.txt"}`)); g != waitNone {
+		t.Fatalf("tool-level read allow: %v", g)
 	}
 }
 

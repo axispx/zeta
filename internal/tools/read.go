@@ -17,7 +17,9 @@ const Read = "read"
 func (readTool) Name() string { return Read }
 func (readTool) Description() string {
 	return "Read a file or list a directory. " +
-		"Paths are relative to the workspace root; absolute paths and ../ escapes are allowed and read anywhere. " +
+		"Paths are relative to the workspace root; absolute paths and ../ escapes are allowed. " +
+		"Reads outside the workspace require approval for that directory (a session grant covers later reads there). " +
+		".env / .env.* files also require approval (.env.example does not). " +
 		"For directories, returns immediate children (one per line; trailing / for subdirs). " +
 		"For files, optionally slice by 1-based line offset and limit."
 }
@@ -27,7 +29,7 @@ func (readTool) Parameters() map[string]any {
 		"properties": map[string]any{
 			"path": map[string]any{
 				"type":        "string",
-				"description": "Path relative to the workspace root. Absolute paths and ../ escapes are allowed; edits outside the workspace still require approval.",
+				"description": "Path relative to the workspace root. Absolute paths and ../ escapes are allowed; reads outside the workspace require approval.",
 			},
 			"offset": map[string]any{
 				"type":        "integer",

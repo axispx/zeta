@@ -2,6 +2,7 @@ package tui
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -291,7 +292,7 @@ func TestReadToolStartNoDecision(t *testing.T) {
 		reply:      replies,
 		cancel:     func() {},
 	}
-	_ = m.handleTurnToolStart(turnToolStartMsg{name: tools.Read, label: "read a.go"})
+	_ = m.handleTurnToolStart(turnToolStartMsg{name: tools.Read, label: "read a.go", args: json.RawMessage(`{"path":"a.go"}`)})
 	if m.bottom.perm != nil {
 		t.Fatal("read should not open modal")
 	}
@@ -477,13 +478,14 @@ func TestActiveGrantsSurviveMode(t *testing.T) {
 func TestReadToolStartSkipsPrompt(t *testing.T) {
 	replies := make(chan agent.Reply, 1)
 	m := testModel()
+	m.ws = workspace.Context{Abs: t.TempDir()}
 	m.turn = &turnSession{
 		activeTool: -1,
 		ch:         make(chan agent.Event),
 		reply:      replies,
 		cancel:     func() {},
 	}
-	_ = m.handleTurnToolStart(turnToolStartMsg{name: tools.Read, label: "read a.go"})
+	_ = m.handleTurnToolStart(turnToolStartMsg{name: tools.Read, label: "read a.go", args: json.RawMessage(`{"path":"a.go"}`)})
 	if m.bottom.perm != nil {
 		t.Fatal("read should not open approval")
 	}
@@ -491,6 +493,177 @@ func TestReadToolStartSkipsPrompt(t *testing.T) {
 	case d := <-replies:
 		t.Fatalf("agent Gate is false; must not send decision: %v", d)
 	default:
+	}
+}
+
+func TestEnvReadOpensApproval(t *testing.T) {
+	replies := make(chan agent.Reply, 1)
+	m := testModel()
+	m.ws = workspace.Context{Abs: t.TempDir()}
+	m.turn = &turnSession{
+		activeTool: -1,
+		ch:         make(chan agent.Event),
+		reply:      replies,
+		cancel:     func() {},
+	}
+	_ = m.handleTurnToolStart(turnToolStartMsg{
+		name: tools.Read, label: "read .env", path: ".env",
+		args: json.RawMessage(`{"path":".env"}`),
+	})
+	if m.bottom.perm == nil || !m.bottom.perm.env || m.bottom.perm.outside {
+		t.Fatalf("env read must open file prompt: %+v", m.bottom.perm)
+	}
+	out := stripANSI(m.renderPermission(80))
+	if !strings.Contains(out, "Read ") || !strings.Contains(out, ".env") {
+		t.Fatalf("title: %q", out)
+	}
+	if strings.Contains(out, "Allow this directory") {
+		t.Fatalf("env must not offer directory grant: %q", out)
+	}
+	if !strings.Contains(out, "Always allow this file") {
+		t.Fatalf("in-workspace env should persist: %q", out)
+	}
+	select {
+	case <-replies:
+		t.Fatal("should wait for human")
+	default:
+	}
+}
+
+func TestReadOutsideOpensApproval(t *testing.T) {
+	replies := make(chan agent.Reply, 1)
+	m := testModel()
+	m.ws = workspace.Context{Abs: t.TempDir()}
+	m.turn = &turnSession{
+		activeTool: -1,
+		ch:         make(chan agent.Event),
+		reply:      replies,
+		cancel:     func() {},
+	}
+	_ = m.handleTurnToolStart(turnToolStartMsg{
+		name: tools.Read, label: "read ../x.txt", path: "../x.txt",
+		args: json.RawMessage(`{"path":"../x.txt"}`),
+	})
+	if m.bottom.perm == nil || m.bottom.perm.name != tools.Read || !m.bottom.perm.outside {
+		t.Fatalf("outside read must open prompt: %+v", m.bottom.perm)
+	}
+	out := stripANSI(m.renderPermission(80))
+	if !strings.Contains(out, "Access ") {
+		t.Fatalf("title: %q", out)
+	}
+	if !strings.Contains(out, "outside workspace") {
+		t.Fatalf("outside marker: %q", out)
+	}
+	for _, want := range []string{"Allow once", "Allow this directory for session", "Deny"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("missing %q in %q", want, out)
+		}
+	}
+	if strings.Contains(out, "Always") {
+		t.Fatalf("must not persist: %q", out)
+	}
+	select {
+	case <-replies:
+		t.Fatal("should wait for human")
+	default:
+	}
+}
+
+func TestReadOutsideSessionGrantSkipsLater(t *testing.T) {
+	replies := make(chan agent.Reply, 1)
+	outer := t.TempDir()
+	root := t.TempDir()
+	oneA, _ := json.Marshal(map[string]string{"path": filepath.Join(outer, "one", "a.txt")})
+	oneB, _ := json.Marshal(map[string]string{"path": filepath.Join(outer, "one", "b.txt")})
+	twoC, _ := json.Marshal(map[string]string{"path": filepath.Join(outer, "two", "c.txt")})
+
+	m := testModel()
+	m.ws = workspace.Context{Abs: root}
+	m.turn = &turnSession{
+		activeTool: -1,
+		ch:         make(chan agent.Event),
+		reply:      replies,
+		cancel:     func() {},
+	}
+	_ = m.handleTurnToolStart(turnToolStartMsg{
+		name: tools.Read, label: "read a.txt", path: filepath.Join(outer, "one", "a.txt"),
+		args: oneA,
+	})
+	if _, ok := m.handlePermissionKey(tea.KeyPressMsg{Code: 's', Text: "s"}); !ok {
+		t.Fatal("s")
+	}
+	if !m.grants.DirGranted(permission.CallFor(root, tools.Read, oneA)) {
+		t.Fatal("directory grant should stick")
+	}
+	if m.grants.Granted(tools.Read) {
+		t.Fatal("must not class-grant read")
+	}
+	if allow := <-replies; allow.Kind == agent.ReplyDeny {
+		t.Fatal("want allow")
+	}
+
+	m.turn.activeTool = -1
+	_ = m.handleTurnToolStart(turnToolStartMsg{
+		name: tools.Read, label: "read b.txt", path: filepath.Join(outer, "one", "b.txt"),
+		args: oneB,
+	})
+	if m.bottom.perm != nil {
+		t.Fatal("sibling in the same directory should skip")
+	}
+	select {
+	case d := <-replies:
+		t.Fatalf("agent gate is false; must not reply: %v", d)
+	default:
+	}
+
+	for _, name := range []string{".env", ".env.local"} {
+		env, _ := json.Marshal(map[string]string{"path": filepath.Join(outer, "one", name)})
+		m.turn.activeTool = -1
+		_ = m.handleTurnToolStart(turnToolStartMsg{
+			name: tools.Read, label: "read " + name, path: filepath.Join(outer, "one", name),
+			args: env,
+		})
+		if m.bottom.perm == nil || !m.bottom.perm.env {
+			t.Fatalf("directory grant must still prompt %s: %+v", name, m.bottom.perm)
+		}
+		m.bottom.clear()
+	}
+
+	m.turn.activeTool = -1
+	_ = m.handleTurnToolStart(turnToolStartMsg{
+		name: tools.Read, label: "read c.txt", path: filepath.Join(outer, "two", "c.txt"),
+		args: twoC,
+	})
+	if m.bottom.perm == nil {
+		t.Fatal("a different directory must still prompt")
+	}
+
+	_ = m.handleTurnToolStart(turnToolStartMsg{
+		name: tools.Edit, label: "edit a.go", path: "a.go",
+		args: json.RawMessage(`{"path":"a.go"}`),
+	})
+	if m.bottom.perm == nil || m.bottom.perm.name != tools.Edit {
+		t.Fatalf("read grant must not skip edit: %+v", m.bottom.perm)
+	}
+}
+
+func TestReadOutsidePromptsInAskMode(t *testing.T) {
+	replies := make(chan agent.Reply, 1)
+	m := testModel()
+	m.mode = prompt.ModeAsk
+	m.ws = workspace.Context{Abs: t.TempDir()}
+	m.turn = &turnSession{
+		activeTool: -1,
+		ch:         make(chan agent.Event),
+		reply:      replies,
+		cancel:     func() {},
+	}
+	_ = m.handleTurnToolStart(turnToolStartMsg{
+		name: tools.Read, label: "read ../x.txt", path: "../x.txt",
+		args: json.RawMessage(`{"path":"../x.txt"}`),
+	})
+	if m.bottom.perm == nil {
+		t.Fatal("ask mode must still prompt outside reads")
 	}
 }
 

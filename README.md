@@ -7,7 +7,7 @@ Use any OpenAI-compatible provider — OpenAI, xAI, DeepSeek, Kimi, and more, pl
 ## Features
 
 - **Build / Ask / Plan** — implement with tools, read-only Q&A, or plan first then approve into Build
-- **Permission prompts** — shell and file changes ask before running (Build mode), with optional remembered rules
+- **Permission prompts** — shell, file changes, and reads outside the workspace ask before running, with optional remembered rules
 - **Folder trust** — first open in a directory asks before loading project files
 - **Local sessions** — chat history stays on your machine; resume anytime with `/resume`
 - **Auto-compaction** — long chats summarize older context when the model window fills up
@@ -37,8 +37,8 @@ Cycle modes with **Shift+Tab**.
 
 | Mode      | What it does                                                                                                                                                    |
 | --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Build** | Writes code and runs commands. Shell and file edits ask for permission first.                                                                                   |
-| **Ask**   | Questions only — reads the codebase, no edits.                                                                                                                  |
+| **Build** | Writes code and runs commands. Shell, file edits, and outside-workspace reads ask first.                                                                |
+| **Ask**   | Questions only — reads the codebase, no edits. Outside-workspace reads still prompt.                                                                    |
 | **Plan**  | Plans without changing files. When ready: approve, revise, or discard. Approve picks a build model, clears context, switches to Build, and starts implementing. |
 
 ## Keyboard shortcuts
@@ -58,37 +58,40 @@ Cycle modes with **Shift+Tab**.
 
 Type `@` in the composer to fuzzy-find a workspace file (respects `.gitignore` via ripgrep). Tab or Enter inserts `@path` and a trailing space; Esc closes the list without clearing the draft.
 
-### Permissions (Build)
+### Permissions
 
-When the agent wants to run a shell command or change a file:
+When the agent wants to run a shell command, change a file, or read outside the workspace:
 
-| Action       | Keys                                                                            |
-| ------------ | ------------------------------------------------------------------------------- |
-| Shell        | `[a]` allow once · `[p]` always allow · `[s]` allow for session · `[d]` deny     |
-| Edit / write | `[a]` allow · `[p]` always allow · `[d]` deny                                   |
+| Action                         | Keys                                                                            |
+| ------------------------------ | ------------------------------------------------------------------------------- |
+| Shell                          | `[a]` allow once · `[p]` always allow · `[s]` allow for session · `[d]` deny     |
+| Edit / write                   | `[a]` allow · `[p]` always allow · `[d]` deny                                   |
+| Read (outside workspace)       | `[a]` allow once · `[s]` allow this directory for session · `[d]` deny          |
+| Read (`.env` / `.env.*`)       | `[a]` allow · `[p]` always allow this file · `[d]` deny                         |
 
-You can also click, or use `↑`/`↓` + Enter. `Esc` cancels. Ask and Plan never ask for permission. The `[p]` row appears only when a rule can be remembered — see [Remembered rules](#remembered-rules).
+You can also click, or use `↑`/`↓` + Enter. `Esc` cancels. Ask and Plan have no shell or edit tools, but they still prompt for outside-workspace reads. The `[p]` row appears only when a rule can be remembered — see [Remembered rules](#remembered-rules).
 
-Edit/write paths resolve relative to the workspace root, but absolute paths and `..` escapes are allowed — when the target is outside the workspace, the prompt is marked `(outside workspace)` and still needs per-call approval. Reads are never prompted. `grep`/`glob` and `bash`'s `workdir` stay inside the workspace.
+Edit/write/read paths resolve relative to the workspace root, but absolute paths and `..` escapes are allowed — when the target is outside the workspace, the prompt is marked `(outside workspace)`. Outside edits/writes need per-call approval. In-workspace reads never prompt, except dotenv secrets (`.env`, `.env.*`; `.env.example` is allowed). An outside read asks to access that file's directory; a session grant covers later reads under it, not every outside path, and does not skip dotenv files. `grep`/`glob` and `bash`'s `workdir` stay inside the workspace.
 
 #### Remembered rules
 
-When a prompt can be remembered it also offers `[p]` **always allow** — for a shell command prefix, or for an in-workspace edit/write file. Out-of-workspace targets, and shell commands with chaining (`&&`, `|`, `;`, redirects, `$(…)`), keep the plain allow/deny prompt.
+When a prompt can be remembered it also offers `[p]` **always allow** — for a shell command prefix, an in-workspace edit/write file, or an in-workspace dotenv read. Out-of-workspace edit/write targets, outside reads, and shell commands with chaining (`&&`, `|`, `;`, redirects, `$(…)`), keep the plain allow/deny prompt (outside reads also offer a directory-scoped session grant).
 
 Remembered rules live in `~/.zeta/permissions.json` (or `$ZETA_HOME/permissions.json`), separate from `config.json`, and are loaded at startup. The prompt only ever writes `allow` rules; add `deny` rules by hand-editing the file.
 
-Rules are evaluated with deny-precedence: any matching `deny` wins (even over an `allow` or a session grant); otherwise a matching `allow` runs; otherwise zeta asks as usual. Rules are checked for every tool call, so a tool-level (or `"*"`) `deny` also blocks tools that never prompt (`read`, `grep`, …), while an `allow` for those tools is simply redundant. Prompts that are always interactive — `ask_user` — still reach you regardless of rules. A rule matches on tool (`"bash"`, `"edit"`, `"write"`, or `"*"`) plus one optional field:
+Rules are evaluated with deny-precedence: any matching `deny` wins (even over an `allow` or a session grant); otherwise a matching `allow` runs; otherwise zeta asks as usual. Rules are checked for every tool call, so a tool-level (or `"*"`) `deny` also blocks tools that usually auto-run (`grep`, `glob`, in-workspace `read`, …). A tool-level `read` `allow` skips outside-workspace and dotenv read prompts; `allow` for other auto-run tools is redundant. Prompts that are always interactive — `ask_user` — still reach you regardless of rules. A rule matches on tool (`"bash"`, `"edit"`, `"write"`, `"read"`, or `"*"`) plus one optional field:
 
 - `command_prefix` (bash) — "commands that start with…", matched on whole words. Remembering `go test ./...` stores `go test` and also covers `go test -v`. A command whose second word is a flag keeps the whole string (`rm -rf /`), so it never broadens to every `rm`. `bash` is unsandboxed, so this is a guardrail, not a sandbox.
 - `command` (bash) — a glob against the raw command string: `*` matches within a segment, `**` crosses `/`, `?` matches one character, and a pattern without `*` is exact.
-- `path` (edit/write) — a glob against the workspace-relative path; out-of-workspace targets never match one.
+- `path` (edit/write/read) — a glob against the workspace-relative path; out-of-workspace edit/write never match one. Out-of-workspace reads match the absolute path instead, so a deny like `**/.ssh/**` still applies.
 
 ```json
 {
   "rules": [
     { "tool": "bash", "command_prefix": "go test", "action": "allow" },
     { "tool": "bash", "command_prefix": "git push", "action": "deny" },
-    { "tool": "edit", "path": "src/**", "action": "deny" }
+    { "tool": "edit", "path": "src/**", "action": "deny" },
+    { "tool": "read", "path": "**/.ssh/**", "action": "deny" }
   ]
 }
 ```
