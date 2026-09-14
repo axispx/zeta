@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-
 )
 
 func TestCwdKey(t *testing.T) {
@@ -276,6 +275,97 @@ func TestOpenID(t *testing.T) {
 	}
 }
 
+func TestDropLastUser(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("ZETA_HOME", home)
+	proj := filepath.Join(t.TempDir(), "proj")
+
+	s, err := New(proj)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Append(Record{Role: RoleUser, Text: "first"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Append(Record{Role: RoleAgent, Text: "ok"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Append(Record{Role: RoleUser, Text: "second"}); err != nil {
+		t.Fatal(err)
+	}
+
+	dropped, err := s.DropLastUser()
+	if err != nil || !dropped {
+		t.Fatalf("dropped=%v err=%v", dropped, err)
+	}
+
+	_, recs, err := OpenID(proj, s.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recs) != 2 || recs[0].Text != "first" || recs[1].Text != "ok" {
+		t.Fatalf("recs=%#v", recs)
+	}
+
+	dropped, err = s.DropLastUser()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dropped {
+		t.Fatal("must not drop a trailing agent turn")
+	}
+}
+
+func TestDropLastUserUnpersistsEmpty(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("ZETA_HOME", home)
+	proj := filepath.Join(t.TempDir(), "proj")
+
+	s, err := New(proj)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Append(Record{Role: RoleUser, Text: "only"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetName("Titled"); err != nil {
+		t.Fatal(err)
+	}
+
+	dropped, err := s.DropLastUser()
+	if err != nil || !dropped {
+		t.Fatalf("dropped=%v err=%v", dropped, err)
+	}
+	if s.Persisted() {
+		t.Fatal("should be unpersisted")
+	}
+	if _, err := os.Stat(s.Path); !os.IsNotExist(err) {
+		t.Fatalf("jsonl should be gone: %v", err)
+	}
+	entries, err := List(proj)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("index=%#v", entries)
+	}
+
+	// Same session id can persist again after a later send.
+	if err := s.Append(Record{Role: RoleUser, Text: "retry"}); err != nil {
+		t.Fatal(err)
+	}
+	if !s.Persisted() {
+		t.Fatal("re-append should persist")
+	}
+	_, recs, err := OpenID(proj, s.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recs) != 1 || recs[0].Text != "retry" {
+		t.Fatalf("recs=%#v", recs)
+	}
+}
+
 func TestLoadSkipsUnknownEventTypes(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("ZETA_HOME", home)
@@ -314,4 +404,3 @@ func TestLoadSkipsUnknownEventTypes(t *testing.T) {
 		t.Fatalf("recs = %#v", recs)
 	}
 }
-

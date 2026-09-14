@@ -34,12 +34,19 @@ func (m *Model) tryInterrupt() bool {
 		return true
 	case m.authRetrying:
 		// Recover cmd still completes; result handler installs creds, no restart.
+		// No model/tool work happened — put the prompt back if the composer is free.
 		m.cancelAuthRetry()
-		m.noteSystem(turnCancelledText)
+		if !m.restoreUnstartedPrompt() {
+			m.noteSystem(turnCancelledText)
+		}
 		return true
 	case m.turn != nil:
 		// Late KindDone must not drain the queue.
+		unstarted := !m.turn.progressed
 		m.finishTurn()
+		if unstarted && m.restoreUnstartedPrompt() {
+			return true
+		}
 		m.noteSystem(turnCancelledText)
 		return true
 	}

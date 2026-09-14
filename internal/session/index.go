@@ -83,6 +83,27 @@ func (s *Session) IndexedName() (string, error) {
 	return "", nil
 }
 
+func (s *Session) removeIndex() error {
+	if s == nil || s.Path == "" {
+		return nil
+	}
+	dir := filepath.Dir(s.Path)
+	entries, err := readIndex(dir)
+	if err != nil {
+		return err
+	}
+	out := entries[:0]
+	for _, e := range entries {
+		if e.ID != s.ID {
+			out = append(out, e)
+		}
+	}
+	if len(out) == len(entries) {
+		return nil
+	}
+	return writeIndex(dir, out)
+}
+
 func (s *Session) upsertIndex() error {
 	if s == nil || s.Path == "" {
 		return nil

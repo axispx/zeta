@@ -73,7 +73,6 @@ type event struct {
 	FramePlan  bool       `json:"frame_plan,omitempty"`
 }
 
-
 // Session is an append-only JSONL transcript for one chat.
 // A new session is in-memory only until the first Append.
 type Session struct {
@@ -89,7 +88,6 @@ type Session struct {
 func (s *Session) Persisted() bool {
 	return s != nil && s.onDisk
 }
-
 
 // Open resumes the latest session for cwd, or creates a new one if none exist.
 func Open(cwd string) (*Session, []Record, error) {
@@ -170,6 +168,88 @@ func (s *Session) Append(rec Record) error {
 	return s.upsertIndex()
 }
 
+// DropLastUser removes the last JSONL message when it is a user turn.
+// Used to uncommit a prompt cancelled before any model work. If that was the
+// only message, the transcript and index entry are removed so the session is
+// unpersisted again. Returns false when there is nothing to drop.
+func (s *Session) DropLastUser() (bool, error) {
+	if s == nil || !s.onDisk || s.Path == "" {
+		return false, nil
+	}
+	lines, lastMsg, lastRole, msgCount, err := readJSONLLines(s.Path)
+	if err != nil {
+		return false, err
+	}
+	if lastMsg < 0 || lastRole != RoleUser {
+		return false, nil
+	}
+	keep := append(append([]string{}, lines[:lastMsg]...), lines[lastMsg+1:]...)
+	msgCount--
+	if msgCount == 0 {
+		if err := os.Remove(s.Path); err != nil && !os.IsNotExist(err) {
+			return false, fmt.Errorf("remove session: %w", err)
+		}
+		s.onDisk = false
+		return true, s.removeIndex()
+	}
+	if err := writeJSONLLines(s.Path, keep); err != nil {
+		return false, err
+	}
+	return true, s.upsertIndex()
+}
+
+func readJSONLLines(path string) (lines []string, lastMsg int, lastRole string, msgCount int, err error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, -1, "", 0, fmt.Errorf("open session: %w", err)
+	}
+	defer f.Close()
+
+	lastMsg = -1
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 64*1024), image.MaxJSONLLine)
+	lineNo := 0
+	for sc.Scan() {
+		lineNo++
+		raw := sc.Text()
+		lines = append(lines, raw)
+		trim := strings.TrimSpace(raw)
+		if trim == "" {
+			continue
+		}
+		var evt event
+		if err := json.Unmarshal([]byte(trim), &evt); err != nil {
+			return nil, -1, "", 0, fmt.Errorf("session %s:%d: %w", filepath.Base(path), lineNo, err)
+		}
+		if evt.Type == typeMessage {
+			lastMsg = len(lines) - 1
+			lastRole = evt.Role
+			msgCount++
+		}
+	}
+	if err := sc.Err(); err != nil {
+		return nil, -1, "", 0, fmt.Errorf("read session: %w", err)
+	}
+	return lines, lastMsg, lastRole, msgCount, nil
+}
+
+func writeJSONLLines(path string, lines []string) error {
+	var b strings.Builder
+	for _, line := range lines {
+		b.WriteString(line)
+		b.WriteByte('\n')
+	}
+	data := []byte(b.String())
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+		return fmt.Errorf("write session: %w", err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("write session: %w", err)
+	}
+	return nil
+}
 
 // ensureFile creates the project dir and writes the session header if needed.
 func (s *Session) ensureFile() error {

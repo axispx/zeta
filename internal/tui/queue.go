@@ -270,6 +270,40 @@ func (m *Model) commitUserPrompt(text string, imgs []image.Ref) {
 	m.persist(session.Record{Role: session.RoleUser, Text: text, Images: imgs})
 }
 
+// restoreUnstartedPrompt rolls the last user turn back into the composer.
+// Used when Esc/Ctrl+C abort a turn (or OAuth recover) before any model/tool
+// output. Requires an empty composer so a typed follow-up is not overwritten,
+// and the user row must still be the transcript tail (a later compact divider,
+// agent/tool row, or persist error means the send already landed).
+func (m *Model) restoreUnstartedPrompt() bool {
+	if !m.composerIsEmpty() || m.editID != 0 {
+		return false
+	}
+	n := len(m.messages)
+	if n == 0 || m.messages[n-1].Role != RoleUser {
+		return false
+	}
+	nh := len(m.history)
+	if nh == 0 || m.history[nh-1].Role != ai.RoleUser {
+		return false
+	}
+	if m.sess != nil && m.sess.Persisted() {
+		dropped, err := m.sess.DropLastUser()
+		if err != nil || !dropped {
+			return false
+		}
+	}
+	h := m.history[nh-1]
+	text := h.Text
+	imgs := append([]image.Ref(nil), h.Images...)
+	m.messages = m.messages[:n-1]
+	m.history = m.history[:nh-1]
+	m.loadQueuedIntoComposer(newQueuedPrompt(0, text, imgs))
+	m.textarea.MoveToEnd()
+	m.refreshTranscript()
+	return true
+}
+
 // enqueuePrompt appends a waiting follow-up. No-op while editing.
 func (m *Model) enqueuePrompt(text string, imgs []image.Ref) tea.Cmd {
 	if m.editID != 0 {
