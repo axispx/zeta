@@ -112,6 +112,63 @@ func TestSetActive(t *testing.T) {
 	}
 }
 
+func TestCycleReasoningEffort(t *testing.T) {
+	tests := []struct {
+		in, want string
+	}{
+		{"", "low"},
+		{"low", "medium"},
+		{"medium", "high"},
+		{"high", ""},
+		{"xhigh", "low"},
+		{" HIGH ", ""},
+	}
+	for _, tt := range tests {
+		if got := CycleReasoningEffort(tt.in); got != tt.want {
+			t.Errorf("CycleReasoningEffort(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}
+
+func TestSetReasoningEffort(t *testing.T) {
+	cfg := sampleConfig()
+	if err := cfg.SetReasoningEffort("deepseek", "deepseek-v4-flash", "high"); err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.ActiveReasoningEffort(); got != "high" {
+		t.Fatalf("active effort = %q", got)
+	}
+	ch, ok := cfg.ActiveChoice()
+	if !ok || ch.Effort != "high" {
+		t.Fatalf("ActiveChoice effort = %#v", ch)
+	}
+	choices := cfg.ModelChoices()
+	var found bool
+	for _, c := range choices {
+		if c.ID() == "deepseek/deepseek-v4-flash" {
+			found = true
+			if c.Effort != "high" {
+				t.Fatalf("choice effort = %q", c.Effort)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("missing choice")
+	}
+	if err := cfg.SetReasoningEffort("deepseek", "deepseek-v4-flash", ""); err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.ActiveReasoningEffort(); got != "" {
+		t.Fatalf("cleared effort = %q", got)
+	}
+	if err := cfg.SetReasoningEffort("deepseek", "deepseek-v4-flash", "banana"); err == nil {
+		t.Fatal("expected error for invalid effort")
+	}
+	if err := cfg.SetReasoningEffort("deepseek", "nope", "low"); err == nil {
+		t.Fatal("expected error for missing model")
+	}
+}
+
 func TestPreferredBuildModel(t *testing.T) {
 	cfg := sampleConfig()
 	if got := cfg.PreferredBuildModel(); got != cfg.Active {

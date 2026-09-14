@@ -152,6 +152,24 @@ func (c *Config) SetModelEnabled(providerID, modelID string, enabled bool) error
 	return nil
 }
 
+// SetReasoningEffort stores low/medium/high on a model. Empty clears it
+// (provider default). Does not Save.
+func (c *Config) SetReasoningEffort(providerID, modelID, effort string) error {
+	effort = strings.ToLower(strings.TrimSpace(effort))
+	if effort != "" && !validReasoningEffort(effort) {
+		return fmt.Errorf("reasoning_effort must be low, medium, or high")
+	}
+	return c.withProvider(providerID, func(p *Provider) error {
+		md, ok := p.Models[modelID]
+		if !ok {
+			return fmt.Errorf("model %q not in provider %q", modelID, providerID)
+		}
+		md.ReasoningEffort = effort
+		p.Models[modelID] = md
+		return nil
+	})
+}
+
 // DeleteModel removes a model from a provider. The provider is kept even if it
 // has no models left. If the model was active, Active is reselected or cleared.
 func (c *Config) DeleteModel(providerID, modelID string) error {

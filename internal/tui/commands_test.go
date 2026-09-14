@@ -237,6 +237,98 @@ func TestHandleModelOverlayKey(t *testing.T) {
 	}
 }
 
+func TestCycleModelReasoning(t *testing.T) {
+	isolateZetaHome(t)
+	cfg := config.Config{
+		Active: "a/1",
+		Providers: map[string]config.Provider{
+			"a": {
+				BaseURL: "http://example",
+				APIKey:  "k",
+				Models: map[string]config.ModelDef{
+					"1": {Name: "Alpha", ContextWindow: 1000},
+					"2": {Name: "Beta", ContextWindow: 1000},
+				},
+			},
+		},
+	}
+	m := Model{
+		cfg:      cfg,
+		textarea: textarea.New(),
+		overlay: filterOverlay{
+			mode:   overlayModels,
+			models: cfg.ModelChoices(),
+		},
+	}
+
+	if _, ok := m.handleOverlayKey(tea.KeyPressMsg{Code: tea.KeyTab}); !ok {
+		t.Fatal("tab should be consumed")
+	}
+	if m.overlay.selected != 0 {
+		t.Fatalf("tab must not move selection: %d", m.overlay.selected)
+	}
+	if got := m.cfg.Providers["a"].Models["1"].ReasoningEffort; got != "low" {
+		t.Fatalf("effort = %q, want low", got)
+	}
+	if m.overlay.models[0].Effort != "low" {
+		t.Fatalf("overlay effort = %q", m.overlay.models[0].Effort)
+	}
+
+	for _, want := range []string{"medium", "high", "", "low"} {
+		if _, ok := m.handleOverlayKey(tea.KeyPressMsg{Code: tea.KeyTab}); !ok {
+			t.Fatal("tab should be consumed")
+		}
+		if got := m.cfg.Providers["a"].Models["1"].ReasoningEffort; got != want {
+			t.Fatalf("effort = %q, want %q", got, want)
+		}
+	}
+
+	loaded, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := loaded.Providers["a"].Models["1"].ReasoningEffort; got != "low" {
+		t.Fatalf("persisted effort = %q", got)
+	}
+}
+
+func TestRenderModelOverlayShowsEffort(t *testing.T) {
+	m := Model{
+		cfg: config.Config{Active: "p/a"},
+		overlay: filterOverlay{
+			mode: overlayModels,
+			models: []config.ModelChoice{
+				{ProviderID: "p", ModelID: "a", Name: "Alpha", Effort: "high"},
+				{ProviderID: "p", ModelID: "b", Name: "Beta", Effort: "low"},
+			},
+		},
+	}
+	out := stripANSI(m.renderModelOverlay(80))
+	if !strings.Contains(out, "active · high") {
+		t.Fatalf("active row should show mark and effort: %q", out)
+	}
+	if !strings.Contains(out, "low") {
+		t.Fatalf("other row should show effort: %q", out)
+	}
+}
+
+func TestModelChoiceHint(t *testing.T) {
+	e := config.ModelChoice{ProviderID: "p", ModelID: "a", Name: "A", Effort: "high"}
+	if got := modelChoiceHint(e, "p/a", "active"); got != "active · high" {
+		t.Fatalf("marked+effort = %q", got)
+	}
+	if got := modelChoiceHint(e, "p/b", "active"); got != "high" {
+		t.Fatalf("effort only = %q", got)
+	}
+	e.Effort = ""
+	if got := modelChoiceHint(e, "p/a", "build"); got != "build" {
+		t.Fatalf("mark only = %q", got)
+	}
+	if got := modelChoiceHint(e, "p/b", "build"); got != "" {
+		t.Fatalf("empty = %q", got)
+	}
+}
+
 func TestWindowAround(t *testing.T) {
 	start, end := windowAround(0, 3, 5)
 	if start != 0 || end != 3 {

@@ -78,6 +78,22 @@ func TestInputFooterLayout(t *testing.T) {
 	}
 }
 
+func TestInputFooterShowsReasoningEffort(t *testing.T) {
+	cfg := testFooterCfg()
+	md := cfg.Providers["test"].Models["gpt-4"]
+	md.ReasoningEffort = "high"
+	cfg.Providers["test"].Models["gpt-4"] = md
+	out := stripANSI(inputFooter(80, workspace.Context{Cwd: "~/proj"}, cfg, prompt.ModeBuild, 0, lineStats{}))
+	lines := strings.Split(out, "\n")
+	if !strings.Contains(lines[0], "Test GPT-4") || !strings.Contains(lines[0], "high") {
+		t.Fatalf("top missing model/effort: %q", lines[0])
+	}
+	mi, ei := strings.Index(lines[0], "Test GPT-4"), strings.Index(lines[0], "high")
+	if mi < 0 || ei < 0 || mi > ei {
+		t.Fatalf("want model then effort: %q", lines[0])
+	}
+}
+
 func TestInputFooterHidesEmptyDiff(t *testing.T) {
 	cfg := testFooterCfg()
 	ws := workspace.Context{Cwd: "~/proj"}

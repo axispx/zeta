@@ -383,11 +383,19 @@ func renderModelChoiceList(models []config.ModelChoice, selected int, markID, ma
 	for i, e := range models[start:end] {
 		b.WriteByte('\n')
 		idx := start + i
-		hint := ""
-		if e.ID() == markID {
-			hint = markHint
-		}
-		b.WriteString(formatAccentRow(e.Name, hint, contentW, idx == selected, e.ID() == markID, ink))
+		b.WriteString(formatAccentRow(e.Name, modelChoiceHint(e, markID, markHint), contentW, idx == selected, e.ID() == markID, ink))
 	}
 	return b.String()
+}
+
+// modelChoiceHint is "active"/"build" plus the stored reasoning level.
+func modelChoiceHint(e config.ModelChoice, markID, markHint string) string {
+	var parts []string
+	if e.ID() == markID && markHint != "" {
+		parts = append(parts, markHint)
+	}
+	if e.Effort != "" {
+		parts = append(parts, e.Effort)
+	}
+	return strings.Join(parts, " · ")
 }

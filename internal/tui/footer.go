@@ -18,7 +18,7 @@ const footerRows = 2
 
 // inputFooter is two rows under the input box:
 //
-//	model · % · tokens                              mode
+//	model · effort · % · tokens                     mode
 //	cwd · branch                                   +N -M
 func inputFooter(width int, ws workspace.Context, cfg config.Config, mode prompt.Mode, contextTokens int64, diff lineStats) string {
 	if width < 1 {
@@ -29,11 +29,11 @@ func inputFooter(width int, ws workspace.Context, cfg config.Config, mode prompt
 	return lipgloss.JoinVertical(lipgloss.Left, top, bot)
 }
 
-// footerTopRow is model · % · tokens (left) and mode (right).
+// footerTopRow is model · effort · % · tokens (left) and mode (right).
 func footerTopRow(width int, cfg config.Config, mode prompt.Mode, contextTokens int64) string {
 	right := modeStyle(mode).Render(mode.Label())
 	leftMax := footerLeftBudget(width, right)
-	left := footerUsageModel(contextTokens, cfg.ContextWindow(), cfg.ModelName(), leftMax)
+	left := footerUsageModel(contextTokens, cfg.ContextWindow(), cfg.ModelName(), cfg.ActiveReasoningEffort(), leftMax)
 	return footerSplitRow(width, left, right)
 }
 
@@ -88,15 +88,18 @@ func footerSplitRow(width int, left, right string) string {
 	)
 }
 
-// footerUsageModel is "model · % · tokens" (tokens/% omitted when unknown),
-// truncated on the right to maxW.
-func footerUsageModel(contextTokens int64, contextWindow int, model string, maxW int) string {
+// footerUsageModel is "model · effort · % · tokens" (effort/tokens/% omitted
+// when unknown), truncated on the right to maxW.
+func footerUsageModel(contextTokens int64, contextWindow int, model, effort string, maxW int) string {
 	if maxW <= 0 {
 		return ""
 	}
-	parts := make([]string, 0, 2)
+	parts := make([]string, 0, 3)
 	if model != "" {
 		parts = append(parts, model)
+	}
+	if effort != "" {
+		parts = append(parts, effort)
 	}
 	if u := formatUsage(contextTokens, contextWindow); u != "" {
 		parts = append(parts, u)

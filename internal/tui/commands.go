@@ -426,6 +426,41 @@ func (m *Model) selectModel() {
 	m.refreshTranscript()
 }
 
+// cycleModelReasoning walks the highlighted /model row's effort:
+// default → low → medium → high → default. Persists immediately.
+func (m *Model) cycleModelReasoning() {
+	if m.overlay.mode != overlayModels {
+		return
+	}
+	visible := m.overlay.visibleModels(m.textarea.Value())
+	if len(visible) == 0 {
+		return
+	}
+	choice := visible[m.overlay.selected]
+	next := config.CycleReasoningEffort(choice.Effort)
+	prev := choice.Effort
+	if err := m.cfg.SetReasoningEffort(choice.ProviderID, choice.ModelID, next); err != nil {
+		m.messages = append(m.messages, Message{Role: RoleError, Text: err.Error()})
+		m.refreshTranscript()
+		return
+	}
+	if err := m.cfg.Save(); err != nil {
+		_ = m.cfg.SetReasoningEffort(choice.ProviderID, choice.ModelID, prev)
+		m.messages = append(m.messages, Message{Role: RoleError, Text: "config save: " + err.Error()})
+		m.refreshTranscript()
+		return
+	}
+	for i, e := range m.overlay.models {
+		if e.ID() == choice.ID() {
+			m.overlay.models[i].Effort = next
+			break
+		}
+	}
+	if m.cfg.Active == choice.ID() {
+		m.applyClient()
+	}
+}
+
 // handleOverlayKey handles nav/tab/enter for every visible filter overlay.
 // Returns (cmd, true) when the key is consumed. Hidden overlays (e.g. @ with
 // no matches) return false so keys reach the composer / submitInput.
@@ -441,6 +476,9 @@ func (m *Model) handleOverlayKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 			return nil, true
 		}
 		switch key {
+		case "tab":
+			m.cycleModelReasoning()
+			return nil, true
 		case "enter":
 			m.selectModel()
 			return nil, true

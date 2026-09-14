@@ -101,11 +101,42 @@ func (p Provider) ModelIDs() []string {
 	return ids
 }
 
+// reasoningEfforts are the levels /model can cycle. Empty omits the field
+// (provider default). Unknown values (e.g. hand-edited "xhigh") still send.
+var reasoningEfforts = []string{"low", "medium", "high"}
+
+// CycleReasoningEffort walks default → low → medium → high → default.
+func CycleReasoningEffort(current string) string {
+	cur := strings.ToLower(strings.TrimSpace(current))
+	if cur == "" {
+		return reasoningEfforts[0]
+	}
+	for i, e := range reasoningEfforts {
+		if e == cur {
+			if i+1 == len(reasoningEfforts) {
+				return ""
+			}
+			return reasoningEfforts[i+1]
+		}
+	}
+	return reasoningEfforts[0]
+}
+
+func validReasoningEffort(s string) bool {
+	for _, e := range reasoningEfforts {
+		if e == s {
+			return true
+		}
+	}
+	return false
+}
+
 // ModelChoice is one selectable provider+model pair.
 type ModelChoice struct {
 	ProviderID string
 	ModelID    string
 	Name       string // display: "DeepSeek V4 Flash"
+	Effort     string // reasoning_effort; empty = provider default
 }
 
 // ID returns the provider_id/model_id.
@@ -299,6 +330,7 @@ func (c Config) ActiveChoice() (ModelChoice, bool) {
 		ProviderID: provider,
 		ModelID:    modelID,
 		Name:       choiceName(p, provider, modelID),
+		Effort:     strings.TrimSpace(p.Models[modelID].ReasoningEffort),
 	}, true
 }
 
@@ -333,6 +365,7 @@ func (c Config) ModelChoices() []ModelChoice {
 				ProviderID: pid,
 				ModelID:    id,
 				Name:       choiceName(p, pid, id),
+				Effort:     strings.TrimSpace(p.Models[id].ReasoningEffort),
 			})
 		}
 	}
@@ -369,6 +402,16 @@ func (c Config) ContextWindow() int {
 		return 0
 	}
 	return m.ContextWindow
+}
+
+// ActiveReasoningEffort is the active model's reasoning_effort, or "".
+func (c Config) ActiveReasoningEffort() string {
+	p, ok := c.ActiveProvider()
+	id := c.ActiveModelID()
+	if !ok || id == "" {
+		return ""
+	}
+	return strings.TrimSpace(p.Models[id].ReasoningEffort)
 }
 
 // SetActive sets the active model as provider_id/model_id.

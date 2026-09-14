@@ -51,6 +51,7 @@ Cycle modes with **Shift+Tab**.
 | `Shift+Tab`                            | Cycle mode (build → ask → plan)             |
 | `Shift+Enter` / `Ctrl+J` / `Alt+Enter` | Newline                                     |
 | `@`                                    | File mention picker (gitignore-aware; Tab/Enter insert) |
+| `Tab` (in `/model`)                    | Cycle reasoning (low → medium → high)       |
 | `Esc`                                  | Cancel edit / leave queue / cancel turn (queue kept) |
 | `Ctrl+C`                               | Leave edit/focus → interrupt → clear queue → quit |
 | Mouse / `PgUp` / `PgDn`                | Scroll                                      |
@@ -129,7 +130,7 @@ Type `/` for autocomplete.
 | `/clear`   | Start a new session                              |
 | `/compact` | Summarize older context now                      |
 | `/resume`  | Open a previous session                          |
-| `/model`   | Switch model                                     |
+| `/model`   | Switch model; Tab cycles reasoning (low / medium / high) |
 | `/config`  | Manage providers and models                      |
 | `/update`  | Update to the latest release                     |
 | `/review`  | Strict code-quality review of the current branch |
@@ -146,7 +147,7 @@ In `/config`:
 - **Providers** — add a catalog provider (API key, then enable models; `Ctrl+A` toggles all)
 - **Custom** — your own OpenAI-compatible endpoint
 
-Optional: set a preferred build model after plan approve with `"defaults": { "build": "provider/model" }` in the config file.
+Optional: set a preferred build model after plan approve with `"defaults": { "build": "provider/model" }` in the config file. Per-model `reasoning_effort` (`low` / `medium` / `high`) is set from `/model` with Tab.
 
 Example shape (prefer the UI over hand-editing):
 
@@ -159,7 +160,7 @@ Example shape (prefer the UI over hand-editing):
       "base_url": "https://api.deepseek.com/v1",
       "api_key": "sk-...",
       "models": {
-        "deepseek-v4-flash": { "name": "V4 Flash", "context_window": 1000000 }
+        "deepseek-v4-flash": { "name": "V4 Flash", "context_window": 1000000, "reasoning_effort": "medium" }
       }
     }
   }
