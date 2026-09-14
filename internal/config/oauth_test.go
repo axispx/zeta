@@ -45,6 +45,25 @@ func TestHasUsableCredential(t *testing.T) {
 	}
 }
 
+// Submit/refresh must not fail when zeta home has never been created (CI, fresh install).
+func TestEnsureOAuthFreshMissingHomeDir(t *testing.T) {
+	t.Setenv("ZETA_HOME", t.TempDir()+"/missing")
+	c := Config{Providers: map[string]Provider{
+		"x": {
+			BaseURL: "http://127.0.0.1:1",
+			APIKey:  "k",
+			Models:  map[string]ModelDef{"y": {ContextWindow: 128000}},
+		},
+	}}
+	ok, err := c.EnsureOAuthFresh(context.Background(), "x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok {
+		t.Fatal("api-key provider should not refresh")
+	}
+}
+
 func TestOAuthFromToken(t *testing.T) {
 	t.Parallel()
 	if OAuthFromToken(nil) != nil || OAuthFromToken(&oauth.TokenResponse{}) != nil {

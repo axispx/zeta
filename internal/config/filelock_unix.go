@@ -5,6 +5,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"golang.org/x/sys/unix"
 )
@@ -17,6 +18,9 @@ func withConfigFileLock(path string, fn func() error) error {
 		return fn()
 	}
 	lockPath := path + ".lock"
+	if err := os.MkdirAll(filepath.Dir(lockPath), 0o700); err != nil {
+		return fmt.Errorf("config lock: %w", err)
+	}
 	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		return fmt.Errorf("config lock: %w", err)
