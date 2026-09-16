@@ -9,6 +9,7 @@ import (
 
 	"github.com/axispx/zeta/internal/agent"
 	"github.com/axispx/zeta/internal/ai"
+	"github.com/axispx/zeta/internal/core"
 	"github.com/axispx/zeta/internal/permission"
 	"github.com/axispx/zeta/internal/prompt"
 	"github.com/axispx/zeta/internal/skill"
@@ -279,9 +280,9 @@ func startTurn(id int, client *ai.Client, ws workspace.Context, mode prompt.Mode
 		Tools:   toolsForMode(mode, todos),
 		Root:    ws.Abs,
 		Replies: replies,
-		// Same classifier as handleTurnToolStart (waitFor), over the same live
-		// rules/grants holders the harness mutates.
-		Gate: gateFor(rules, grants, ws.Abs),
+		// Same classifier as handleTurnToolStart (core.Classify), over the same
+		// live rules/grants holders the harness mutates.
+		Gate: core.Gate(rules, grants, ws.Abs),
 	}
 	ch := cfg.Run(ctx, requestMsgs(ws, mode, history, todos))
 	t := &turnSession{

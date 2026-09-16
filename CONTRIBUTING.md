@@ -24,6 +24,7 @@ internal/cli/        flags, usage, folder-trust prompt
 internal/tui/        bubbletea UI
 internal/ai/         OpenAI-compatible streaming + tools
 internal/agent/      tool loop + permission gate
+internal/core/       UI-agnostic runtime (decision gate; harness logic migrates here)
 internal/permission/ allow | deny for side-effect tools
 internal/policy/     persisted permission rules (~/.zeta/permissions.json)
 internal/compact/    context compaction

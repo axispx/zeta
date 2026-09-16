@@ -6,6 +6,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/axispx/zeta/internal/agent"
+	"github.com/axispx/zeta/internal/core"
 	"github.com/axispx/zeta/internal/prompt"
 )
 
@@ -149,15 +150,15 @@ func (m *Model) handleTurnToolStart(msg turnToolStartMsg) tea.Cmd {
 	}
 	m.refreshTranscript()
 
-	// Agent only waits when waitFor matches Gate — do not send a Reply it isn't awaiting.
-	switch waitFor(m.rules, m.grants, m.ws.Abs, msg.name, msg.args) {
-	case waitInteractive:
+	// Agent only waits when core.Classify matches Gate — do not send a Reply it isn't awaiting.
+	switch core.Classify(m.rules, m.grants, m.ws.Abs, msg.name, msg.args) {
+	case core.WaitInteractive:
 		m.openInteractiveTool(msg.name, msg.args)
-	case waitAutoDeny:
+	case core.WaitAutoDeny:
 		m.messages[m.turn.activeTool].Status = ToolDenied
 		m.sendReply(agent.DenyToolReason("denied by permission policy"))
 		m.refreshTranscript()
-	case waitPermission:
+	case core.WaitPermission:
 		p := newPermissionPrompt(label, msg.name, msg.path)
 		p.setArgs(msg.args, m.ws.Abs)
 		m.bottom.setPerm(p)
