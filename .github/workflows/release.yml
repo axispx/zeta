@@ -81,5 +81,6 @@ jobs:
 
       - uses: softprops/action-gh-release@v2
         with:
+          name: Zeta ${{ github.ref_name }}
           files: dist/*
           generate_release_notes: true
