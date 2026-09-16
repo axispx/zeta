@@ -1,5 +1,8 @@
 @README.md
 @CONTRIBUTING.md
+@docs/permissions.md
+@docs/configuration.md
+@docs/keyboard.md
 
 ## Versioning
 

@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for helping with Zeta. End-user docs: [README.md](README.md).
+Thanks for helping with Zeta. End-user docs: [README.md](README.md) and [`docs/`](docs/).
 
 ## Develop
 
