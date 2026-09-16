@@ -9,6 +9,7 @@ Use any OpenAI-compatible provider — OpenAI, xAI, DeepSeek, Kimi, and more, pl
 - **Build / Ask / Plan** — implement with tools, read-only Q&A, or plan first then approve into Build
 - **Permission prompts** — shell, file changes, and reads outside the workspace ask before running, with optional remembered rules
 - **Folder trust** — first open in a directory asks before loading project files
+- **File drop** — drag files from your file manager onto the window to add their paths to the prompt
 - **Local sessions** — chat history stays on your machine; resume anytime with `/resume`
 - **Auto-compaction** — long chats summarize older context when the model window fills up
 - **Multi-provider** — API keys and models managed in-app with `/config`
@@ -58,6 +59,8 @@ Cycle modes with **Shift+Tab**.
 | Drag transcript                        | Select text and copy on release (no scrollbar) |
 
 Type `@` in the composer to fuzzy-find a workspace file (respects `.gitignore` via ripgrep). Tab or Enter inserts `@path` and a trailing space; Esc closes the list without clearing the draft.
+
+Drop a file (or several) from your file manager onto the window and its path lands in the prompt: a space is added before it when the cursor follows text, and one after it, so the path stays its own token. Dropped image files still attach as `[Image N]`.
 
 ### Permissions
 

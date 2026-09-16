@@ -89,7 +89,7 @@ func (m *Model) insertImageAttach(ref image.Ref) {
 	n := m.nextImageN
 	m.pendingImages[n] = ref
 	tok := imageToken(n)
-	if m.needSpaceBeforeImageToken() {
+	if m.needsSpaceBeforeInsert() {
 		tok = " " + tok
 	}
 	// Trailing space so the next typed word doesn't stick to the token.
@@ -98,7 +98,9 @@ func (m *Model) insertImageAttach(ref image.Ref) {
 	m.syncTextareaStyles()
 }
 
-func (m *Model) needSpaceBeforeImageToken() bool {
+// needsSpaceBeforeInsert reports whether the cursor follows non-blank text, so
+// an inserted token needs a leading space.
+func (m *Model) needsSpaceBeforeInsert() bool {
 	val := m.textarea.Value()
 	if val == "" {
 		return false
@@ -254,11 +256,12 @@ func isPasteKey(msg tea.KeyPressMsg) bool {
 }
 
 // handleBracketPaste handles tea.PasteMsg: attach if content is an image path,
-// otherwise return false so the textarea receives the paste.
+// or insert dropped file paths, otherwise return false so the textarea receives
+// the paste.
 func (m *Model) handleBracketPaste(content string) bool {
 	ref, ok := tryAttachPath(content)
 	if !ok {
-		return false
+		return m.handleDropPaste(content)
 	}
 	m.insertImageAttach(ref)
 	m.afterComposerChange()
@@ -291,6 +294,9 @@ func (m *Model) handleClipboardPaste() {
 	if ref, ok := tryAttachPath(text); ok {
 		m.insertImageAttach(ref)
 		m.afterComposerChange()
+		return
+	}
+	if m.handleDropPaste(text) {
 		return
 	}
 	before := m.textarea.Value()
