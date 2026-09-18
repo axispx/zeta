@@ -304,20 +304,20 @@ func TestRenderModelOverlayShowsEffort(t *testing.T) {
 		},
 	}
 	out := stripANSI(m.renderModelOverlay(80))
-	if !strings.Contains(out, "active · high") {
+	if !strings.Contains(out, "active · High") {
 		t.Fatalf("active row should show mark and effort: %q", out)
 	}
-	if !strings.Contains(out, "low") {
+	if !strings.Contains(out, "Low") {
 		t.Fatalf("other row should show effort: %q", out)
 	}
 }
 
 func TestModelChoiceHint(t *testing.T) {
 	e := config.ModelChoice{ProviderID: "p", ModelID: "a", Name: "A", Effort: "high"}
-	if got := modelChoiceHint(e, "p/a", "active"); got != "active · high" {
+	if got := modelChoiceHint(e, "p/a", "active"); got != "active · High" {
 		t.Fatalf("marked+effort = %q", got)
 	}
-	if got := modelChoiceHint(e, "p/b", "active"); got != "high" {
+	if got := modelChoiceHint(e, "p/b", "active"); got != "High" {
 		t.Fatalf("effort only = %q", got)
 	}
 	e.Effort = ""

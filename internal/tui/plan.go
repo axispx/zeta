@@ -395,7 +395,7 @@ func modelChoiceHint(e config.ModelChoice, markID, markHint string) string {
 		parts = append(parts, markHint)
 	}
 	if e.Effort != "" {
-		parts = append(parts, e.Effort)
+		parts = append(parts, config.ReasoningEffortLabel(e.Effort))
 	}
 	return strings.Join(parts, " · ")
 }

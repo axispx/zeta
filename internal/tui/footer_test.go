@@ -88,10 +88,10 @@ func TestInputFooterShowsReasoningEffort(t *testing.T) {
 	cfg.Providers["test"].Models["gpt-4"] = md
 	out := stripANSI(inputFooter(80, workspace.Context{Cwd: "~/proj"}, cfg, prompt.ModeBuild, 0, lineStats{}))
 	lines := strings.Split(out, "\n")
-	if !strings.Contains(lines[0], "Test GPT-4") || !strings.Contains(lines[0], "high") {
+	if !strings.Contains(lines[0], "Test GPT-4") || !strings.Contains(lines[0], "High") {
 		t.Fatalf("top missing model/effort: %q", lines[0])
 	}
-	mi, ei := strings.Index(lines[0], "Test GPT-4"), strings.Index(lines[0], "high")
+	mi, ei := strings.Index(lines[0], "Test GPT-4"), strings.Index(lines[0], "High")
 	if mi < 0 || ei < 0 || mi > ei {
 		t.Fatalf("want model then effort: %q", lines[0])
 	}

@@ -122,6 +122,19 @@ func CycleReasoningEffort(current string) string {
 	return reasoningEfforts[0]
 }
 
+// ReasoningEffortLabel is the display form of a reasoning_effort value:
+// "Low", "Medium", or "High". Empty and unknown values pass through unchanged.
+func ReasoningEffortLabel(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	if !validReasoningEffort(strings.ToLower(s)) {
+		return s
+	}
+	return strings.ToUpper(s[:1]) + strings.ToLower(s[1:])
+}
+
 func validReasoningEffort(s string) bool {
 	for _, e := range reasoningEfforts {
 		if e == s {

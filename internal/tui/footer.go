@@ -99,7 +99,7 @@ func footerUsageModel(contextTokens int64, contextWindow int, model, effort stri
 		parts = append(parts, model)
 	}
 	if effort != "" {
-		parts = append(parts, effort)
+		parts = append(parts, config.ReasoningEffortLabel(effort))
 	}
 	if u := formatUsage(contextTokens, contextWindow); u != "" {
 		parts = append(parts, u)

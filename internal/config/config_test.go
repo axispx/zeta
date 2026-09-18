@@ -130,6 +130,23 @@ func TestCycleReasoningEffort(t *testing.T) {
 	}
 }
 
+func TestReasoningEffortLabel(t *testing.T) {
+	tests := []struct {
+		in, want string
+	}{
+		{"", ""},
+		{"low", "Low"},
+		{"medium", "Medium"},
+		{" HIGH ", "High"},
+		{"xhigh", "xhigh"},
+	}
+	for _, tt := range tests {
+		if got := ReasoningEffortLabel(tt.in); got != tt.want {
+			t.Errorf("ReasoningEffortLabel(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}
+
 func TestSetReasoningEffort(t *testing.T) {
 	cfg := sampleConfig()
 	if err := cfg.SetReasoningEffort("deepseek", "deepseek-v4-flash", "high"); err != nil {
