@@ -23,13 +23,13 @@ type permOption struct {
 // permOptionsFor returns the approval choices for a tool.
 // bash offers a class session grant; outside-workspace read offers a
 // directory-scoped session grant. dotenv reads use the edit/write file prompt
-// (persistable in-workspace). edit/write stay once-only so every diff is
-// reviewed. When canPersist, an "always allow" row is added that writes a
-// permission rule: a bash command prefix or an in-workspace edit/write/dotenv
-// file. prefix is the derived bash prefix, shown so the user sees the scope they
-// are agreeing to. Keys mirror codex's approval shortcuts where they overlap
-// (p = persist). Deny is per-call only; a persistent deny is a hand-edit of
-// permissions.json.
+// (persistable in-workspace). edit/write are allow-or-deny only, so every diff
+// is reviewed and no rule can pre-approve a future mutation. When canPersist, an
+// "always allow" row is added that writes a permission rule: a bash command
+// prefix or an in-workspace dotenv file. prefix is the derived bash prefix,
+// shown so the user sees the scope they are agreeing to. Hotkeys follow the
+// usual approval shortcut (p = persist). Deny is per-call only; a persistent
+// deny is a hand-edit of permissions.json.
 func permOptionsFor(tool string, canPersist bool, prefix string, envFile bool) []permOption {
 	if tool == tools.Read {
 		if envFile {
@@ -55,12 +55,11 @@ func permOptionsFor(tool string, canPersist bool, prefix string, envFile bool) [
 		opts = append(opts, permOption{"d", "Deny", permission.Deny})
 		return opts
 	}
-	opts := []permOption{{"a", "Allow", permission.AllowOnce}}
-	if canPersist {
-		opts = append(opts, permOption{"p", "Always allow this file", permission.AllowAlways})
+	// edit/write: once-only, every diff reviewed.
+	return []permOption{
+		{"a", "Allow", permission.AllowOnce},
+		{"d", "Deny", permission.Deny},
 	}
-	opts = append(opts, permOption{"d", "Deny", permission.Deny})
-	return opts
 }
 
 // codePrefix renders a command prefix as `code`, trimming overly long commands.

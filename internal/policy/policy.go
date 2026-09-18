@@ -47,7 +47,7 @@ func SimpleCommand(command string) bool {
 }
 
 // CommandPrefixMatch reports whether command starts with prefix at a word
-// boundary, and command is simple. It mirrors codex's "commands that start with"
+// boundary, and command is simple. This implements "commands that start with"
 // rules without a shell parser.
 func CommandPrefixMatch(prefix, command string) bool {
 	if prefix == "" || command == "" || !SimpleCommand(command) {

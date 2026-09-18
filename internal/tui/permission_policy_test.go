@@ -45,12 +45,12 @@ func TestPermOptionsOrderAndKeys(t *testing.T) {
 		t.Fatalf("bash no-persist keys=%v", keys)
 	}
 
-	// edit/write use file wording.
+	// edit/write are allow/deny only — persist is deliberately ignored.
 	keys = nil
 	for _, o := range permOptionsFor(tools.Edit, true, "", false) {
 		keys = append(keys, o.key)
 	}
-	if strings.Join(keys, ",") != "a,p,d" {
+	if strings.Join(keys, ",") != "a,d" {
 		t.Fatalf("edit keys=%v", keys)
 	}
 
@@ -116,15 +116,13 @@ func TestPromptPersistRows(t *testing.T) {
 		t.Fatalf("must not offer persistent deny: %q", out)
 	}
 
-	// in-tree edit offers persist rows
+	// in-tree edit is still once-only: no persist row even though the path is
+	// rememberable.
 	pe := newPermissionPrompt("edit a.go", tools.Edit, "a.go")
 	pe.setArgs(json.RawMessage(`{"path":"a.go"}`), root)
-	if !pe.canPersist {
-		t.Fatal("in-tree edit should be persistable")
-	}
 	out = stripANSI(Model{width: 80, bottom: bottomSlot{perm: pe}}.renderPermission(80))
-	if !strings.Contains(out, "Always allow this file") {
-		t.Fatalf("edit persist row: %q", out)
+	if strings.Contains(out, "Always") {
+		t.Fatalf("edit must not offer a persist row: %q", out)
 	}
 }
 
@@ -318,5 +316,48 @@ func TestHotkeyXIsInert(t *testing.T) {
 	}
 	if len(m.rules.Policy().Rules) != 0 {
 		t.Fatalf("x must not write a rule: %+v", m.rules.Policy())
+	}
+}
+
+// Edit/write prompts are once-only: exactly allow and deny. No session grant
+// (that is bash / outside reads) and no "always allow this file" row.
+func TestEditPromptOnlyAllowAndDeny(t *testing.T) {
+	root := t.TempDir()
+	cases := []struct {
+		name   string
+		tool   string
+		path   string
+		args   string
+		labels []string
+	}{
+		{"edit", tools.Edit, "a.go", `{"path":"a.go"}`, []string{"Allow", "Deny"}},
+		{"write", tools.Write, "a.go", `{"path":"a.go"}`, []string{"Allow", "Deny"}},
+		{"edit outside", tools.Edit, "../x.txt", `{"path":"../x.txt"}`, []string{"Allow", "Deny"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			p := newPermissionPrompt(tc.name, tc.tool, tc.path)
+			p.setArgs(json.RawMessage(tc.args), root)
+			var labels []string
+			for _, o := range p.opts {
+				if o.decide == permission.AllowSession {
+					t.Fatalf("edit/write must not offer a session grant: %+v", o)
+				}
+				labels = append(labels, o.label)
+			}
+			if strings.Join(labels, "|") != strings.Join(tc.labels, "|") {
+				t.Fatalf("labels=%v want %v", labels, tc.labels)
+			}
+			out := stripANSI(Model{width: 80, bottom: bottomSlot{perm: p}}.renderPermission(80))
+			if !strings.Contains(out, "Allow") || !strings.Contains(out, "Deny") {
+				t.Fatalf("prompt must offer allow and deny: %q", out)
+			}
+			if strings.Contains(out, "Always") {
+				t.Fatalf("prompt must not offer an always-allow row: %q", out)
+			}
+			if strings.Contains(out, "session") {
+				t.Fatalf("prompt must not offer a session grant: %q", out)
+			}
+		})
 	}
 }

@@ -9,11 +9,11 @@ New folders are gated too: the first open in a directory asks you to **trust** i
 | Action                   | Keys                                                                        |
 | ------------------------ | --------------------------------------------------------------------------- |
 | Shell                    | `[a]` allow once · `[p]` always allow · `[s]` allow for session · `[d]` deny |
-| Edit / write             | `[a]` allow · `[p]` always allow · `[d]` deny                               |
+| Edit / write             | `[a]` allow · `[d]` deny                                                    |
 | Read (outside workspace) | `[a]` allow once · `[s]` allow this directory for session · `[d]` deny      |
 | Read (`.env` / `.env.*`) | `[a]` allow · `[p]` always allow this file · `[d]` deny                     |
 
-You can also click, or use `↑`/`↓` + Enter. `Esc` cancels. Ask and Plan have no shell or edit tools, but they still prompt for outside-workspace reads. The `[p]` row appears only when a rule can be remembered — see [Remembered rules](#remembered-rules).
+You can also click, or use `↑`/`↓` + Enter. `Esc` cancels. Ask and Plan have no shell or edit tools, but they still prompt for outside-workspace reads. Edits and writes are always allow-once-or-deny — every diff gets a review. The `[p]` row appears only when a rule can be remembered — see [Remembered rules](#remembered-rules).
 
 ## Scopes
 
@@ -26,7 +26,7 @@ Edit/write/read paths resolve relative to the workspace root, but absolute paths
 
 ## Remembered rules
 
-When a prompt can be remembered it also offers `[p]` **always allow** — for a shell command prefix, an in-workspace edit/write file, or an in-workspace dotenv read. Out-of-workspace edit/write targets, outside reads, and shell commands with chaining (`&&`, `|`, `;`, redirects, `$(…)`), keep the plain allow/deny prompt (outside reads also offer a directory-scoped session grant).
+When a prompt can be remembered it also offers `[p]` **always allow** — for a shell command prefix or an in-workspace dotenv read. Edits and writes never offer `[p]`: each one is approved per call. Out-of-workspace edit/write targets, outside reads, and shell commands with chaining (`&&`, `|`, `;`, redirects, `$(…)`), keep the plain allow/deny prompt (outside reads also offer a directory-scoped session grant).
 
 Remembered rules live in `~/.zeta/permissions.json` (or `$ZETA_HOME/permissions.json`), separate from `config.json`, and are loaded at startup. The prompt only ever writes `allow` rules; add `deny` rules by hand-editing the file.
 
