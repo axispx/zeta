@@ -1,123 +1,42 @@
 package tui
 
 import (
-	"context"
-	"errors"
 	"testing"
 
-	"github.com/axispx/zeta/internal/update"
+	tea "charm.land/bubbletea/v2"
+
+	"github.com/axispx/zeta/internal/version"
 )
 
-func TestStartUpdateSetsBusy(t *testing.T) {
-	// startUpdate reads version.Version (dev in tests) → note + nil.
-	// Exercise the busy/cancel path directly like other exclusive-job tests.
-	m := testModel()
-	cancelled := false
-	m.updateCancel = func() { cancelled = true }
-	m.updating = true
-	if !m.busy() || !m.exclusiveJob() {
-		t.Fatal("should be updating/busy/exclusive")
-	}
-	m.cancelUpdate()
-	if !cancelled || m.updating || m.updateCancel != nil {
-		t.Fatal("cancel should clear busy immediately")
-	}
-	if m.busy() {
-		t.Fatal("should not be busy after cancel")
-	}
+// withVersion pins version.Version for the duration of a test.
+func withVersion(t *testing.T, v string) {
+	t.Helper()
+	old := version.Version
+	version.Version = v
+	t.Cleanup(func() { version.Version = old })
 }
 
-func TestStartUpdateNoopWhenBusy(t *testing.T) {
-	m := testModel()
-	m.compacting = true
-	if cmd := m.startUpdate(); cmd != nil {
-		t.Fatal("expected nil while busy")
-	}
-}
-
-func TestStartUpdateDevRefused(t *testing.T) {
-	// version.Version is "dev" in tests (no ldflags).
-	m := testModel()
-	if cmd := m.startUpdate(); cmd != nil {
-		t.Fatal("dev build should not start update")
-	}
-	if m.updating {
-		t.Fatal("should not be updating")
-	}
-	if n := len(m.messages); n == 0 || m.messages[n-1].Text == "" {
-		t.Fatalf("messages=%+v", m.messages)
-	}
-}
-
-func TestHandleUpdateDoneAlreadyLatest(t *testing.T) {
-	m := testModel()
-	m.updating = true
-	m.handleUpdateDone(updateDoneMsg{
-		result: update.Result{From: "0.11.0", To: "0.11.0", AlreadyLatest: true},
-	})
-	if m.updating {
-		t.Fatal("updating still set")
-	}
-	if n := len(m.messages); n == 0 || m.messages[n-1].Text != "already on 0.11.0" {
-		t.Fatalf("messages=%+v", m.messages)
-	}
-}
-
-func TestHandleUpdateDoneSuccess(t *testing.T) {
-	m := testModel()
-	m.updating = true
-	m.handleUpdateDone(updateDoneMsg{
-		result: update.Result{From: "0.10.0", To: "0.11.0"},
-	})
-	want := "updated 0.10.0 → 0.11.0 — restart zeta"
-	if n := len(m.messages); n == 0 || m.messages[n-1].Text != want {
-		t.Fatalf("messages=%+v", m.messages)
-	}
-}
-
-func TestHandleUpdateDoneError(t *testing.T) {
-	m := testModel()
-	m.updating = true
-	m.handleUpdateDone(updateDoneMsg{err: errors.New("boom")})
-	if n := len(m.messages); n == 0 || m.messages[n-1].Role != RoleError || m.messages[n-1].Text != "boom" {
-		t.Fatalf("messages=%+v", m.messages)
-	}
-}
-
-func TestHandleUpdateDoneAfterCancelIsNoop(t *testing.T) {
-	m := testModel()
-	m.updating = true
-	m.cancelUpdate()
-	m.noteSystem(updateCancelledText) // tryInterrupt notes; done must not double-note
-	n := len(m.messages)
-	m.handleUpdateDone(updateDoneMsg{err: context.Canceled})
-	if m.updating {
-		t.Fatal("updating re-set")
-	}
-	if len(m.messages) != n {
-		t.Fatalf("late done should not note again: %+v", m.messages)
-	}
-}
-
-func TestHandleUpdateDoneCancelled(t *testing.T) {
-	// Context canceled without prior cancelUpdate (e.g. parent ctx).
-	m := testModel()
-	m.updating = true
-	m.handleUpdateDone(updateDoneMsg{err: context.Canceled})
-	if n := len(m.messages); n == 0 || m.messages[n-1].Text != updateCancelledText {
-		t.Fatalf("messages=%+v", m.messages)
-	}
-}
-
-func TestRunCommandUpdateDev(t *testing.T) {
-	// version.Version is "dev" in tests — /update notes and does not arm busy.
-	m := testModel()
-	cmd := m.runCommand("/update")
-	if cmd != nil {
-		t.Fatal("dev /update should not return a network cmd")
-	}
-	if m.updating {
-		t.Fatal("should not be updating")
+func TestRunCommandUpdateRequestsRestart(t *testing.T) {
+	// Both a release build and a dev build quit: main applies the release, or a
+	// synthetic update when there is no release to download.
+	for _, v := range []string{"dev", "0.10.0"} {
+		t.Run(v, func(t *testing.T) {
+			withVersion(t, v)
+			m := testModel()
+			cmd := m.runCommand("/update")
+			if !m.updateOnExit {
+				t.Fatal("expected update request")
+			}
+			if !m.quitting {
+				t.Fatal("expected the TUI to quit")
+			}
+			if cmd == nil {
+				t.Fatal("expected a quit command")
+			}
+			if msg := cmd(); msg != tea.Quit() {
+				t.Fatalf("cmd() = %T, want tea.QuitMsg", msg)
+			}
+		})
 	}
 }
 
@@ -156,11 +75,6 @@ func TestExclusiveJob(t *testing.T) {
 		t.Fatal("compacting")
 	}
 	m.compacting = false
-	m.updating = true
-	if !m.exclusiveJob() || !m.busy() {
-		t.Fatal("updating")
-	}
-	m.updating = false
 	m.authRetrying = true
 	if m.exclusiveJob() {
 		t.Fatal("auth is busy but not exclusive")

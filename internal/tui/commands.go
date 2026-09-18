@@ -315,7 +315,7 @@ func (m *Model) runCommand(name string) tea.Cmd {
 	case "/config":
 		return m.openConfigDialog()
 	case "/update":
-		return m.startUpdate()
+		return m.requestUpdate()
 	}
 	return nil
 }

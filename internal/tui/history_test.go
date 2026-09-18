@@ -346,11 +346,6 @@ func TestBusy(t *testing.T) {
 		t.Fatal("compacting")
 	}
 	m.compacting = false
-	m.updating = true
-	if !m.busy() {
-		t.Fatal("updating")
-	}
-	m.updating = false
 	m.turn = &turnSession{}
 	if !m.busy() {
 		t.Fatal("turn")

@@ -16,6 +16,11 @@ make install   # → ~/.local/bin/zeta
 go test ./...
 ```
 
+`/update` closes zeta, updates in the CLI, then reopens zeta. A dev build
+(`dev` version) runs the same handoff with a synthetic update: nothing is
+downloaded, so the close → update → restart path stays testable without cutting
+a release.
+
 ## Project layout
 
 ```

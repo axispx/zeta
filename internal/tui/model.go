@@ -55,6 +55,7 @@ type Model struct {
 	showScrollbar bool
 	ready         bool
 	quitting      bool
+	updateOnExit  bool // /update: quit so main updates in the CLI and relaunches
 	turn          *turnSession
 	nextTurnID    int          // last allocated turnSession.id
 	history       []ai.Message // durable API transcript (user/assistant/tool); no system/developer
@@ -66,8 +67,6 @@ type Model struct {
 	authRetrying  bool // true while RecoverOAuth runs after a 401 (keeps busy())
 	compacting    bool // true while a compact LLM call is in flight (manual or auto)
 	compactCancel context.CancelFunc
-	updating      bool // true while /update downloads a release binary
-	updateCancel  context.CancelFunc
 	mode          prompt.Mode
 	grants        *permission.Session // "allow for session" (bash only); reset on /clear
 	rules         *permission.Rules   // persisted permission rules; nil = none
@@ -195,6 +194,12 @@ func (m Model) PersistedSessionID() string {
 	return m.sess.ID
 }
 
+// UpdateRequested reports that the user ran /update, so main should apply the
+// release in the CLI and relaunch zeta.
+func (m Model) UpdateRequested() bool {
+	return m.updateOnExit
+}
+
 func (m *Model) applyPanels(termBg color.Color, dark bool) {
 	m.chrome = styles.NewChrome(termBg, dark)
 	applyTextareaStyles(&m.textarea, m.chrome.Input)
@@ -288,9 +293,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case compactDoneMsg:
 		return m, m.handleCompactDone(msg)
-
-	case updateDoneMsg:
-		return m, m.handleUpdateDone(msg)
 
 	case updateAvailableMsg:
 		m.handleUpdateAvailable(msg)
@@ -556,7 +558,6 @@ func firstUserPrompt(msgs []Message) string {
 func (m *Model) requestQuit() tea.Cmd {
 	m.finishTurn()
 	m.cancelCompact()
-	m.cancelUpdate()
 	m.cancelAuthRetry()
 	return m.quit()
 }

@@ -91,9 +91,6 @@ func (m Model) busyLabel() string {
 	if m.compacting {
 		return statusCompacting
 	}
-	if m.updating {
-		return statusUpdating
-	}
 	if m.authRetrying {
 		return statusWorking
 	}
