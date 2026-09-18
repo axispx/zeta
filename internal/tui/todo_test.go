@@ -31,12 +31,16 @@ func TestRequestMsgsTodosBlock(t *testing.T) {
 		t.Fatal(err)
 	}
 	msgs = requestMsgs(workspace.Context{}, prompt.ModeBuild, hist, store)
-	var saw bool
-	// should appear after mode developer, before history
-	modeIdx, todoIdx, userIdx := -1, -1, -1
+	var saw, sawEnv bool
+	// should trail history so the stable prefix stays cacheable
+	envIdx, modeIdx, todoIdx, userIdx := -1, -1, -1, -1
 	for i, m := range msgs {
 		if m.Role == ai.RoleDeveloper && strings.Contains(m.Text, "# Mode: Build") {
 			modeIdx = i
+		}
+		if m.Role == ai.RoleDeveloper && strings.Contains(m.Text, "# Environment") {
+			envIdx = i
+			sawEnv = true
 		}
 		if m.Role == ai.RoleDeveloper && strings.Contains(m.Text, "# Session todos") {
 			todoIdx = i
@@ -49,8 +53,12 @@ func TestRequestMsgsTodosBlock(t *testing.T) {
 			userIdx = i
 		}
 	}
-	if !saw || modeIdx < 0 || todoIdx != modeIdx+1 || userIdx != todoIdx+1 {
-		t.Fatalf("order mode=%d todo=%d user=%d saw=%v roles=%v", modeIdx, todoIdx, userIdx, saw, rolesOf(msgs))
+	// mode + history keep their order; environment and todos trail the request
+	// so the system/history prefix stays byte-stable for provider prompt
+	// caching, with the most volatile block last.
+	if !saw || !sawEnv || modeIdx != 1 || userIdx != modeIdx+1 || envIdx != userIdx+1 || todoIdx != len(msgs)-1 {
+		t.Fatalf("order mode=%d env=%d todo=%d user=%d saw=%v/%v roles=%v",
+			modeIdx, envIdx, todoIdx, userIdx, saw, sawEnv, rolesOf(msgs))
 	}
 }
 

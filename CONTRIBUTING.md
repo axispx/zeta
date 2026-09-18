@@ -81,6 +81,46 @@ panics at init if a skill claims `/clear`, `/config`, etc.
 
 Bundled today: `review` (`/review` — thermo-nuclear code quality review).
 
+### Prompt cache
+
+Providers cache the request prefix, so the head of every request stays
+byte-identical: system prompt (`internal/prompt`), mode instructions, then
+durable history. Anything that changes between turns — slash-skill playbook,
+environment, todos checklist — is appended as a trailing developer block in
+`requestMsgs`, ordered most stable first. Put new context in that tail, not the
+head; a churn in the head re-reads the whole transcript.
+
+That is why AGENTS.md is re-read only at a session boundary — `/clear`,
+`/resume`, and compaction (`workspace.Context.ReloadAgents`) — and why only the
+git branch is re-read per turn. Editing AGENTS.md mid-session, including with
+the agent's own `edit` / `write`, has no effect until one of those boundaries,
+because the content heads the cached prefix and changing it invalidates the
+whole transcript; compaction is the cheap moment to pick edits up, since the
+conversation layer is already being rewritten. No timestamps or other per-turn
+values in the head, and no per-turn tool-set changes.
+
+The summarizer rides the same prefix. `compact.Config.Prefix`
+(`requestPrefix` + `tools.Defs`) must stay byte-identical to a live turn's head,
+with the head and the instruction appended after it — that is what lets the
+provider serve the history being summarized from cache instead of charging full
+uncached input for it. Hence the summarizer's own steering lives in a trailing
+user message, not a system prompt: a different system prompt would diverge at
+the first token and forfeit the hit.
+
+Token accounting for images follows vision billing (tiles, not bytes) via
+`image.Dimensions`. Do not charge an image by its encoded size: a base64
+screenshot is megabytes of text but a few hundred tokens, and an inflated
+estimate trips auto-compaction and misreports context fill.
+
+The auto-compact budget check prefers a real provider count over the chars/4
+estimate. Keep the pairing intact: `Model.contextTokens` is the provider's
+footprint for the last request and `Model.contextMsgs` is how many history
+messages it covers, so `compact.usedTokens` measures only what was appended
+since. A footprint recorded against a history that has since been rewritten
+(compaction, a model or mode switch) describes a request the session will no
+longer send — drop it rather than trusting it. `Measured` already includes the
+request envelope, so never add `Overhead` to it.
+
 ## Versioning
 
 Pre-1.0 (`0.y.z`): no backward compatibility for session transcripts, APIs, or on-disk formats. Prefer deleting legacy paths over dual encodings or migration shims.

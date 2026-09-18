@@ -110,6 +110,49 @@ func TestRebuildAPIHistoryMultipleCompacts(t *testing.T) {
 	}
 }
 
+// A cancelled turn persists the assistant tool_calls without results, and the
+// user's next prompt is persisted after it. Rebuild must not replay that round:
+// DeepSeek rejects the request with "An assistant message with 'tool_calls' must
+// be followed by tool messages responding to each 'tool_call_id'".
+func TestRebuildAPIHistoryCancelledToolRound(t *testing.T) {
+	log := []session.Record{
+		{Role: session.RoleUser, Text: "add /usage"},
+		{Role: session.RoleAgent, ToolCalls: []session.ToolCall{{ID: "c1", Name: "edit"}}},
+		{Role: session.RoleUser, Text: "do we need to persist it though?"},
+		{Role: session.RoleAgent, ToolCalls: []session.ToolCall{{ID: "c2", Name: "bash"}}},
+		{Role: session.RoleTool, ToolCallID: "c2", Text: "ok"},
+		{Role: session.RoleAgent, Text: "Yes."},
+	}
+	hist := RebuildAPIHistory(log)
+	pending := 0
+	for i, m := range hist {
+		switch m.Role {
+		case ai.RoleUser:
+			if pending > 0 {
+				t.Fatalf("user at %d follows %d unanswered tool calls: %+v", i, pending, hist)
+			}
+		case ai.RoleAssistant:
+			pending = len(m.ToolCalls)
+		case ai.RoleTool:
+			pending--
+		}
+	}
+	if pending != 0 {
+		t.Fatalf("unanswered tool calls at tail: %+v", hist)
+	}
+	// Dropped: the cancelled edit round. Kept: both user turns, the answered
+	// bash round, and the final answer.
+	if len(hist) != 5 {
+		t.Fatalf("hist len=%d: %+v", len(hist), hist)
+	}
+	if hist[1].Text != "do we need to persist it though?" {
+		t.Fatalf("kept the later user turn? %+v", hist)
+	}
+	if hist[4].Text != "Yes." {
+		t.Fatalf("kept the later answer? %+v", hist)
+	}
+}
+
 func TestTrimIncomplete(t *testing.T) {
 	user := ai.Message{Role: ai.RoleUser, Text: "hi"}
 	asst := ai.Message{Role: ai.RoleAssistant, Text: "ok"}
@@ -133,6 +176,12 @@ func TestTrimIncomplete(t *testing.T) {
 		{"incomplete tools", []ai.Message{user, asstTools, tool1}, 1},
 		{"complete tools", []ai.Message{user, asstTools, tool1, tool2, asst}, 5},
 		{"assistant tools only", []ai.Message{user, asstTools}, 1},
+		// Cancelled mid-turn then resumed: the user moved on before the calls
+		// reported. The round is dropped, the later turns are kept.
+		{"dangling then user", []ai.Message{user, asstTools, user, asst}, 3},
+		{"partial then user", []ai.Message{user, asstTools, tool1, user}, 2},
+		{"dangling then assistant", []ai.Message{user, asstTools, asst}, 2},
+		{"orphan tool", []ai.Message{user, tool1, asst}, 2},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

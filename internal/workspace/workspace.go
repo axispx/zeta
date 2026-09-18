@@ -14,7 +14,9 @@ type Context struct {
 	Cwd    string
 	Branch string
 	// AgentsMD is the nearest AGENTS.md within the trust target (cwd → git root,
-	// or cwd only when not in a repo). Empty when the folder is not trusted.
+	// or cwd only when not in a repo). Read at session start (Load) and re-read
+	// only at a session boundary — opening or clearing a session, or a
+	// compaction — never per turn. Empty when the folder is not trusted.
 	AgentsMD string
 }
 
@@ -25,24 +27,37 @@ func Load() Context {
 	if err != nil {
 		abs = ""
 	}
-	agents := ""
-	if abs != "" {
-		if target := TrustTarget(abs); isTrustedTarget(target) {
-			agents = NearestAgents(abs, target)
-		}
+	c := Context{
+		Abs:    abs,
+		Cwd:    DisplayPath(abs),
+		Branch: Branch(abs),
 	}
-	return Context{
-		Abs:      abs,
-		Cwd:      DisplayPath(abs),
-		Branch:   Branch(abs),
-		AgentsMD: agents,
-	}
+	c.ReloadAgents()
+	return c
 }
 
 // RefreshBranch re-reads git HEAD for c.Abs (cheap file read). Does not touch
-// cwd or AGENTS.md — those reload at turn boundaries.
+// cwd or AGENTS.md: branch is volatile (the agent checks out branches itself)
+// while AGENTS.md is a session snapshot — see ReloadAgents.
 func (c *Context) RefreshBranch() {
 	c.Branch = Branch(c.Abs)
+}
+
+// ReloadAgents re-reads AGENTS.md for c.Abs, leaving cwd/branch alone. Call at
+// session boundaries — /clear, /resume, compaction — not per turn: project
+// instructions sit at the head of the request prefix providers cache, so
+// re-reading them every turn would invalidate the cached transcript whenever
+// the file changed, including when the agent edits it itself. At a boundary
+// the conversation layer is being rewritten anyway, and an unchanged file
+// still cache-hits.
+func (c *Context) ReloadAgents() {
+	c.AgentsMD = ""
+	if c.Abs == "" {
+		return
+	}
+	if target := TrustTarget(c.Abs); isTrustedTarget(target) {
+		c.AgentsMD = NearestAgents(c.Abs, target)
+	}
 }
 
 // DisplayPath is abs with $HOME replaced by ~ for UI.

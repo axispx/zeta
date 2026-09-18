@@ -47,6 +47,7 @@ Type `/` for autocomplete.
 | ---------- | ------------------------------------------------ |
 | `/clear`   | Start a new session                              |
 | `/compact` | Summarize older context now                      |
+| `/usage`   | Session token totals, by model (input, output, cached) |
 | `/resume`  | Open a previous session                          |
 | `/model`   | Switch model; Tab cycles reasoning (low / medium / high) |
 | `/config`  | Manage providers and models                      |

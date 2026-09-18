@@ -5,14 +5,14 @@ import (
 	"strings"
 )
 
-//go:embed prompts/system.md
-var summarizerSystemMD string
+//go:embed prompts/instruction.md
+var summarizerInstructionMD string
 
 //go:embed prompts/template.md
 var summaryTemplateMD string
 
-func summarizerSystem() string {
-	return strings.TrimSpace(summarizerSystemMD)
+func summarizerInstruction() string {
+	return strings.TrimSpace(summarizerInstructionMD)
 }
 
 func summaryTemplate() string {

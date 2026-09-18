@@ -5,7 +5,10 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/axispx/zeta/internal/ai"
 )
 
 func TestCwdKey(t *testing.T) {
@@ -402,5 +405,105 @@ func TestLoadSkipsUnknownEventTypes(t *testing.T) {
 	}
 	if len(recs) != 2 || recs[0].Text != "before" || recs[1].Text != "after" {
 		t.Fatalf("recs = %#v", recs)
+	}
+}
+
+// Usage rides on the assistant record it belongs to, so a resumed session can
+// total spend without a second event type.
+func TestUsageRoundTrip(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("ZETA_HOME", home)
+	proj := filepath.Join(t.TempDir(), "proj")
+
+	s, _, err := Open(proj)
+	if err != nil {
+		t.Fatal(err)
+	}
+	usage := &ai.Usage{
+		PromptTokens:     1000,
+		CompletionTokens: 200,
+		TotalTokens:      1200,
+		CachedTokens:     900,
+		CacheReported:    true,
+		CacheWriteTokens: 50,
+	}
+	if err := s.Append(Record{Role: RoleAgent, Text: "hi", Usage: usage}); err != nil {
+		t.Fatal(err)
+	}
+	// Turns with no accounting stay bare: no empty usage object on the wire.
+	if err := s.Append(Record{Role: RoleAgent, Text: "no usage"}); err != nil {
+		t.Fatal(err)
+	}
+
+	raw, err := os.ReadFile(s.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"prompt_tokens":1000`) {
+		t.Fatalf("usage not written inline:\n%s", raw)
+	}
+	if n := strings.Count(string(raw), `"usage"`); n != 1 {
+		t.Fatalf("usage key on %d events, want 1:\n%s", n, raw)
+	}
+
+	_, recs, err := OpenID(proj, s.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recs) != 2 {
+		t.Fatalf("recs = %#v", recs)
+	}
+	if recs[0].Usage == nil || *recs[0].Usage != *usage {
+		t.Fatalf("usage = %+v, want %+v", recs[0].Usage, usage)
+	}
+	if recs[1].Usage != nil {
+		t.Fatalf("unreported turn should stay nil: %+v", recs[1].Usage)
+	}
+}
+
+// Usage and its model attribution round-trip together, so a resumed session can
+// total spend and still say which model produced it.
+func TestUsageModelRoundTrip(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("ZETA_HOME", home)
+	proj := filepath.Join(t.TempDir(), "proj")
+
+	s, _, err := Open(proj)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Append(Record{
+		Role:  RoleAgent,
+		Text:  "a",
+		Model: "GPT-4",
+		Usage: &ai.Usage{PromptTokens: 100, CompletionTokens: 10, TotalTokens: 110},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Append(Record{Role: RoleAgent, Text: "b", Model: "v4-flash", Usage: &ai.Usage{PromptTokens: 200, CompletionTokens: 20}}); err != nil {
+		t.Fatal(err)
+	}
+	// No usage: the caller sets no model either, so the record carries neither.
+	if err := s.Append(Record{Role: RoleAgent, Text: "c"}); err != nil {
+		t.Fatal(err)
+	}
+
+	raw, err := os.ReadFile(s.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(string(raw), `"model"`); n != 2 {
+		t.Fatalf("model key on %d events, want 2:\n%s", n, raw)
+	}
+
+	_, recs, err := OpenID(proj, s.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recs) != 3 {
+		t.Fatalf("recs = %#v", recs)
+	}
+	if recs[0].Model != "GPT-4" || recs[1].Model != "v4-flash" {
+		t.Fatalf("models = %q/%q", recs[0].Model, recs[1].Model)
 	}
 }

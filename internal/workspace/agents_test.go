@@ -121,6 +121,54 @@ func TestRefreshBranch(t *testing.T) {
 	}
 }
 
+func TestReloadAgents(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("ZETA_HOME", home)
+
+	dir := t.TempDir()
+	mustWrite(t, filepath.Join(dir, "AGENTS.md"), "first")
+	if err := Trust(dir); err != nil {
+		t.Fatal(err)
+	}
+
+	c := Context{Abs: dir, Cwd: dir, Branch: "main", AgentsMD: "first"}
+	mustWrite(t, filepath.Join(dir, "AGENTS.md"), "second")
+	// A turn boundary leaves the snapshot alone...
+	c.RefreshBranch()
+	if c.AgentsMD != "first" {
+		t.Fatalf("RefreshBranch reloaded AGENTS.md: %q", c.AgentsMD)
+	}
+	// ...a session boundary picks the file up, without touching branch.
+	branch := c.Branch
+	c.ReloadAgents()
+	if c.AgentsMD != "second" {
+		t.Fatalf("ReloadAgents = %q, want second", c.AgentsMD)
+	}
+	if c.Branch != branch {
+		t.Fatalf("ReloadAgents touched branch: %q, want %q", c.Branch, branch)
+	}
+}
+
+func TestReloadAgentsUntrustedClears(t *testing.T) {
+	t.Setenv("ZETA_HOME", t.TempDir())
+	dir := t.TempDir()
+	mustWrite(t, filepath.Join(dir, "AGENTS.md"), "inject me")
+
+	c := Context{Abs: dir, AgentsMD: "stale"}
+	c.ReloadAgents()
+	if c.AgentsMD != "" {
+		t.Fatalf("untrusted ReloadAgents = %q, want empty", c.AgentsMD)
+	}
+}
+
+func TestReloadAgentsWithoutAbs(t *testing.T) {
+	c := Context{AgentsMD: "stale"}
+	c.ReloadAgents()
+	if c.AgentsMD != "" {
+		t.Fatalf("ReloadAgents without Abs = %q, want empty", c.AgentsMD)
+	}
+}
+
 func TestNearestAgentsEmptyIgnored(t *testing.T) {
 	dir := t.TempDir()
 	mustWrite(t, filepath.Join(dir, "AGENTS.md"), "  \n  ")

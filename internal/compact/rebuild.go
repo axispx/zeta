@@ -55,39 +55,43 @@ func retainedTail(before []ai.Message, tailCount int) []ai.Message {
 	return append([]ai.Message(nil), before[len(before)-tailCount:]...)
 }
 
-// TrimIncomplete drops a trailing partial tool round so the API transcript
-// never ends with assistant tool_calls lacking results (e.g. cancelled mid-turn).
+// TrimIncomplete makes the API transcript well-formed: every assistant
+// tool_calls message must be answered by one tool result per call. An
+// unanswered round is dropped, not truncated around — a turn cancelled after
+// the assistant asked for tools leaves such a round in the middle of the
+// transcript once the user moves on, and the answers either side stay valid.
 func TrimIncomplete(h []ai.Message) []ai.Message {
-	pending := 0
-	roundStart := -1
-	for i, m := range h {
+	out := make([]ai.Message, 0, len(h))
+	pending := 0  // unanswered calls in the open round
+	roundAt := -1 // index in out of the assistant message that opened it
+	drop := func() {
+		if pending > 0 {
+			out = out[:roundAt]
+		}
+		pending, roundAt = 0, -1
+	}
+	for _, m := range h {
 		switch m.Role {
-		case ai.RoleUser:
-			pending = 0
-			roundStart = -1
 		case ai.RoleAssistant:
-			if pending > 0 {
-				return h[:roundStart]
-			}
+			drop()
 			if n := len(m.ToolCalls); n > 0 {
-				pending = n
-				roundStart = i
+				pending, roundAt = n, len(out)
 			}
+			out = append(out, m)
 		case ai.RoleTool:
 			if pending == 0 {
-				if roundStart >= 0 {
-					return h[:roundStart]
-				}
-				return h[:i]
+				continue // result with no open round: nothing it can answer
 			}
 			pending--
 			if pending == 0 {
-				roundStart = -1
+				roundAt = -1
 			}
+			out = append(out, m)
+		default:
+			drop()
+			out = append(out, m)
 		}
 	}
-	if pending > 0 && roundStart >= 0 {
-		return h[:roundStart]
-	}
-	return h
+	drop()
+	return out
 }

@@ -30,6 +30,7 @@ type command struct {
 var builtinCommands = []command{
 	{name: "/clear", desc: "start a new session"},
 	{name: "/compact", desc: "summarize older context"},
+	{name: "/usage", desc: "session token usage"},
 	{name: "/resume", desc: "open a previous session"},
 	{name: "/model", desc: "switch model"},
 	{name: "/config", desc: "manage providers & models"},
@@ -305,6 +306,8 @@ func (m *Model) runCommand(name string) tea.Cmd {
 		m.startNewSession()
 	case "/compact":
 		return m.startCompact()
+	case "/usage":
+		m.reportUsage()
 	case "/resume":
 		m.openPicker()
 	case "/model":
@@ -341,6 +344,8 @@ func (m *Model) updateConfigDialog(msg tea.Msg) (tea.Cmd, bool) {
 	if c := m.config.takeSaved(); c != nil {
 		m.cfg = *c
 		m.applyClient()
+		// A saved model change switches the prefix (and the provider cache).
+		m.resetUsage()
 	}
 	return cmd, handled
 }
@@ -356,8 +361,13 @@ func (m *Model) applySession(sess *session.Session, recs []session.Record, err e
 		m.messages, m.history = loadSession(recs)
 		m.seedTodos(todosFromRecords(recs))
 	}
+	// A session boundary is when project instructions are read: /clear and
+	// /resume pick up an edited AGENTS.md, turns in between do not.
+	m.ws.ReloadAgents()
 	m.refreshSessionDiff()
-	m.contextTokens = 0
+	m.resetUsage()
+	// /resume replays the persisted per-turn accounting; /clear starts at zero.
+	m.usage = sessionUsageFrom(recs)
 	m.titlePending = false
 	m.clearCompactState()
 	m.resetPromptHistory()
@@ -420,7 +430,7 @@ func (m *Model) selectModel() {
 		m.refreshTranscript()
 		return
 	}
-	m.contextTokens = 0
+	m.resetUsage()
 	m.applyClient()
 	m.cancelOverlay()
 	m.refreshTranscript()

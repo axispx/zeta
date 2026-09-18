@@ -114,11 +114,13 @@ type turnToolMsg struct {
 	message ai.Message
 	denied  bool
 }
-type turnDoneMsg struct{ id int }
-type turnErrMsg struct {
-	id  int
-	err error
-}
+type (
+	turnDoneMsg struct{ id int }
+	turnErrMsg  struct {
+		id  int
+		err error
+	}
+)
 
 // streamPaintMsg fires after streamPaintEvery to paint accumulated live text.
 type streamPaintMsg struct{ gen int }
@@ -161,22 +163,32 @@ func toolsForMode(mode prompt.Mode, store *todo.Store) []tools.Tool {
 	}
 }
 
-// requestMsgs prepends system + mode instructions to the durable history
-// and expands a trailing slash-skill user turn into a developer playbook.
-// Durable history keeps the user text (token + optional args); completed
-// slash turns are not re-injected on later requests.
-// When todos is non-empty, a developer checklist block is injected after mode.
-func requestMsgs(ws workspace.Context, mode prompt.Mode, history []ai.Message, todos *todo.Store) []ai.Message {
-	out := make([]ai.Message, 0, len(history)+4)
-	out = append(out,
-		ai.Message{Role: ai.RoleSystem, Text: prompt.System(ws)},
-		ai.Message{Role: ai.RoleDeveloper, Text: mode.Instructions()},
-	)
-	if todos != nil {
-		if block := todos.PromptBlock(); block != "" {
-			out = append(out, ai.Message{Role: ai.RoleDeveloper, Text: block})
-		}
+// requestPrefix is the byte-stable head of every request in a session: the
+// system prompt and mode instructions. It heads the prefix providers cache, so
+// it is also what compaction reuses (see Model.compactPrefix). Nothing volatile
+// belongs here.
+func requestPrefix(ws workspace.Context, mode prompt.Mode) []ai.Message {
+	return []ai.Message{
+		{Role: ai.RoleSystem, Text: prompt.System(ws)},
+		{Role: ai.RoleDeveloper, Text: mode.Instructions()},
 	}
+}
+
+// requestMsgs prepends system + mode instructions to the durable history and
+// appends the per-request developer blocks: a trailing slash-skill playbook
+// (invoking turn only), the environment, and the todo checklist.
+//
+// Only those trailing blocks may differ between requests. Providers cache the
+// request prefix, so the system prompt and the durable history have to stay
+// byte-identical for the cache to hit; anything injected ahead of them would
+// invalidate the whole transcript whenever it moved. The tail is ordered by
+// volatility, most stable first: environment changes on checkout or day
+// rollover, the todos block on most tool turns.
+func requestMsgs(ws workspace.Context, mode prompt.Mode, history []ai.Message, todos *todo.Store) []ai.Message {
+	out := make([]ai.Message, 0, len(history)+5)
+	out = append(out, requestPrefix(ws, mode)...)
+	// Durable history keeps the user text (token + optional args); completed
+	// slash turns are not re-injected on later requests.
 	out = append(out, history...)
 	if n := len(history); n > 0 {
 		last := history[n-1]
@@ -184,6 +196,13 @@ func requestMsgs(ws workspace.Context, mode prompt.Mode, history []ai.Message, t
 			if s, ok := skill.MatchSlash(last.Text); ok {
 				out = append(out, ai.Message{Role: ai.RoleDeveloper, Text: skill.SlashInjection(s)})
 			}
+		}
+	}
+	out = append(out, ai.Message{Role: ai.RoleDeveloper, Text: prompt.Environment(ws)})
+
+	if todos != nil {
+		if block := todos.PromptBlock(); block != "" {
+			out = append(out, ai.Message{Role: ai.RoleDeveloper, Text: block})
 		}
 	}
 	return out

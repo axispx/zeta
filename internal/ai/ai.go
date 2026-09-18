@@ -78,11 +78,20 @@ type Event struct {
 	Err     error
 }
 
-// Usage is token counts from a completion.
+// Usage is token counts from a completion. Fields carry JSON tags because
+// sessions persist per-turn usage verbatim (see session.Record).
 type Usage struct {
-	PromptTokens     int64
-	CompletionTokens int64
-	TotalTokens      int64
+	PromptTokens     int64 `json:"prompt_tokens,omitempty"`
+	CompletionTokens int64 `json:"completion_tokens,omitempty"`
+	TotalTokens      int64 `json:"total_tokens,omitempty"`
+	// CachedTokens is the prompt prefix the provider served from its prompt
+	// cache. CacheReported separates a genuine 0% hit rate from a provider
+	// that does not report cache accounting at all.
+	CachedTokens  int64 `json:"cached_tokens,omitempty"`
+	CacheReported bool  `json:"cache_reported,omitempty"`
+	// CacheWriteTokens is prompt written to the provider's cache by this
+	// request. Zero on providers that cache implicitly at no extra cost.
+	CacheWriteTokens int64 `json:"cache_write_tokens,omitempty"`
 }
 
 // ContextTokens is how many tokens this response occupies toward the context
@@ -92,6 +101,16 @@ func (u Usage) ContextTokens() int64 {
 		return u.TotalTokens
 	}
 	return u.PromptTokens + u.CompletionTokens
+}
+
+// CachedPercent is CachedTokens as a whole percent of the prompt. ok is false
+// when the provider reported no cache accounting or no prompt tokens, so
+// callers can hide the metric rather than show a misleading 0%.
+func (u Usage) CachedPercent() (int, bool) {
+	if !u.CacheReported || u.PromptTokens <= 0 {
+		return 0, false
+	}
+	return int(u.CachedTokens * 100 / u.PromptTokens), true
 }
 
 // Client calls OpenAI-compatible chat completion APIs.
@@ -152,9 +171,15 @@ func (c *Client) stream(ctx context.Context, msgs []Message, tools []Tool, out c
 
 	stream := c.api.Chat.Completions.NewStreaming(ctx, params)
 	acc := openai.ChatCompletionAccumulator{}
+	// Usage arrives on its own chunk (StreamOptions.IncludeUsage). Keep the raw
+	// JSON: the accumulator's typed usage drops provider-specific cache fields.
+	var rawUsage string
 
 	for stream.Next() {
 		chunk := stream.Current()
+		if r := chunk.Usage.RawJSON(); r != "" {
+			rawUsage = r
+		}
 		acc.AddChunk(chunk)
 		if len(chunk.Choices) == 0 {
 			continue
@@ -178,7 +203,7 @@ func (c *Client) stream(ctx context.Context, msgs []Message, tools []Tool, out c
 		return
 	}
 
-	out <- Event{Type: EventDone, Message: assistantFromAcc(acc), Usage: usageFromAcc(acc)}
+	out <- Event{Type: EventDone, Message: assistantFromAcc(acc), Usage: usageFromAcc(acc, rawUsage)}
 }
 
 // classifyErr maps provider auth rejections to ErrAuth so callers can refresh
@@ -239,12 +264,62 @@ func assistantFromAcc(acc openai.ChatCompletionAccumulator) Message {
 	return out
 }
 
-func usageFromAcc(acc openai.ChatCompletionAccumulator) Usage {
+func usageFromAcc(acc openai.ChatCompletionAccumulator, rawUsage string) Usage {
+	cached, write, reported := cacheFromRawUsage(rawUsage)
 	return Usage{
 		PromptTokens:     acc.Usage.PromptTokens,
 		CompletionTokens: acc.Usage.CompletionTokens,
 		TotalTokens:      acc.Usage.TotalTokens,
+		CachedTokens:     cached,
+		CacheWriteTokens: write,
+		CacheReported:    reported,
 	}
+}
+
+// rawUsageCache mirrors the cache-accounting fields providers put in a usage
+// object. OpenAI-compatible APIs nest them under prompt_tokens_details,
+// DeepSeek reports prompt_cache_hit_tokens at the top level, and
+// Anthropic-backed gateways report cache_read_input_tokens /
+// cache_creation_input_tokens. Pointers distinguish "reported as zero" from
+// "absent", which is what CacheReported reports.
+type rawUsageCache struct {
+	Details struct {
+		Cached     *int64 `json:"cached_tokens"`
+		CacheWrite *int64 `json:"cache_write_tokens"`
+	} `json:"prompt_tokens_details"`
+	CacheHit      *int64 `json:"prompt_cache_hit_tokens"`
+	CacheRead     *int64 `json:"cache_read_input_tokens"`
+	CacheCreation *int64 `json:"cache_creation_input_tokens"`
+}
+
+// cacheFromRawUsage reads cache accounting from a raw usage JSON object. The
+// SDK's typed usage drops provider-specific fields and does not accumulate
+// cache_write_tokens, so the streamed chunk's RawJSON is the source of truth.
+// reported is false when no provider field is present.
+func cacheFromRawUsage(raw string) (cached, write int64, reported bool) {
+	if raw == "" {
+		return 0, 0, false
+	}
+	var u rawUsageCache
+	if err := json.Unmarshal([]byte(raw), &u); err != nil {
+		return 0, 0, false
+	}
+	cached, reported = firstInt(u.Details.Cached, u.CacheHit, u.CacheRead)
+	if w, ok := firstInt(u.Details.CacheWrite, u.CacheCreation); ok {
+		write, reported = w, true
+	}
+	return cached, write, reported
+}
+
+// firstInt returns the first present value, so callers can try provider
+// spellings in preference order.
+func firstInt(vals ...*int64) (int64, bool) {
+	for _, v := range vals {
+		if v != nil {
+			return *v, true
+		}
+	}
+	return 0, false
 }
 
 func toAPITools(tools []Tool) []openai.ChatCompletionToolUnionParam {
@@ -265,11 +340,16 @@ func toAPITools(tools []Tool) []openai.ChatCompletionToolUnionParam {
 
 // Complete runs a non-streaming chat completion and returns the assistant text.
 // maxTokens caps the completion when > 0.
-func (c *Client) Complete(ctx context.Context, msgs []Message, maxTokens int64) (string, error) {
-	return c.complete(ctx, msgs, maxTokens)
+//
+// tools are sent verbatim with tool_choice "none". Providers fold the tool
+// array into the cached request prefix, so passing a conversation's own tools
+// keeps that prefix intact — the caller is reusing a warm prefix, not asking
+// for a tool to run — while the choice keeps the model from calling one.
+func (c *Client) Complete(ctx context.Context, msgs []Message, tools []Tool, maxTokens int64) (string, error) {
+	return c.complete(ctx, msgs, tools, maxTokens)
 }
 
-func (c *Client) complete(ctx context.Context, msgs []Message, maxTokens int64) (string, error) {
+func (c *Client) complete(ctx context.Context, msgs []Message, tools []Tool, maxTokens int64) (string, error) {
 	apiMsgs, err := toAPIMessages(msgs)
 	if err != nil {
 		return "", err
@@ -281,6 +361,12 @@ func (c *Client) complete(ctx context.Context, msgs []Message, maxTokens int64) 
 	}
 	if maxTokens > 0 {
 		params.MaxCompletionTokens = openai.Int(maxTokens)
+	}
+	if len(tools) > 0 {
+		params.Tools = toAPITools(tools)
+		params.ToolChoice = openai.ChatCompletionToolChoiceOptionUnionParam{
+			OfAuto: openai.String(string(openai.ChatCompletionToolChoiceOptionAutoNone)),
+		}
 	}
 
 	res, err := c.api.Chat.Completions.New(ctx, params)

@@ -124,11 +124,27 @@ func (m *Model) handleTurnAssistant(msg turnAssistantMsg) tea.Cmd {
 	m.history = append(m.history, msg.message)
 	if n := msg.usage.ContextTokens(); n > 0 {
 		m.contextTokens = n
+		// The provider billed this request for the history as it stood, and
+		// the completion tokens stand in for the assistant message they became
+		// — which has just been appended. So the measurement covers exactly the
+		// history we now hold, and the auto-compact budget check can use it
+		// instead of guessing from character counts.
+		m.contextMsgs = len(m.history)
 	}
+	m.cacheStats = cacheStatsFrom(msg.usage)
+	// Attributed to the model that answered, not the currently active one: a
+	// /model switch mid-turn must not relabel the previous model's spend.
+	m.usage.add(m.cfg.ModelName(), msg.usage)
 	// Full assistant text (including <proposed_plan>) on the agent row for UI,
 	// JSONL, and API history. FramePlan snapshots planFraming at ingest.
 	rec := recordFromAPI(msg.message)
 	rec.FramePlan = m.planFraming()
+	// Persist the turn's accounting next to the turn it belongs to, so /usage
+	// totals survive /resume. Nil when the provider reported nothing.
+	rec.Usage = usageOrNil(msg.usage)
+	if rec.Usage != nil {
+		rec.Model = m.cfg.ModelName()
+	}
 	m.persist(rec)
 	m.noteProducedPlan(msg.message.Text)
 	return waitTurn(m.turn)

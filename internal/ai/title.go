@@ -2,6 +2,7 @@ package ai
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"unicode"
 )
@@ -14,7 +15,7 @@ func (c *Client) SessionTitle(ctx context.Context, prompt string) (string, error
 			Text: titleSystemPrompt,
 		},
 		{Role: RoleUser, Text: "Conversation to title:\n" + prompt},
-	}, 32)
+	}, nil, 32)
 	if err != nil {
 		return "", err
 	}
@@ -47,7 +48,7 @@ const maxTitleChars = 50
 func cleanTitle(s string) string {
 	s = strings.TrimSpace(s)
 	// Prefer the first non-empty line (models sometimes add a blank lead-in).
-	for _, line := range strings.Split(s, "\n") {
+	for line := range strings.SplitSeq(s, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
@@ -78,16 +79,11 @@ func sentenceCaseTitle(s string) string {
 		return s
 	}
 	runes := []rune(s)
-	hasUpper := false
-	for _, r := range runes {
-		if unicode.IsUpper(r) {
-			hasUpper = true
-			break
-		}
-	}
+	hasUpper := slices.ContainsFunc(runes, unicode.IsUpper)
 	if hasUpper {
 		return s
 	}
+
 	runes[0] = unicode.ToUpper(runes[0])
 	return string(runes)
 }

@@ -203,7 +203,7 @@ func (m *Model) beginBuildFromPlan(body, title, modelID string) tea.Cmd {
 		m.noteError("config save: " + err.Error())
 		return nil
 	}
-	m.contextTokens = 0
+	m.resetUsage()
 	m.applyClient()
 
 	m.bottom.clear()

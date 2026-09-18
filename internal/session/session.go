@@ -10,6 +10,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/axispx/zeta/internal/ai"
 	"github.com/axispx/zeta/internal/image"
 	"github.com/axispx/zeta/internal/paths"
 )
@@ -50,6 +51,13 @@ type Record struct {
 	Tool       string     `json:"tool,omitempty"`   // tool name for RoleTool
 	Denied     bool       `json:"denied,omitempty"` // tool call rejected by policy/user
 	Tail       int        `json:"tail,omitempty"`   // RoleCompact: API messages retained after checkpoint
+	// Usage is the provider's token accounting for this assistant turn. Only
+	// agent records carry it; nil when the provider reported none. Kept per
+	// turn so /usage can total a resumed session without re-billing anything.
+	Usage *ai.Usage `json:"usage,omitempty"`
+	// Model is the display name of the model that produced Usage. A session can
+	// span models (/model), so /usage needs the attribution to read the totals.
+	Model string `json:"model,omitempty"`
 	// FramePlan: Plan-mode ingest snapshot; UI frames <proposed_plan> when set.
 	// Not re-derived from current mode on resume.
 	FramePlan bool `json:"frame_plan,omitempty"`
@@ -70,6 +78,8 @@ type event struct {
 	Tool       string     `json:"tool,omitempty"`
 	Denied     bool       `json:"denied,omitempty"`
 	Tail       int        `json:"tail,omitempty"`
+	Usage      *ai.Usage  `json:"usage,omitempty"`
+	Model      string     `json:"model,omitempty"`
 	FramePlan  bool       `json:"frame_plan,omitempty"`
 }
 
@@ -161,6 +171,8 @@ func (s *Session) Append(rec Record) error {
 		Tool:       rec.Tool,
 		Denied:     rec.Denied,
 		Tail:       rec.Tail,
+		Usage:      rec.Usage,
+		Model:      rec.Model,
 		FramePlan:  rec.FramePlan,
 	}); err != nil {
 		return err
@@ -343,6 +355,8 @@ func load(abs, path string) (*Session, []Record, error) {
 				Tool:       evt.Tool,
 				Denied:     evt.Denied,
 				Tail:       evt.Tail,
+				Usage:      evt.Usage,
+				Model:      evt.Model,
 				FramePlan:  evt.FramePlan,
 			})
 		default:

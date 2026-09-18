@@ -108,6 +108,115 @@ func TestToAPIMessagesMultimodal(t *testing.T) {
 	}
 }
 
+func TestCacheFromRawUsage(t *testing.T) {
+	tests := []struct {
+		name         string
+		raw          string
+		wantCached   int64
+		wantWrite    int64
+		wantReported bool
+	}{
+		{"empty", "", 0, 0, false},
+		{"no cache fields", `{"prompt_tokens":100,"completion_tokens":5}`, 0, 0, false},
+		{"invalid", `{`, 0, 0, false},
+		{
+			"openai details",
+			`{"prompt_tokens":100,"prompt_tokens_details":{"cached_tokens":80}}`,
+			80, 0, true,
+		},
+		{
+			"openai cache write",
+			`{"prompt_tokens":100,"prompt_tokens_details":{"cached_tokens":80,"cache_write_tokens":12}}`,
+			80, 12, true,
+		},
+		{
+			"deepseek top level",
+			`{"prompt_tokens":18234,"prompt_cache_hit_tokens":16000,"prompt_cache_miss_tokens":2234}`,
+			16000, 0, true,
+		},
+		{
+			"anthropic gateway",
+			`{"prompt_tokens":100,"cache_read_input_tokens":90,"cache_creation_input_tokens":5}`,
+			90, 5, true,
+		},
+		{
+			// A reported zero is a real cache miss, not missing accounting.
+			"reported zero",
+			`{"prompt_tokens":100,"prompt_tokens_details":{"cached_tokens":0}}`,
+			0, 0, true,
+		},
+		{
+			// OpenAI spelling wins over the DeepSeek one when both appear.
+			"details beat extras",
+			`{"prompt_tokens":100,"prompt_tokens_details":{"cached_tokens":80},"prompt_cache_hit_tokens":1}`,
+			80, 0, true,
+		},
+		{
+			// A write-only report still counts as cache accounting.
+			"write only",
+			`{"prompt_tokens":100,"cache_creation_input_tokens":5}`,
+			0, 5, true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cached, write, reported := cacheFromRawUsage(tt.raw)
+			if cached != tt.wantCached || write != tt.wantWrite || reported != tt.wantReported {
+				t.Fatalf("cacheFromRawUsage(%q) = (%d, %d, %v), want (%d, %d, %v)",
+					tt.raw, cached, write, reported, tt.wantCached, tt.wantWrite, tt.wantReported)
+			}
+		})
+	}
+}
+
+func TestUsageCachedPercent(t *testing.T) {
+	tests := []struct {
+		name    string
+		usage   Usage
+		wantPct int
+		wantOK  bool
+	}{
+		{"unreported hides", Usage{PromptTokens: 100}, 0, false},
+		{"no prompt tokens", Usage{CacheReported: true}, 0, false},
+		{"cold cache", Usage{PromptTokens: 100, CacheReported: true}, 0, true},
+		{"full hit", Usage{PromptTokens: 100, CachedTokens: 100, CacheReported: true}, 100, true},
+		{"typical hit", Usage{PromptTokens: 1000, CachedTokens: 970, CacheReported: true}, 97, true},
+		{"truncates down", Usage{PromptTokens: 3, CachedTokens: 2, CacheReported: true}, 66, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pct, ok := tt.usage.CachedPercent()
+			if pct != tt.wantPct || ok != tt.wantOK {
+				t.Fatalf("CachedPercent() = (%d, %v), want (%d, %v)", pct, ok, tt.wantPct, tt.wantOK)
+			}
+		})
+	}
+}
+
+func TestUsageFromAccDropsUntypedUsage(t *testing.T) {
+	// The accumulator cannot carry provider-specific cache fields, so they must
+	// arrive via the separately captured raw usage JSON.
+	raw := `{"prompt_tokens":18234,"completion_tokens":412,"total_tokens":18646,` +
+		`"prompt_cache_hit_tokens":16000,"prompt_cache_miss_tokens":2234}`
+	var chunk openai.ChatCompletionChunk
+	if err := json.Unmarshal([]byte(`{"id":"c","object":"chat.completion.chunk",`+
+		`"created":1,"model":"m","choices":[],"usage":`+raw+`}`), &chunk); err != nil {
+		t.Fatal(err)
+	}
+	var acc openai.ChatCompletionAccumulator
+	acc.AddChunk(chunk)
+
+	got := usageFromAcc(acc, chunk.Usage.RawJSON())
+	if got.PromptTokens != 18234 || got.CachedTokens != 16000 || !got.CacheReported {
+		t.Fatalf("usage = %+v", got)
+	}
+	// Without the raw capture the metric is unreported, not 0%.
+	blind := usageFromAcc(acc, "")
+	if blind.CacheReported {
+		t.Fatalf("absent raw usage must not report cache accounting: %+v", blind)
+	}
+}
+
 func TestCleanTitle(t *testing.T) {
 	tests := []struct {
 		in, want string

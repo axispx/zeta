@@ -7,6 +7,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 
+	"github.com/axispx/zeta/internal/ai"
 	"github.com/axispx/zeta/internal/config"
 	"github.com/axispx/zeta/internal/prompt"
 	"github.com/axispx/zeta/internal/styles"
@@ -16,24 +17,38 @@ import (
 // footerRows is the fixed height of the input footer (usage/model + path/stats).
 const footerRows = 2
 
+// cacheStats is the last response's prompt-cache accounting, for the footer.
+// reported is false when the provider sent no cache fields, so the hit rate is
+// hidden rather than shown as a misleading 0%.
+type cacheStats struct {
+	pct      int
+	reported bool
+}
+
+// cacheStatsFrom extracts the footer's cache display values from a response.
+func cacheStatsFrom(u ai.Usage) cacheStats {
+	pct, ok := u.CachedPercent()
+	return cacheStats{pct: pct, reported: ok}
+}
+
 // inputFooter is two rows under the input box:
 //
-//	model · effort · % · tokens                     mode
-//	cwd · branch                                   +N -M
-func inputFooter(width int, ws workspace.Context, cfg config.Config, mode prompt.Mode, contextTokens int64, diff lineStats) string {
+//	model · effort · % · tokens · % cached        mode
+//	cwd · branch                                  +N -M
+func inputFooter(width int, ws workspace.Context, cfg config.Config, mode prompt.Mode, contextTokens int64, cache cacheStats, diff lineStats) string {
 	if width < 1 {
 		return ""
 	}
-	top := footerTopRow(width, cfg, mode, contextTokens)
+	top := footerTopRow(width, cfg, mode, contextTokens, cache)
 	bot := footerBottomRow(width, ws, diff)
 	return lipgloss.JoinVertical(lipgloss.Left, top, bot)
 }
 
-// footerTopRow is model · effort · % · tokens (left) and mode (right).
-func footerTopRow(width int, cfg config.Config, mode prompt.Mode, contextTokens int64) string {
+// footerTopRow is model · effort · % · tokens · % cached (left) and mode (right).
+func footerTopRow(width int, cfg config.Config, mode prompt.Mode, contextTokens int64, cache cacheStats) string {
 	right := modeStyle(mode).Render(mode.Label())
 	leftMax := footerLeftBudget(width, right)
-	left := footerUsageModel(contextTokens, cfg.ContextWindow(), cfg.ModelName(), cfg.ActiveReasoningEffort(), leftMax)
+	left := footerUsageModel(contextTokens, cfg.ContextWindow(), cfg.ModelName(), cfg.ActiveReasoningEffort(), cache, leftMax)
 	return footerSplitRow(width, left, right)
 }
 
@@ -88,20 +103,20 @@ func footerSplitRow(width int, left, right string) string {
 	)
 }
 
-// footerUsageModel is "model · effort · % · tokens" (effort/tokens/% omitted
-// when unknown), truncated on the right to maxW.
-func footerUsageModel(contextTokens int64, contextWindow int, model, effort string, maxW int) string {
+// footerUsageModel is "model · effort · % · tokens · % cached" (effort/usage
+// omitted when unknown), truncated on the right to maxW.
+func footerUsageModel(contextTokens int64, contextWindow int, model, effort string, cache cacheStats, maxW int) string {
 	if maxW <= 0 {
 		return ""
 	}
-	parts := make([]string, 0, 3)
+	parts := make([]string, 0, 4)
 	if model != "" {
 		parts = append(parts, model)
 	}
 	if effort != "" {
 		parts = append(parts, effort)
 	}
-	if u := formatUsage(contextTokens, contextWindow); u != "" {
+	if u := formatUsage(contextTokens, contextWindow, cache); u != "" {
 		parts = append(parts, u)
 	}
 	if len(parts) == 0 {
@@ -184,20 +199,27 @@ func formatDiffStats(d lineStats) string {
 	return styles.DiffDel.Render("-" + strconv.Itoa(d.deleted))
 }
 
-// formatUsage formats fill % then last-response context footprint (prompt+completion).
-func formatUsage(contextTokens int64, contextWindow int) string {
-	if contextTokens <= 0 {
-		return ""
-	}
-	tok := formatTokenCount(contextTokens)
-	if contextWindow > 0 {
-		pct := int((contextTokens * 100) / int64(contextWindow))
-		if pct < 1 {
-			pct = 1
+// formatUsage formats fill % then last-response context footprint
+// (prompt+completion), then the prompt-cache hit rate when the provider
+// reported cache accounting.
+func formatUsage(contextTokens int64, contextWindow int, cache cacheStats) string {
+	parts := make([]string, 0, 3)
+	if contextTokens > 0 {
+		tok := formatTokenCount(contextTokens)
+		if contextWindow > 0 {
+			pct := int((contextTokens * 100) / int64(contextWindow))
+			if pct < 1 {
+				pct = 1
+			}
+			parts = append(parts, strconv.Itoa(pct)+"%", tok)
+		} else {
+			parts = append(parts, tok)
 		}
-		return strconv.Itoa(pct) + "% · " + tok
 	}
-	return tok
+	if cache.reported {
+		parts = append(parts, strconv.Itoa(cache.pct)+"% cached")
+	}
+	return strings.Join(parts, " · ")
 }
 
 func formatTokenCount(n int64) string {

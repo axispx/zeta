@@ -11,6 +11,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/axispx/zeta/internal/ai"
+	"github.com/axispx/zeta/internal/image"
 )
 
 // Defaults for a simple compaction.
@@ -19,7 +20,6 @@ const (
 	DefaultKeep          = 8_000  // recent tail kept verbatim (est. tokens)
 	DefaultToolsOverhead = 2_000  // rough allowance for tool defs per turn
 	SummaryMaxTokens     = 4_096  // max tokens for the summarizer completion
-	toolSerializeMax     = 2_000  // chars of tool output in the summary prompt
 	charsPerToken        = 4      // cheap estimate; good enough for thresholds
 	checkpointOpen       = "<conversation-checkpoint>"
 	checkpointClose      = "</conversation-checkpoint>"
@@ -31,11 +31,35 @@ const (
 // Config controls thresholds. Zero Buffer/Keep mean defaults.
 // ContextWindow is required for Needed (from the active model).
 // Overhead is an estimate of system + tool defs the caller will prepend.
+// Prefix is the conversation's cacheable request head; see Prefix.
+// Measured/MeasuredMsgs carry a real provider count when one exists; see the
+// fields for how they change the budget check.
 type Config struct {
 	ContextWindow int
 	Overhead      int
 	Buffer        int
 	Keep          int
+	Prefix        Prefix
+	// Measured is what the provider billed for the last request of this
+	// session (prompt + completion). It covers MeasuredMsgs history messages
+	// *and* the request envelope — system prompt, mode instructions, tool
+	// definitions, trailing blocks — because those were part of the prompt the
+	// provider tokenized. Do not add Overhead on top of it.
+	Measured int
+	// MeasuredMsgs is how many history messages Measured covers, counted from
+	// the front. Everything after that point is estimated. Zero (or a value
+	// past the end of a shrunk history) means there is no usable measurement.
+	MeasuredMsgs int
+}
+
+// Prefix is the byte-stable head of every request in a conversation: its
+// system prompt, mode instructions, and tool definitions. The summarizer sends
+// it unchanged so the provider serves it — and the history being summarized —
+// from the conversation's prompt cache. Empty runs the summarizer standalone,
+// which costs full uncached input on a request as long as the history.
+type Prefix struct {
+	Messages []ai.Message
+	Tools    []ai.Tool
 }
 
 func (c Config) buffer() int {
@@ -43,6 +67,28 @@ func (c Config) buffer() int {
 		return c.Buffer
 	}
 	return DefaultBuffer
+}
+
+// measured reports whether cfg carries a usable provider measurement for a
+// history of n messages.
+func (c Config) measured(n int) bool {
+	return c.Measured > 0 && c.MeasuredMsgs > 0 && c.MeasuredMsgs <= n
+}
+
+// usedTokens is the best available estimate of what the next request carries.
+//
+// A provider measurement of an earlier request beats estimating the whole
+// transcript from scratch: the measurement is exact for the prefix it covers,
+// and only what has been appended since is estimated. Falling back to
+// Estimate(history) means the budget check is only ever as good as chars/4,
+// which under-counts source code and tool output relative to prose — and an
+// under-count is the dangerous direction, because compaction then fires too
+// late and the provider rejects the turn.
+func usedTokens(history []ai.Message, cfg Config) int {
+	if !cfg.measured(len(history)) {
+		return cfg.Overhead + Estimate(history)
+	}
+	return cfg.Measured + Estimate(history[cfg.MeasuredMsgs:])
 }
 
 func (c Config) keep() int {
@@ -53,9 +99,12 @@ func (c Config) keep() int {
 }
 
 // Completer runs a non-streaming completion (e.g. *ai.Client).
+// tools carries the conversation's tool definitions, which the implementation
+// must send verbatim (with tool calls disabled) so the request shares the
+// conversation's cached prefix. See Config.Prefix.
 // maxTokens caps the completion when > 0.
 type Completer interface {
-	Complete(ctx context.Context, msgs []ai.Message, maxTokens int64) (string, error)
+	Complete(ctx context.Context, msgs []ai.Message, tools []ai.Tool, maxTokens int64) (string, error)
 }
 
 // Result is the outcome of a compaction attempt.
@@ -88,8 +137,48 @@ func Estimate(msgs []ai.Message) int {
 	return total
 }
 
-// imageTokenFudge is a flat per-image token estimate (vision models vary widely).
-const imageTokenFudge = 1_000
+// Vision billing constants, matching OpenAI's high-detail tiling: an image is
+// scaled to imageMaxSide, then so its shortest side is imageShortSide, and
+// charged imageBaseTokens plus imageTileTokens per 512px tile.
+const (
+	imageMaxSide    = 2048
+	imageShortSide  = 768
+	imageTileSide   = 512
+	imageBaseTokens = 85
+	imageTileTokens = 170
+	// imageTokensFallback covers an unreadable header (unknown format, or a
+	// truncated data URL). It is the canonical single-image case.
+	imageTokensFallback = imageBaseTokens + 4*imageTileTokens
+)
+
+// imageTokens estimates what a vision model charges for one image.
+//
+// Vision billing is per tile, not per byte: a 1024x1024 screenshot costs the
+// same ~765 tokens whether the PNG is 100 KB or 5 MB. Charging the base64
+// length instead (the old len(URL)/4 estimate) reported ~274,000 tokens for an
+// 800 KB screenshot — enough to trip auto-compaction and to make the footer
+// claim hundreds of percent of the window for a single attachment.
+func imageTokens(img ai.Image) int {
+	w, h := image.Dimensions(img.URL)
+	if w <= 0 || h <= 0 {
+		return imageTokensFallback
+	}
+	if m := max(w, h); m > imageMaxSide {
+		w, h = w*imageMaxSide/m, h*imageMaxSide/m
+	}
+	if m := min(w, h); m > 0 && m != imageShortSide {
+		w, h = w*imageShortSide/m, h*imageShortSide/m
+	}
+	tiles := ceilDiv(max(w, 1), imageTileSide) * ceilDiv(max(h, 1), imageTileSide)
+	return imageBaseTokens + imageTileTokens*tiles
+}
+
+func ceilDiv(n, d int) int {
+	if n <= 0 {
+		return 0
+	}
+	return (n + d - 1) / d
+}
 
 func estimateMsg(m ai.Message) int {
 	n := EstimateTokens(m.Text) + EstimateTokens(string(m.Role)) + EstimateTokens(m.ToolCallID)
@@ -97,8 +186,7 @@ func estimateMsg(m ai.Message) int {
 		n += EstimateTokens(tc.ID) + EstimateTokens(tc.Name) + EstimateTokens(tc.Arguments)
 	}
 	for _, img := range m.Images {
-		// data URLs are large; charge fudge plus a coarse byte-based estimate.
-		n += imageTokenFudge + len(img.URL)/4
+		n += imageTokens(img)
 	}
 	// per-message overhead for role framing
 	return n + 4
@@ -113,7 +201,7 @@ func overBudget(history []ai.Message, cfg Config) bool {
 	if budget <= 0 {
 		return true
 	}
-	return cfg.Overhead+Estimate(history) > budget
+	return usedTokens(history, cfg) > budget
 }
 
 // plan decides whether compaction can run and returns the head/tail split.
@@ -134,6 +222,8 @@ func plan(history []ai.Message, cfg Config, force bool) (Split, bool) {
 
 // Needed reports whether history should be auto-compacted before the next turn.
 // True only when over budget and Select can free older turns (non-empty head).
+// The budget check uses a provider measurement when Config carries one, so a
+// caller that records Usage per turn gets an exact trigger rather than a guess.
 func Needed(history []ai.Message, cfg Config) bool {
 	_, ok := plan(history, cfg, false)
 	return ok
@@ -269,27 +359,39 @@ func turnTokens(msgs []ai.Message, starts []int, j int) int {
 	return n
 }
 
-// BuildPrompt returns the messages sent to the summarizer (system + user).
-func BuildPrompt(previousSummary string, head []ai.Message) []ai.Message {
-	var user strings.Builder
-	if prev := strings.TrimSpace(previousSummary); prev != "" {
-		user.WriteString("Revise the handoff note in <previous-summary> using the conversation history below.\n")
-		user.WriteString("Keep what still applies, drop what does not, and add new facts from the history.\n")
-		user.WriteString("<previous-summary>\n")
-		user.WriteString(prev)
-		user.WriteString("\n</previous-summary>\n\n")
-	} else {
-		user.WriteString("Write a fresh handoff note from the conversation history below.\n\n")
-	}
-	user.WriteString("Conversation history:\n\n")
-	user.WriteString(serialize(head))
-	user.WriteString("\n\n")
-	user.WriteString(summaryTemplate())
+// BuildPrompt returns the summarizer request: the conversation's stable prefix,
+// the head being summarized, then a trailing instruction.
+//
+// The head goes in as real messages rather than serialized text so this
+// request's prefix is byte-identical to the live conversation's. Providers
+// cache on the request prefix, so the summarizer reads the whole head at the
+// cached rate instead of paying full uncached input on a prompt as large as the
+// history it is summarizing. That is also why the instruction — not a
+// summarizer system prompt — carries all the steering: a different system
+// prompt would diverge at the first token and forfeit the hit.
+func BuildPrompt(prefix, head []ai.Message, previousSummary string) []ai.Message {
+	out := make([]ai.Message, 0, len(prefix)+len(head)+1)
+	out = append(out, prefix...)
+	out = append(out, head...)
+	out = append(out, ai.Message{Role: ai.RoleUser, Text: summarizeInstruction(previousSummary)})
+	return out
+}
 
-	return []ai.Message{
-		{Role: ai.RoleSystem, Text: summarizerSystem()},
-		{Role: ai.RoleUser, Text: user.String()},
+// summarizeInstruction is the trailing user message. It carries the steering
+// the summarizer no longer gets from its own system prompt.
+func summarizeInstruction(previousSummary string) string {
+	var b strings.Builder
+	b.WriteString(summarizerInstruction())
+	if prev := strings.TrimSpace(previousSummary); prev != "" {
+		b.WriteString("\n\nRevise the handoff note in <previous-summary> using the conversation above.\n")
+		b.WriteString("Keep what still applies, drop what does not, and add new facts from the history.\n")
+		b.WriteString("<previous-summary>\n")
+		b.WriteString(prev)
+		b.WriteString("\n</previous-summary>")
 	}
+	b.WriteString("\n\n")
+	b.WriteString(summaryTemplate())
+	return b.String()
 }
 
 // RunIfNeeded summarizes history only when Needed (over budget with a freeable head).
@@ -315,7 +417,7 @@ func run(ctx context.Context, c Completer, history []ai.Message, cfg Config, for
 		return Result{History: history}, nil
 	}
 
-	prompt := BuildPrompt(split.PreviousSummary, split.Head)
+	prompt := BuildPrompt(cfg.Prefix.Messages, split.Head, split.PreviousSummary)
 	// When a window is known, refuse if the summarizer prompt itself can't fit.
 	if cfg.ContextWindow > 0 {
 		room := cfg.ContextWindow - SummaryMaxTokens
@@ -324,7 +426,7 @@ func run(ctx context.Context, c Completer, history []ai.Message, cfg Config, for
 		}
 	}
 
-	text, err := c.Complete(ctx, prompt, int64(SummaryMaxTokens))
+	text, err := c.Complete(ctx, prompt, cfg.Prefix.Tools, int64(SummaryMaxTokens))
 	if err != nil {
 		return Result{}, fmt.Errorf("compact: %w", err)
 	}
@@ -342,72 +444,6 @@ func run(ctx context.Context, c Completer, history []ai.Message, cfg Config, for
 		TailCount: len(split.Tail),
 		Compacted: true,
 	}, nil
-}
-
-func serialize(msgs []ai.Message) string {
-	var b strings.Builder
-	for i, m := range msgs {
-		if i > 0 {
-			b.WriteString("\n\n")
-		}
-		switch m.Role {
-		case ai.RoleUser:
-			if IsCheckpoint(m) {
-				if s, ok := ParseSummary(m); ok {
-					b.WriteString("[Earlier checkpoint summary]\n")
-					b.WriteString(s)
-					continue
-				}
-			}
-			b.WriteString("[User]\n")
-			b.WriteString(m.Text)
-			if n := len(m.Images); n > 0 {
-				b.WriteString(fmt.Sprintf("\n[%d image attachment(s)]", n))
-			}
-		case ai.RoleAssistant:
-			b.WriteString("[Assistant]")
-			if m.Text != "" {
-				b.WriteByte('\n')
-				b.WriteString(m.Text)
-			}
-			for _, tc := range m.ToolCalls {
-				b.WriteString("\n[Tool call] ")
-				b.WriteString(tc.Name)
-				b.WriteByte('(')
-				b.WriteString(truncate(tc.Arguments, toolSerializeMax))
-				b.WriteByte(')')
-			}
-		case ai.RoleTool:
-			b.WriteString("[Tool result")
-			if m.ToolCallID != "" {
-				b.WriteString(" id=")
-				b.WriteString(m.ToolCallID)
-			}
-			b.WriteString("]\n")
-			b.WriteString(truncate(m.Text, toolSerializeMax))
-		default:
-			b.WriteString("[")
-			b.WriteString(string(m.Role))
-			b.WriteString("]\n")
-			b.WriteString(m.Text)
-		}
-	}
-	return b.String()
-}
-
-func truncate(s string, max int) string {
-	if max <= 0 || utf8.RuneCountInString(s) <= max {
-		return s
-	}
-	// slice by runes
-	n := 0
-	for i := range s {
-		if n == max {
-			return s[:i] + "\n[truncated]"
-		}
-		n++
-	}
-	return s
 }
 
 func extractTag(s, open, close string) (string, bool) {

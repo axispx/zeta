@@ -59,6 +59,9 @@ type Model struct {
 	nextTurnID    int          // last allocated turnSession.id
 	history       []ai.Message // durable API transcript (user/assistant/tool); no system/developer
 	contextTokens int64        // last response's context footprint (prompt+completion)
+	contextMsgs   int          // history messages contextTokens covers; 0 = none/estimated
+	cacheStats    cacheStats   // last response's prompt-cache accounting for the footer
+	usage         sessionUsage // cumulative provider token accounting for /usage
 	titlePending  bool
 	authRetried   bool // one 401 → OAuth refresh → retry per turn; reset on submit
 	authRetrying  bool // true while RecoverOAuth runs after a 401 (keeps busy())
@@ -400,6 +403,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case msg.String() == "shift+tab":
 			if m.turn == nil && !m.inputBlocked() && !m.hasQueueState() {
 				m.mode = m.mode.Next()
+				// Mode swaps the developer message and the tool set, so the
+				// next request shares no prefix with the last one.
+				m.resetUsage()
 			}
 			return m, nil
 		case isPasteKey(msg):
@@ -491,11 +497,14 @@ func (m *Model) submit(text string, imgs []image.Ref) tea.Cmd {
 	return m.beginTurn(titlePrompt)
 }
 
-// refreshWorkspace reloads cwd/branch/AGENTS.md via workspace.Load.
-// Call at turn/compact boundaries; beginTurn assumes the caller already refreshed.
-// Focus only bumps branch.
+// refreshWorkspace re-reads the volatile workspace fields at a turn boundary.
+// Branch is re-read because the agent checks out branches itself; AGENTS.md is
+// deliberately left alone. It heads the request prefix providers cache, so
+// reloading it every turn would invalidate the transcript whenever the file
+// changed — including when the agent edits it. The snapshot is refreshed at
+// session boundaries instead: /clear, /resume, and compaction (ReloadAgents).
 func (m *Model) refreshWorkspace() {
-	m.ws = workspace.Load()
+	m.ws.RefreshBranch()
 }
 
 // beginTurn starts the agent loop for the current history.
@@ -878,7 +887,7 @@ func (m Model) renderFooter() string {
 	}
 	return lipgloss.NewStyle().
 		Margin(0, styles.InputMarginH).
-		Render(inputFooter(footerW, m.ws, m.cfg, m.mode, m.contextTokens, m.sessionDiff))
+		Render(inputFooter(footerW, m.ws, m.cfg, m.mode, m.contextTokens, m.cacheStats, m.sessionDiff))
 }
 
 // stackMainChrome places the main surface (transcript [+ gap] [+ pinned overlay]),
