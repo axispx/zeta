@@ -18,7 +18,7 @@ const footerRows = 2
 
 // inputFooter is two rows under the input box:
 //
-//	model · effort · % · tokens                 mode
+//	model · effort · %                          mode
 //	cwd · branch                                +N -M
 func inputFooter(width int, ws workspace.Context, cfg config.Config, mode prompt.Mode, contextTokens int64, diff lineStats) string {
 	if width < 1 {
@@ -88,7 +88,7 @@ func footerSplitRow(width int, left, right string) string {
 	)
 }
 
-// footerUsageModel is "model · effort · % · tokens" (effort/usage omitted when
+// footerUsageModel is "model · effort · %" (effort/usage omitted when
 // unknown), truncated on the right to maxW.
 func footerUsageModel(contextTokens int64, contextWindow int, model, effort string, maxW int) string {
 	if maxW <= 0 {
@@ -184,23 +184,17 @@ func formatDiffStats(d lineStats) string {
 	return styles.DiffDel.Render("-" + strconv.Itoa(d.deleted))
 }
 
-// formatUsage formats fill % then last-response context footprint
-// (prompt+completion).
+// formatUsage is the context fill percent, empty when tokens or the window are
+// unknown.
 func formatUsage(contextTokens int64, contextWindow int) string {
-	parts := make([]string, 0, 2)
-	if contextTokens > 0 {
-		tok := formatTokenCount(contextTokens)
-		if contextWindow > 0 {
-			pct := int((contextTokens * 100) / int64(contextWindow))
-			if pct < 1 {
-				pct = 1
-			}
-			parts = append(parts, strconv.Itoa(pct)+"%", tok)
-		} else {
-			parts = append(parts, tok)
-		}
+	if contextTokens <= 0 || contextWindow <= 0 {
+		return ""
 	}
-	return strings.Join(parts, " · ")
+	pct := int((contextTokens * 100) / int64(contextWindow))
+	if pct < 1 {
+		pct = 1
+	}
+	return strconv.Itoa(pct) + "%"
 }
 
 func formatTokenCount(n int64) string {

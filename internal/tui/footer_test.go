@@ -39,12 +39,15 @@ func TestInputFooterLayout(t *testing.T) {
 	if len(lines) != footerRows {
 		t.Fatalf("footer rows = %d, want %d:\n%s", len(lines), footerRows, plain)
 	}
-	// Row 0: model · % · tokens left, mode right.
+	// Row 0: model · % left, mode right.
 	if !strings.HasPrefix(strings.TrimLeft(lines[0], " "), "Test GPT-4") {
 		t.Fatalf("top should start with model: %q", lines[0])
 	}
-	if !strings.Contains(lines[0], "18.0k") || !strings.Contains(lines[0], "18%") {
+	if !strings.Contains(lines[0], "18%") {
 		t.Fatalf("top missing usage: %q", lines[0])
+	}
+	if strings.Contains(lines[0], "18.0k") {
+		t.Fatalf("top should not show token count: %q", lines[0])
 	}
 	if !strings.Contains(lines[0], "Test GPT-4") {
 		t.Fatalf("top missing model: %q", lines[0])
@@ -55,10 +58,10 @@ func TestInputFooterLayout(t *testing.T) {
 	if strings.Contains(lines[0], "proj") || strings.Contains(lines[0], "+12") {
 		t.Fatalf("top should be usage/model/mode only: %q", lines[0])
 	}
-	// model · % · tokens on the left.
-	mi, pi, ti := strings.Index(lines[0], "Test GPT-4"), strings.Index(lines[0], "18%"), strings.Index(lines[0], "18.0k")
-	if mi < 0 || pi < 0 || ti < 0 || !(mi < pi && pi < ti) {
-		t.Fatalf("want model then %% then tokens: %q", lines[0])
+	// model · % on the left.
+	mi, pi := strings.Index(lines[0], "Test GPT-4"), strings.Index(lines[0], "18%")
+	if mi < 0 || pi < 0 || mi > pi {
+		t.Fatalf("want model then %%: %q", lines[0])
 	}
 	// Row 1: path left, diff stats right.
 	if !strings.Contains(lines[1], "proj") {
@@ -245,10 +248,14 @@ func TestFormatUsage(t *testing.T) {
 	if got := formatUsage(0, 1000); got != "" {
 		t.Fatalf("empty when no tokens: %q", got)
 	}
-	if got := formatUsage(500, 0); got != "500" {
-		t.Fatalf("no pct without window: %q", got)
+	if got := formatUsage(500, 0); got != "" {
+		t.Fatalf("empty when no window: %q", got)
 	}
-	if got := formatUsage(25000, 100000); got != "25% · 25.0k" {
+	if got := formatUsage(25000, 100000); got != "25%" {
+		t.Fatalf("got %q", got)
+	}
+	// Sub-1% fill still shows as 1% rather than 0%.
+	if got := formatUsage(10, 100000); got != "1%" {
 		t.Fatalf("got %q", got)
 	}
 }
