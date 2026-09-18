@@ -191,14 +191,13 @@ func (m *Model) handleCompactDone(msg compactDoneMsg) tea.Cmd {
 	return nil
 }
 
-// resetUsage clears the last-response context + cache accounting shown in the
-// footer. Call whenever the request prefix changes (model/mode/session switch):
-// that also discards any provider measurement, since it described a request the
+// resetUsage clears the last-response context accounting shown in the footer.
+// Call whenever the request prefix changes (model/mode/session switch): that
+// also discards any provider measurement, since it described a request the
 // session will no longer send.
 func (m *Model) resetUsage() {
 	m.contextTokens = 0
 	m.contextMsgs = 0
-	m.cacheStats = cacheStats{}
 }
 
 func (m *Model) applyCompactResult(res compact.Result) {
@@ -214,8 +213,6 @@ func (m *Model) applyCompactResult(res compact.Result) {
 	// appended from here (see compact.usedTokens).
 	m.contextTokens = int64(compact.Estimate(res.History) + m.compactConfig().Overhead)
 	m.contextMsgs = len(m.history)
-	// Compaction rewrites the prefix, so any previous hit rate is stale.
-	m.cacheStats = cacheStats{}
 	m.messages = append(m.messages, Message{Role: RoleSystem, Text: compactDividerText})
 	m.persist(session.Record{
 		Role: session.RoleCompact,

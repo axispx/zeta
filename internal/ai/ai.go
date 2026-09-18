@@ -103,16 +103,6 @@ func (u Usage) ContextTokens() int64 {
 	return u.PromptTokens + u.CompletionTokens
 }
 
-// CachedPercent is CachedTokens as a whole percent of the prompt. ok is false
-// when the provider reported no cache accounting or no prompt tokens, so
-// callers can hide the metric rather than show a misleading 0%.
-func (u Usage) CachedPercent() (int, bool) {
-	if !u.CacheReported || u.PromptTokens <= 0 {
-		return 0, false
-	}
-	return int(u.CachedTokens * 100 / u.PromptTokens), true
-}
-
 // Client calls OpenAI-compatible chat completion APIs.
 type Client struct {
 	api    openai.Client

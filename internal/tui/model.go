@@ -60,7 +60,6 @@ type Model struct {
 	history       []ai.Message // durable API transcript (user/assistant/tool); no system/developer
 	contextTokens int64        // last response's context footprint (prompt+completion)
 	contextMsgs   int          // history messages contextTokens covers; 0 = none/estimated
-	cacheStats    cacheStats   // last response's prompt-cache accounting for the footer
 	usage         sessionUsage // cumulative provider token accounting for /usage
 	titlePending  bool
 	authRetried   bool // one 401 → OAuth refresh → retry per turn; reset on submit
@@ -887,7 +886,7 @@ func (m Model) renderFooter() string {
 	}
 	return lipgloss.NewStyle().
 		Margin(0, styles.InputMarginH).
-		Render(inputFooter(footerW, m.ws, m.cfg, m.mode, m.contextTokens, m.cacheStats, m.sessionDiff))
+		Render(inputFooter(footerW, m.ws, m.cfg, m.mode, m.contextTokens, m.sessionDiff))
 }
 
 // stackMainChrome places the main surface (transcript [+ gap] [+ pinned overlay]),

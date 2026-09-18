@@ -6,7 +6,6 @@ import (
 
 	"charm.land/lipgloss/v2"
 
-	"github.com/axispx/zeta/internal/ai"
 	"github.com/axispx/zeta/internal/config"
 	"github.com/axispx/zeta/internal/prompt"
 	"github.com/axispx/zeta/internal/styles"
@@ -34,7 +33,7 @@ func TestInputFooterLayout(t *testing.T) {
 	cfg := testFooterCfg()
 	ws := workspace.Context{Cwd: "~/proj", Branch: "main"}
 	diff := lineStats{added: 12, deleted: 3}
-	out := inputFooter(80, ws, cfg, prompt.ModePlan, 18000, cacheStats{}, diff)
+	out := inputFooter(80, ws, cfg, prompt.ModePlan, 18000, diff)
 	plain := stripANSI(out)
 	lines := strings.Split(plain, "\n")
 	if len(lines) != footerRows {
@@ -84,7 +83,7 @@ func TestInputFooterShowsReasoningEffort(t *testing.T) {
 	md := cfg.Providers["test"].Models["gpt-4"]
 	md.ReasoningEffort = "high"
 	cfg.Providers["test"].Models["gpt-4"] = md
-	out := stripANSI(inputFooter(80, workspace.Context{Cwd: "~/proj"}, cfg, prompt.ModeBuild, 0, cacheStats{}, lineStats{}))
+	out := stripANSI(inputFooter(80, workspace.Context{Cwd: "~/proj"}, cfg, prompt.ModeBuild, 0, lineStats{}))
 	lines := strings.Split(out, "\n")
 	if !strings.Contains(lines[0], "Test GPT-4") || !strings.Contains(lines[0], "high") {
 		t.Fatalf("top missing model/effort: %q", lines[0])
@@ -98,7 +97,7 @@ func TestInputFooterShowsReasoningEffort(t *testing.T) {
 func TestInputFooterHidesEmptyDiff(t *testing.T) {
 	cfg := testFooterCfg()
 	ws := workspace.Context{Cwd: "~/proj"}
-	out := stripANSI(inputFooter(80, ws, cfg, prompt.ModeBuild, 0, cacheStats{}, lineStats{}))
+	out := stripANSI(inputFooter(80, ws, cfg, prompt.ModeBuild, 0, lineStats{}))
 	if strings.Contains(out, "+0") || strings.Contains(out, "-0") {
 		t.Fatalf("empty diff should be omitted: %q", out)
 	}
@@ -114,46 +113,6 @@ func TestInputFooterHidesEmptyDiff(t *testing.T) {
 	}
 	if !strings.Contains(lines[1], "proj") {
 		t.Fatalf("bottom missing path: %q", lines[1])
-	}
-}
-
-func TestFormatUsageCacheHitRate(t *testing.T) {
-	tests := []struct {
-		name          string
-		contextTokens int64
-		cache         cacheStats
-		want          string
-	}{
-		{"no usage", 0, cacheStats{}, ""},
-		{"unreported cache hidden", 1000, cacheStats{pct: 97}, "1.0k"},
-		{"reported hit", 1000, cacheStats{pct: 97, reported: true}, "1.0k · 97% cached"},
-		{"cold cache shown", 1000, cacheStats{reported: true}, "1.0k · 0% cached"},
-		{"full hit", 1000, cacheStats{pct: 100, reported: true}, "1.0k · 100% cached"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// No context window: isolate the cache segment from the fill %.
-			if got := formatUsage(tt.contextTokens, 0, tt.cache); got != tt.want {
-				t.Fatalf("formatUsage(%d, 0, %+v) = %q, want %q", tt.contextTokens, tt.cache, got, tt.want)
-			}
-		})
-	}
-}
-
-func TestFormatUsageWindowAndCache(t *testing.T) {
-	got := formatUsage(18000, 100000, cacheStats{pct: 96, reported: true})
-	if got != "18% · 18.0k · 96% cached" {
-		t.Fatalf("got %q", got)
-	}
-}
-
-func TestCacheStatsFromUsage(t *testing.T) {
-	if got := cacheStatsFrom(ai.Usage{PromptTokens: 100}); got.reported {
-		t.Fatalf("unreported usage must hide the metric: %+v", got)
-	}
-	got := cacheStatsFrom(ai.Usage{PromptTokens: 1000, CachedTokens: 970, CacheReported: true})
-	if !got.reported || got.pct != 97 {
-		t.Fatalf("got %+v", got)
 	}
 }
 
@@ -283,17 +242,13 @@ func TestFooterBottomRespectsWidth(t *testing.T) {
 }
 
 func TestFormatUsage(t *testing.T) {
-	if got := formatUsage(0, 1000, cacheStats{}); got != "" {
+	if got := formatUsage(0, 1000); got != "" {
 		t.Fatalf("empty when no tokens: %q", got)
 	}
-	if got := formatUsage(500, 0, cacheStats{}); got != "500" {
+	if got := formatUsage(500, 0); got != "500" {
 		t.Fatalf("no pct without window: %q", got)
 	}
-	if got := formatUsage(25000, 100000, cacheStats{}); got != "25% · 25.0k" {
-		t.Fatalf("got %q", got)
-	}
-	// Cache accounting appends to the same segment.
-	if got := formatUsage(25000, 100000, cacheStats{pct: 97, reported: true}); got != "25% · 25.0k · 97% cached" {
+	if got := formatUsage(25000, 100000); got != "25% · 25.0k" {
 		t.Fatalf("got %q", got)
 	}
 }

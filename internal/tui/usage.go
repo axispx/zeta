@@ -33,8 +33,7 @@ type modelUsage struct {
 // Turns are bucketed by the model that produced them, which is also the only
 // honest way to read cache numbers — each model has its own prompt cache, so a
 // hit rate carried across a switch describes a cache that no longer exists.
-// The footer's contextTokens/cacheStats reset on switch for that reason; this
-// does not.
+// The footer's contextTokens reset on switch for that reason; this does not.
 //
 // It is also not the footer's context footprint: that is a single response's
 // fill toward the model window, while this accumulates every billed call and

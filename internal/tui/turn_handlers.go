@@ -131,7 +131,6 @@ func (m *Model) handleTurnAssistant(msg turnAssistantMsg) tea.Cmd {
 		// instead of guessing from character counts.
 		m.contextMsgs = len(m.history)
 	}
-	m.cacheStats = cacheStatsFrom(msg.usage)
 	// Attributed to the model that answered, not the currently active one: a
 	// /model switch mid-turn must not relabel the previous model's spend.
 	m.usage.add(m.cfg.ModelName(), msg.usage)

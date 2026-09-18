@@ -169,30 +169,6 @@ func TestCacheFromRawUsage(t *testing.T) {
 	}
 }
 
-func TestUsageCachedPercent(t *testing.T) {
-	tests := []struct {
-		name    string
-		usage   Usage
-		wantPct int
-		wantOK  bool
-	}{
-		{"unreported hides", Usage{PromptTokens: 100}, 0, false},
-		{"no prompt tokens", Usage{CacheReported: true}, 0, false},
-		{"cold cache", Usage{PromptTokens: 100, CacheReported: true}, 0, true},
-		{"full hit", Usage{PromptTokens: 100, CachedTokens: 100, CacheReported: true}, 100, true},
-		{"typical hit", Usage{PromptTokens: 1000, CachedTokens: 970, CacheReported: true}, 97, true},
-		{"truncates down", Usage{PromptTokens: 3, CachedTokens: 2, CacheReported: true}, 66, true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			pct, ok := tt.usage.CachedPercent()
-			if pct != tt.wantPct || ok != tt.wantOK {
-				t.Fatalf("CachedPercent() = (%d, %v), want (%d, %v)", pct, ok, tt.wantPct, tt.wantOK)
-			}
-		})
-	}
-}
-
 func TestUsageFromAccDropsUntypedUsage(t *testing.T) {
 	// The accumulator cannot carry provider-specific cache fields, so they must
 	// arrive via the separately captured raw usage JSON.
