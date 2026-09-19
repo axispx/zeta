@@ -30,15 +30,16 @@ Drop a file (or several) from your file manager onto the window and its path lan
 
 ## Multiple-choice questions
 
-Sometimes the agent asks a multiple-choice question (plus freeform **Other**):
+Sometimes the agent asks a multiple-choice question (plus a freeform row, shown
+as **Type an answer**):
 
-| Key       | Action         |
-| --------- | -------------- |
-| `↑` / `↓` | Move           |
-| `Enter`   | Confirm        |
-| `1`–`9`   | Jump to option |
-| Type      | Fill **Other** |
-| `Esc`     | Cancel         |
+| Key       | Action                    |
+| --------- | ------------------------- |
+| `↑` / `↓` | Move                      |
+| `Enter`   | Confirm                   |
+| `1`–`9`   | Jump to option            |
+| Type      | Fill the freeform answer  |
+| `Esc`     | Cancel                    |
 
 ## Terminal notes
 

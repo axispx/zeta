@@ -15,9 +15,13 @@ import (
 )
 
 const (
-	askOtherLabel       = "Other"
-	askOtherDescription = "Type a custom answer"
-	askOtherPlaceholder = "Your answer…"
+	// askOtherLabel is the freeform row's placeholder text, replaced by the
+	// typed answer.
+	askOtherLabel = "Type an answer"
+	// askOtherAnswer is the model-facing answer when the freeform row is
+	// chosen with nothing typed. The row is the UI's own, so the model knows it
+	// as "Other" and never sees the placeholder phrasing.
+	askOtherAnswer = "Other"
 )
 
 // askPrompt is the bottom panel for tools.AskUser.
@@ -53,9 +57,31 @@ func askRows(q tools.AskQuestion) []optionRow {
 		labels = append(labels, o.Label)
 		hints = append(hints, o.Description)
 	}
+	// Other carries no description: typing replaces its label instead.
 	labels = append(labels, askOtherLabel)
-	hints = append(hints, askOtherDescription)
+	hints = append(hints, "")
 	return numberedRows(labels, hints)
+}
+
+// syncOther turns the freeform row into the input field: its label is the typed
+// answer (or the placeholder while empty) with a caret while it owns the keys.
+// Derived state — call it before rendering or hit-testing, the only readers.
+func (p *askPrompt) syncOther() {
+	list := p.curList()
+	q, ok := p.current()
+	if !ok || list == nil {
+		return
+	}
+	i := len(q.Options)
+	if i < 0 || i >= list.n() {
+		return
+	}
+	text := p.other[p.qi]
+	r := &list.rows[i]
+	r.hint, r.labelCursor, r.label = "", p.typing, askOtherLabel
+	if strings.TrimSpace(text) != "" {
+		r.label = text
+	}
 }
 
 func (p *askPrompt) current() (tools.AskQuestion, bool) {
@@ -96,7 +122,7 @@ func (p *askPrompt) buildResponse() tools.AskUserResponse {
 			if t := strings.TrimSpace(p.other[i]); t != "" {
 				answer = t
 			} else {
-				answer = askOtherLabel
+				answer = askOtherAnswer
 			}
 		} else {
 			oi := p.lists[i].selected
@@ -213,15 +239,36 @@ func (m *Model) handleAskKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 }
 
 func isAskTextKey(msg tea.KeyPressMsg) bool {
-	s := msg.String()
-	if s == "backspace" || s == "ctrl+h" || s == "ctrl+w" || s == "ctrl+u" {
+	switch msg.String() {
+	case "backspace", "ctrl+h", "ctrl+w", "ctrl+u":
 		return true
 	}
-	if len(s) != 1 {
-		return false
+	return askText(msg) != ""
+}
+
+// askText is the printable text a key press contributes, "" for named keys.
+// Read msg.Text rather than msg.String(): the space bar's keystroke is "space"
+// while its text is " ", and a bracketed paste arrives as one multi-rune text.
+func askText(msg tea.KeyPressMsg) string {
+	if msg.Text != "" && isPrintable(msg.Text) {
+		return msg.Text
 	}
-	r := rune(s[0])
-	return unicode.IsPrint(r) && !unicode.IsControl(r)
+	// Synthetic key presses carry only Code.
+	if s := msg.String(); len(s) == 1 && unicode.IsPrint(rune(s[0])) {
+		return s
+	}
+	return ""
+}
+
+// isPrintable reports whether every rune in s is printable, so control text
+// (an enter's "\r", a tab's "\t") is never treated as input.
+func isPrintable(s string) bool {
+	for _, r := range s {
+		if !unicode.IsPrint(r) {
+			return false
+		}
+	}
+	return true
 }
 
 func (m *Model) handleAskType(msg tea.KeyPressMsg) bool {
@@ -253,12 +300,8 @@ func (m *Model) handleAskType(msg tea.KeyPressMsg) bool {
 	case "up", "ctrl+p", "down", "ctrl+n", "tab", "shift+tab":
 		p.typing = false
 	default:
-		s := msg.String()
-		if len(s) == 1 {
-			r := rune(s[0])
-			if unicode.IsPrint(r) {
-				p.other[p.qi] = cur + string(r)
-			}
+		if t := askText(msg); t != "" {
+			p.other[p.qi] = cur + t
 		}
 	}
 	return true
@@ -293,7 +336,9 @@ func (m *Model) handleAskClick(msg tea.MouseClickMsg) (tea.Cmd, bool) {
 	if list == nil {
 		return nil, false
 	}
-	idx, chose := list.handleClick(msg.X, msg.Y, m.viewport.Height(), m.width, m.askTitleH())
+	p.syncOther()
+	_, contentW := overlayWidths(m.width)
+	idx, chose := list.handleClick(msg.X, msg.Y, m.viewport.Height(), m.width, m.askTitleH(), contentW)
 	if !chose {
 		return nil, false
 	}
@@ -311,7 +356,9 @@ func (m *Model) handleAskMotion(msg tea.MouseMotionMsg) bool {
 	if list == nil {
 		return false
 	}
-	return list.handleMotion(msg.X, msg.Y, m.viewport.Height(), m.width, m.askTitleH())
+	p.syncOther()
+	_, contentW := overlayWidths(m.width)
+	return list.handleMotion(msg.X, msg.Y, m.viewport.Height(), m.width, m.askTitleH(), contentW)
 }
 
 func (m Model) askTitleH() int {
@@ -328,6 +375,7 @@ func (m Model) renderAsk(width int) string {
 	if _, ok := p.current(); !ok {
 		return ""
 	}
+	p.syncOther()
 	list := p.curList()
 	if list == nil {
 		return ""
@@ -339,15 +387,18 @@ func (m Model) renderAsk(width int) string {
 	b.WriteString(m.renderAskHeader(contentW, ink))
 	b.WriteString(list.render(contentW, ink))
 
-	if p.isOther(p.qi) {
-		b.WriteByte('\n')
-		b.WriteString(m.renderAskOtherField(contentW, ink))
-	}
-
+	// Blank row between the options and the key hints.
+	b.WriteByte('\n')
+	b.WriteString(padPanel(ink.Gap.Width(panelInner(contentW)).Render(""), panelGutter))
 	b.WriteByte('\n')
 	b.WriteString(m.renderAskFooter(contentW, ink))
 
 	return renderBottomPanel(m.chrome, width, b.String())
+}
+
+// panelInner is the row width inside a bottom panel, excluding the gutter.
+func panelInner(contentW int) int {
+	return max(1, contentW-panelGutter)
 }
 
 func (m Model) renderAskHeader(contentW int, ink styles.OverlayInk) string {
@@ -359,10 +410,7 @@ func (m Model) renderAskHeader(contentW int, ink styles.OverlayInk) string {
 	if !ok {
 		return ""
 	}
-	inner := contentW - panelGutter
-	if inner < 1 {
-		inner = 1
-	}
+	inner := panelInner(contentW)
 	var progress string
 	if n := len(p.questions); n > 1 {
 		progress = fmt.Sprintf("Question %d/%d · ", p.qi+1, n)
@@ -375,38 +423,13 @@ func (m Model) renderAskHeader(contentW int, ink styles.OverlayInk) string {
 	body := ink.Gap.Width(inner).Render(wrapSimple(q.Question, inner))
 	out := padPanel(ink.Gap.Width(inner).Render(line1), panelGutter)
 	out += "\n" + padPanel(body, panelGutter)
+	// Blank line between the question and its options.
+	out += "\n" + padPanel(ink.Gap.Width(inner).Render(""), panelGutter)
 	return out
 }
 
-func (m Model) renderAskOtherField(contentW int, ink styles.OverlayInk) string {
-	p := m.bottom.ask
-	inner := contentW - panelGutter
-	if inner < 1 {
-		inner = 1
-	}
-	text := p.other[p.qi]
-	var line string
-	if p.typing {
-		if text == "" {
-			line = ink.Kbd.Render("› ") + ink.HintText.Render(askOtherPlaceholder)
-		} else {
-			line = ink.Kbd.Render("› ") + ink.Gap.Render(truncateRight(text, max(1, inner-2))) + ink.Kbd.Render("█")
-		}
-	} else {
-		if text == "" {
-			line = ink.HintText.Render("  " + askOtherPlaceholder)
-		} else {
-			line = ink.Gap.Render("  " + truncateRight(text, max(1, inner-2)))
-		}
-	}
-	return padPanel(ink.Gap.Width(inner).Render(line), panelGutter)
-}
-
 func (m Model) renderAskFooter(contentW int, ink styles.OverlayInk) string {
-	inner := contentW - panelGutter
-	if inner < 1 {
-		inner = 1
-	}
+	inner := panelInner(contentW)
 	p := m.bottom.ask
 	var parts []string
 	if p.typing {

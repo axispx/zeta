@@ -223,7 +223,8 @@ func (m *Model) handlePlanClick(msg tea.MouseClickMsg) (tea.Cmd, bool) {
 	if p == nil || msg.Button != tea.MouseLeft {
 		return nil, false
 	}
-	idx, chose := p.list.handleClick(msg.X, msg.Y, m.viewport.Height(), m.width, m.planTitleH())
+	_, contentW := overlayWidths(m.width)
+	idx, chose := p.list.handleClick(msg.X, msg.Y, m.viewport.Height(), m.width, m.planTitleH(), contentW)
 	if !chose || idx < 0 || idx >= len(planOptions) {
 		return nil, false
 	}
@@ -235,7 +236,8 @@ func (m *Model) handlePlanMotion(msg tea.MouseMotionMsg) bool {
 	if p == nil {
 		return false
 	}
-	return p.list.handleMotion(msg.X, msg.Y, m.viewport.Height(), m.width, m.planTitleH())
+	_, contentW := overlayWidths(m.width)
+	return p.list.handleMotion(msg.X, msg.Y, m.viewport.Height(), m.width, m.planTitleH(), contentW)
 }
 
 func (m Model) planTitleH() int {

@@ -6,8 +6,10 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/axispx/zeta/internal/agent"
+	"github.com/axispx/zeta/internal/styles"
 	"github.com/axispx/zeta/internal/tools"
 )
 
@@ -37,11 +39,25 @@ func TestAskPromptBuildResponseDefault(t *testing.T) {
 
 func TestAskPromptOtherFreeform(t *testing.T) {
 	p := newAskPrompt(sampleAskArgs())
-	p.lists[0].selected = 2 // Other
+	p.lists[0].selected = 2 // freeform row
 	p.other[0] = "hybrid approach"
 	resp := p.buildResponse()
 	if resp.Answers["approach"] != "hybrid approach" {
 		t.Fatalf("%v", resp.Answers["approach"])
+	}
+}
+
+// The row's placeholder is UI phrasing; an empty freeform answer still reaches
+// the model as "Other", the name its tool description tells it to expect.
+func TestAskPromptFreeformEmptyAnswersOther(t *testing.T) {
+	p := newAskPrompt(sampleAskArgs())
+	p.lists[0].selected = 2
+	resp := p.buildResponse()
+	if got := resp.Answers["approach"]; got != askOtherAnswer {
+		t.Fatalf("answer = %q, want %q", got, askOtherAnswer)
+	}
+	if askOtherLabel == askOtherAnswer {
+		t.Fatal("placeholder text must not be the model-facing answer")
 	}
 }
 
@@ -76,13 +92,13 @@ func TestHandleAskKeyNavAndEnter(t *testing.T) {
 		bottom: bottomSlot{ask: newAskPrompt(sampleAskArgs())},
 		turn:   &turnSession{reply: replies, activeTool: -1, cancel: func() {}},
 	}
-	if _, ok := m.handleAskKey(tea.KeyPressMsg{Code: tea.KeyDown, Text: "down"}); !ok {
+	if _, ok := m.handleAskKey(tea.KeyPressMsg{Code: tea.KeyDown}); !ok {
 		t.Fatal("expected handled")
 	}
 	if m.bottom.ask.lists[0].selected != 1 {
 		t.Fatalf("selected=%d", m.bottom.ask.lists[0].selected)
 	}
-	if _, ok := m.handleAskKey(tea.KeyPressMsg{Code: tea.KeyEnter, Text: "enter"}); !ok {
+	if _, ok := m.handleAskKey(tea.KeyPressMsg{Code: tea.KeyEnter}); !ok {
 		t.Fatal("enter")
 	}
 	r := <-replies
@@ -96,11 +112,76 @@ func TestHandleAskTypeJumpsToOther(t *testing.T) {
 	m.bottom.ask.lists[0].selected = 2
 	m.bottom.ask.typing = true
 	m.bottom.ask.other[0] = "x"
-	if !m.handleAskType(tea.KeyPressMsg{Code: tea.KeyBackspace, Text: "backspace"}) {
+	if !m.handleAskType(tea.KeyPressMsg{Code: tea.KeyBackspace}) {
 		t.Fatal("backspace")
 	}
 	if m.bottom.ask.other[0] != "" {
 		t.Fatalf("other=%q", m.bottom.ask.other[0])
+	}
+}
+
+// spaceKey is a real space-bar press: text " " but keystroke "space".
+func spaceKey() tea.KeyPressMsg {
+	return tea.KeyPressMsg{Code: tea.KeySpace, Text: " "}
+}
+
+func TestAskTextKeySpace(t *testing.T) {
+	if got := askText(spaceKey()); got != " " {
+		t.Fatalf("space text = %q, want %q", got, " ")
+	}
+	if !isAskTextKey(spaceKey()) {
+		t.Fatal("space must count as a text key")
+	}
+	// Named keys carry no text on the wire; control text is never input.
+	for _, k := range []tea.KeyPressMsg{
+		{Code: tea.KeyEnter},
+		{Code: tea.KeyUp},
+		{Code: tea.KeyTab},
+		{Code: 'a', Mod: tea.ModCtrl},
+		{Code: tea.KeyEnter, Text: "\r"},
+	} {
+		if got := askText(k); got != "" {
+			t.Fatalf("askText(%q) = %q, want empty", k.String(), got)
+		}
+	}
+}
+
+func TestHandleAskTypeInsertsSpace(t *testing.T) {
+	m := Model{bottom: bottomSlot{ask: newAskPrompt(sampleAskArgs())}}
+	m.bottom.ask.lists[0].selected = 2
+	m.bottom.ask.typing = true
+	m.bottom.ask.other[0] = "hybrid"
+	m.handleAskType(spaceKey())
+	m.handleAskType(tea.KeyPressMsg{Code: 'a', Text: "a"})
+	if got, want := m.bottom.ask.other[0], "hybrid a"; got != want {
+		t.Fatalf("other = %q, want %q", got, want)
+	}
+}
+
+// A space on an option row drops into Other, like any other printable key.
+func TestHandleAskKeySpaceJumpsToOther(t *testing.T) {
+	m := Model{bottom: bottomSlot{ask: newAskPrompt(sampleAskArgs())}}
+	m.bottom.ask.lists[0].selected = 0
+	if _, ok := m.handleAskKey(spaceKey()); !ok {
+		t.Fatal("expected handled")
+	}
+	p := m.bottom.ask
+	if !p.typing || !p.isOther(p.qi) {
+		t.Fatalf("typing=%v other=%v", p.typing, p.isOther(p.qi))
+	}
+	if p.other[0] != " " {
+		t.Fatalf("other = %q, want a space", p.other[0])
+	}
+}
+
+// A multi-rune text (bracketed paste) lands whole rather than being dropped.
+func TestHandleAskTypePastesText(t *testing.T) {
+	m := Model{bottom: bottomSlot{ask: newAskPrompt(sampleAskArgs())}}
+	m.bottom.ask.lists[0].selected = 2
+	m.bottom.ask.typing = true
+	m.handleAskType(tea.KeyPressMsg{Code: tea.KeyExtended, Text: "two words"})
+	if got, want := m.bottom.ask.other[0], "two words"; got != want {
+		t.Fatalf("other = %q, want %q", got, want)
 	}
 }
 
@@ -110,11 +191,147 @@ func TestRenderAskShowsOptions(t *testing.T) {
 	if !strings.Contains(out, "Simple (Recommended)") {
 		t.Fatalf("missing option: %q", out)
 	}
-	if !strings.Contains(out, "Other") {
-		t.Fatalf("missing Other: %q", out)
+	if !strings.Contains(out, askOtherLabel) {
+		t.Fatalf("missing freeform row: %q", out)
 	}
 	if !strings.Contains(out, "How should we structure") {
 		t.Fatalf("missing question: %q", out)
+	}
+}
+
+// The question block ends with a blank row separating it from the options.
+func TestRenderAskBlankAfterQuestion(t *testing.T) {
+	m := Model{width: 80, bottom: bottomSlot{ask: newAskPrompt(sampleAskArgs())}}
+	lines := strings.Split(stripANSI(m.renderAsk(80)), "\n")
+	i := -1
+	for j, l := range lines {
+		if strings.Contains(l, "How should we structure") {
+			i = j
+			break
+		}
+	}
+	if i < 0 {
+		t.Fatalf("missing question: %q", lines)
+	}
+	if strings.TrimSpace(lines[i+1]) != "" {
+		t.Fatalf("line below question must be blank: %q", lines[i+1])
+	}
+	if !strings.Contains(lines[i+2], "Simple (Recommended)") {
+		t.Fatalf("options must follow the gap: %q", lines[i+2])
+	}
+}
+
+// The key hints sit one blank row below the last option.
+func TestRenderAskGapAboveFooter(t *testing.T) {
+	m := Model{width: 80, bottom: bottomSlot{ask: newAskPrompt(sampleAskArgs())}}
+	lines := strings.Split(stripANSI(m.renderAsk(80)), "\n")
+	i := -1
+	for j, l := range lines {
+		if strings.Contains(l, "esc cancel") {
+			i = j
+			break
+		}
+	}
+	if i < 1 {
+		t.Fatalf("missing footer: %q", lines)
+	}
+	if strings.TrimSpace(lines[i-1]) != "" {
+		t.Fatalf("line above footer must be blank: %q", lines[i-1])
+	}
+	if !strings.Contains(lines[i-2], askOtherLabel) {
+		t.Fatalf("options must end above the gap: %q", lines[i-2])
+	}
+}
+
+// Typing in the freeform row replaces its option text: no description line, caret at the end.
+func TestRenderAskOtherReplacesLabel(t *testing.T) {
+	m := Model{width: 80, bottom: bottomSlot{ask: newAskPrompt(sampleAskArgs())}}
+	p := m.bottom.ask
+	p.lists[0].selected = 2
+
+	idle := stripANSI(m.renderAsk(80))
+	if !strings.Contains(idle, "3. "+askOtherLabel) {
+		t.Fatalf("freeform row must keep its number: %q", idle)
+	}
+	if strings.Contains(idle, askOtherLabel+optionCaret) {
+		t.Fatalf("no caret while the field is idle: %q", idle)
+	}
+	idleLines := strings.Count(idle, "\n")
+
+	p.typing = true
+	blank := stripANSI(m.renderAsk(80))
+	if !strings.Contains(blank, askOtherLabel+optionCaret) {
+		t.Fatalf("empty field must show the caret on the placeholder: %q", blank)
+	}
+
+	p.other[0] = "hybrid approach"
+	out := stripANSI(m.renderAsk(80))
+	if !strings.Contains(out, "3. hybrid approach"+optionCaret) {
+		t.Fatalf("answer must replace the option text: %q", out)
+	}
+	if strings.Contains(out, askOtherLabel) {
+		t.Fatalf("replaced label must not linger: %q", out)
+	}
+	if n := strings.Count(out, "\n"); n != idleLines {
+		t.Fatalf("typing must not change the panel height: %d → %d\n%s", idleLines, n, out)
+	}
+}
+
+// A long answer scrolls from the left so the caret and newest keys stay visible.
+func TestRenderAskOtherLabelScrolls(t *testing.T) {
+	m := Model{width: 60, bottom: bottomSlot{ask: newAskPrompt(sampleAskArgs())}}
+	p := m.bottom.ask
+	p.lists[0].selected = 2
+	p.typing = true
+	p.other[0] = strings.Repeat("word ", 20) + "end"
+
+	out := stripANSI(m.renderAsk(60))
+	for _, line := range strings.Split(out, "\n") {
+		if !strings.Contains(line, optionCaret) {
+			continue
+		}
+		if !strings.HasPrefix(strings.TrimSpace(line), "→ 3. …") {
+			t.Fatalf("answer must scroll from the left: %q", line)
+		}
+		if !strings.HasSuffix(strings.TrimRight(line, " "), "end"+optionCaret) {
+			t.Fatalf("answer must end at the caret: %q", line)
+		}
+		if lipgloss.Width(line) > 60 {
+			t.Fatalf("row overflows: %d cols: %q", lipgloss.Width(line), line)
+		}
+		return
+	}
+	t.Fatalf("missing caret line: %q", out)
+}
+
+// A saved answer survives leaving the field: no caret once keys move off it.
+func TestRenderAskOtherAnswerUnfocused(t *testing.T) {
+	m := Model{width: 80, bottom: bottomSlot{ask: newAskPrompt(sampleAskArgs())}}
+	p := m.bottom.ask
+	p.other[0] = "hybrid approach"
+	p.lists[0].selected = 2
+	p.typing = false
+	out := stripANSI(m.renderAsk(80))
+	if !strings.Contains(out, "3. hybrid approach") {
+		t.Fatalf("the chosen answer must stay visible: %q", out)
+	}
+	if strings.Contains(out, optionCaret) {
+		t.Fatalf("caret must not show when the field is unfocused: %q", out)
+	}
+}
+
+// Descriptions render under their option, so a click on one selects that row.
+func TestHandleAskClickOnDescriptionLine(t *testing.T) {
+	m := Model{width: 100, bottom: bottomSlot{ask: newAskPrompt(sampleAskArgs())}}
+	m.bottom.ask.lists[0].selected = 0
+	titleH := m.askTitleH()
+	// Rows are label · description, so row 1's description is line 3.
+	y := m.viewport.Height() + 2 + titleH + 3
+	if _, ok := m.handleAskClick(tea.MouseClickMsg{X: styles.InputMarginH + 1, Y: y, Button: tea.MouseLeft}); !ok {
+		t.Fatal("expected click handled")
+	}
+	if m.bottom.ask.lists[0].selected != 1 {
+		t.Fatalf("selected=%d", m.bottom.ask.lists[0].selected)
 	}
 }
 

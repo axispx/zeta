@@ -191,7 +191,8 @@ func (m *Model) handlePermissionClick(msg tea.MouseClickMsg) (tea.Cmd, bool) {
 		return nil, false
 	}
 	titleH := m.permissionTitleH()
-	idx, chose := p.list.handleClick(msg.X, msg.Y, m.viewport.Height(), m.width, titleH)
+	_, contentW := overlayWidths(m.width)
+	idx, chose := p.list.handleClick(msg.X, msg.Y, m.viewport.Height(), m.width, titleH, contentW)
 	if !chose {
 		return nil, false
 	}
@@ -208,7 +209,8 @@ func (m *Model) handlePermissionMotion(msg tea.MouseMotionMsg) bool {
 	if p == nil {
 		return false
 	}
-	return p.list.handleMotion(msg.X, msg.Y, m.viewport.Height(), m.width, m.permissionTitleH())
+	_, contentW := overlayWidths(m.width)
+	return p.list.handleMotion(msg.X, msg.Y, m.viewport.Height(), m.width, m.permissionTitleH(), contentW)
 }
 
 func (m Model) permissionTitleH() int {

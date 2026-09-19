@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/axispx/zeta/internal/styles"
 )
@@ -13,7 +14,13 @@ import (
 type optionRow struct {
 	key   string // optional hotkey (e.g. "a"); empty → numbered
 	label string
-	hint  string // right-side hint (description / mark)
+	hint  string // description lines under the label
+	// numbered rows get a "N. " prefix at render time, so a row's text can be
+	// swapped without rebuilding the number (the freeform answer does this).
+	numbered bool
+	// labelCursor marks label as the live freeform answer: the text scrolls
+	// from the left and carries a caret, like an input field.
+	labelCursor bool
 }
 
 // optionList is the shared list controller for bottom-panel choice UIs
@@ -65,8 +72,8 @@ func (o *optionList) handleKey(msg tea.KeyPressMsg) (idx int, chose, handled boo
 }
 
 // handleClick selects the row under (x,y). chose=true on left-click hit.
-func (o *optionList) handleClick(x, y, viewportH, termW, titleH int) (idx int, chose bool) {
-	i := optionIndexAt(x, y, viewportH, termW, titleH, o.n())
+func (o *optionList) handleClick(x, y, viewportH, termW, titleH, contentW int) (idx int, chose bool) {
+	i := o.rowAt(x, y, viewportH, termW, titleH, contentW)
 	if i < 0 {
 		return -1, false
 	}
@@ -75,13 +82,39 @@ func (o *optionList) handleClick(x, y, viewportH, termW, titleH int) (idx int, c
 }
 
 // handleMotion highlights the row under the cursor.
-func (o *optionList) handleMotion(x, y, viewportH, termW, titleH int) bool {
-	i := optionIndexAt(x, y, viewportH, termW, titleH, o.n())
+func (o *optionList) handleMotion(x, y, viewportH, termW, titleH, contentW int) bool {
+	i := o.rowAt(x, y, viewportH, termW, titleH, contentW)
 	if i < 0 {
 		return false
 	}
 	o.selected = i
 	return true
+}
+
+// rowAt maps terminal (x,y) to a row index, or -1. Rows carrying a hint span
+// extra description lines, so the width used for wrapping is needed here too.
+func (o *optionList) rowAt(x, y, viewportH, termW, titleH, contentW int) int {
+	line := optionLineAt(x, y, viewportH, termW)
+	if line < 0 {
+		return -1
+	}
+	return o.rowAtLine(line-titleH, contentW)
+}
+
+// rowAtLine maps a 0-based line offset below the first row to a row index,
+// counting each row's wrapped hint lines, or -1 past the last row.
+func (o *optionList) rowAtLine(line, contentW int) int {
+	if line < 0 {
+		return -1
+	}
+	for i, r := range o.rows {
+		h := 1 + len(optionHintLines(r, contentW))
+		if line < h {
+			return i
+		}
+		line -= h
+	}
+	return -1
 }
 
 func (o optionList) render(contentW int, ink styles.OverlayInk) string {
@@ -139,33 +172,71 @@ func clampOption(selected, n int) int {
 	return selected
 }
 
+// optionHintIndent aligns a description under its row's label text
+// ("→ " prompt + "1. " number prefix).
+const optionHintIndent = inputPromptWidth + 3
+
+// optionCaret marks the insertion point of a live freeform row.
+const optionCaret = "█"
+
 // renderOptionRows paints a vertical list of accent rows (leading newline per row).
+// A row hint renders as dim, wrapped description lines under its label — a
+// right-aligned column would squeeze descriptions into an unreadable sliver.
+// A row whose label is live input (labelCursor) scrolls from the left and ends
+// in a caret, so the newest keystrokes stay visible however long the answer gets.
 func renderOptionRows(rows []optionRow, selected, contentW int, ink styles.OverlayInk) string {
 	if len(rows) == 0 {
 		return ""
 	}
 	sel := clampOption(selected, len(rows))
+	indent := strings.Repeat(" ", optionHintIndent)
 	var b strings.Builder
 	for i, r := range rows {
 		b.WriteByte('\n')
-		label := r.label
-		if r.key != "" {
-			label = "[" + r.key + "] " + r.label
+		prefix := ""
+		switch {
+		case r.key != "":
+			prefix = "[" + r.key + "] "
+		case r.numbered:
+			prefix = fmt.Sprintf("%d. ", i+1)
 		}
-		hint := r.hint
-		if hint != "" {
-			hint = truncateRight(hint, max(8, contentW/3))
+		label := prefix + r.label
+		if r.labelCursor {
+			// Keep the row number put and scroll the answer under it, reserving
+			// the caret's column so the row never overflows.
+			room := contentW - inputPromptWidth - lipgloss.Width(prefix) - 1
+			label = prefix + truncateLeft(r.label, room) + optionCaret
 		}
-		b.WriteString(formatAccentRow(label, hint, contentW, i == sel, false, ink))
+		b.WriteString(formatAccentRow(label, "", contentW, i == sel, false, ink))
+		for _, line := range optionHintLines(r, contentW) {
+			b.WriteByte('\n')
+			b.WriteString(ink.Hint.Width(contentW).Render(indent + line))
+		}
 	}
 	return b.String()
 }
 
-// numberedRows builds rows as "1. label" with optional hints (no hotkey field).
+// optionHintLines wraps a row's hint into the unindented lines painted under its
+// label. Nil when no hint. Indentation is the renderer's business, so wrapped
+// widths stay stable.
+func optionHintLines(r optionRow, contentW int) []string {
+	hint := strings.TrimSpace(r.hint)
+	if hint == "" {
+		return nil
+	}
+	body := contentW - optionHintIndent
+	if body < 8 {
+		return []string{hint}
+	}
+	return strings.Split(wrapSimple(hint, body), "\n")
+}
+
+// numberedRows builds rows numbered "1."… at render time with optional
+// descriptions (no hotkey field).
 func numberedRows(labels, hints []string) []optionRow {
 	rows := make([]optionRow, len(labels))
 	for i, lab := range labels {
-		rows[i] = optionRow{label: fmt.Sprintf("%d. %s", i+1, lab)}
+		rows[i] = optionRow{numbered: true, label: lab}
 		if i < len(hints) {
 			rows[i].hint = hints[i]
 		}

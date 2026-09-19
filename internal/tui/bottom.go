@@ -183,21 +183,35 @@ func padPanel(s string, pad int) string {
 
 // optionIndexAt maps terminal (x,y) to a 0-based option row under a title block.
 // titleH is the height of the panel header above the first option.
+// Assumes one line per row (permission / plan lists); ask rows carry
+// descriptions and use optionList.rowAt instead.
 // Returns -1 when the point is outside the option list.
 func optionIndexAt(x, y, viewportH, termW, titleH, nOpts int) int {
-	if nOpts < 1 || termW < 1 {
+	if nOpts < 1 {
+		return -1
+	}
+	rel := optionLineAt(x, y, viewportH, termW)
+	if rel < 0 {
+		return -1
+	}
+	idx := rel - titleH
+	if idx < 0 || idx >= nOpts {
+		return -1
+	}
+	return idx
+}
+
+// optionLineAt maps terminal (x,y) to a 0-based line below a title block,
+// or -1 when the point is outside the option column.
+func optionLineAt(x, y, viewportH, termW int) int {
+	if termW < 1 {
 		return -1
 	}
 	if x < styles.InputMarginH || x >= termW-styles.InputMarginH {
 		return -1
 	}
 	// blank spacer + OverlayPanel top pad; gap starts right after the transcript.
-	rel := y - viewportH - 1 - 1
-	idx := rel - titleH
-	if idx < 0 || idx >= nOpts {
-		return -1
-	}
-	return idx
+	return y - viewportH - 1 - 1
 }
 
 // afterSetBottom re-lays out when a panel opens/closes while the TUI is ready.
