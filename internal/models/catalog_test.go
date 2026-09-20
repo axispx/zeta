@@ -128,7 +128,7 @@ func TestNormalizeAndFilter(t *testing.T) {
 		// Anthropic Messages — not OpenAI-compatible even if api looks versioned.
 		"anthropic": {
 			ID: "anthropic", Name: "Anthropic", API: "https://api.anthropic.com/v1",
-			NPM: "@ai-sdk/anthropic",
+			NPM:    "@ai-sdk/anthropic",
 			Models: map[string]Model{"c": {Name: "C", Limit: Limit{Context: 200_000}}},
 		},
 		"google": {
@@ -137,7 +137,7 @@ func TestNormalizeAndFilter(t *testing.T) {
 		},
 		"openrouter": {
 			ID: "openrouter", Name: "OpenRouter", API: "https://openrouter.ai/api/v1",
-			NPM: "@openrouter/ai-sdk-provider",
+			NPM:    "@openrouter/ai-sdk-provider",
 			Models: map[string]Model{"m": {Name: "M", Limit: Limit{Context: 100_000}}},
 		},
 	}
@@ -182,7 +182,7 @@ func TestBaseURLRequiresAPI(t *testing.T) {
 		},
 		"deepseek": {
 			ID: "deepseek", Name: "DeepSeek", API: "https://api.deepseek.com",
-			NPM: "@ai-sdk/openai-compatible",
+			NPM:    "@ai-sdk/openai-compatible",
 			Models: map[string]Model{"m": {Name: "M", Limit: Limit{Context: 100_000}}},
 		},
 	}
@@ -206,7 +206,7 @@ func TestPresetsSortedByName(t *testing.T) {
 	cat := map[string]Provider{
 		"togetherai": {
 			ID: "togetherai", Name: "Together AI", API: "https://api.together.xyz/v1",
-			NPM: "@ai-sdk/togetherai",
+			NPM:    "@ai-sdk/togetherai",
 			Models: map[string]Model{"m": {Name: "M", Limit: Limit{Context: 100_000}}},
 		},
 		"openai": {
@@ -215,7 +215,7 @@ func TestPresetsSortedByName(t *testing.T) {
 		},
 		"deepseek": {
 			ID: "deepseek", Name: "DeepSeek", API: "https://api.deepseek.com",
-			NPM: "@ai-sdk/openai-compatible",
+			NPM:    "@ai-sdk/openai-compatible",
 			Models: map[string]Model{"m": {Name: "M", Limit: Limit{Context: 100_000}}},
 		},
 	}

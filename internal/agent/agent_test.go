@@ -31,7 +31,7 @@ func TestGateReceivesArgs(t *testing.T) {
 	var gotName string
 	var gotArgs json.RawMessage
 	c := Config{
-		Tools: tools.Build(), Root: t.TempDir(), Replies: replies,
+		Tools: tools.Build(), Root: t.TempDir(), Decider: chanDecider(replies),
 		Gate: func(name string, args json.RawMessage) bool {
 			gotName, gotArgs = name, args
 			return true
@@ -49,7 +49,7 @@ func TestGateReceivesArgs(t *testing.T) {
 
 func TestExecToolPolicyDenyReason(t *testing.T) {
 	replies := make(chan Reply, 1)
-	c := Config{Tools: tools.Build(), Root: t.TempDir(), Replies: replies, Gate: alwaysGate}
+	c := Config{Tools: tools.Build(), Root: t.TempDir(), Decider: chanDecider(replies), Gate: alwaysGate}
 	ev := make(chan Event, 4)
 	go func() {
 		_ = recvStart(t, ev)
@@ -65,7 +65,7 @@ func TestExecToolPolicyDenyReason(t *testing.T) {
 
 func TestExecToolGateDeny(t *testing.T) {
 	replies := make(chan Reply, 1)
-	c := Config{Tools: tools.Build(), Root: t.TempDir(), Replies: replies, Gate: alwaysGate}
+	c := Config{Tools: tools.Build(), Root: t.TempDir(), Decider: chanDecider(replies), Gate: alwaysGate}
 	ev := make(chan Event, 4)
 	go replyStart(t, ev, replies, false)
 
@@ -79,7 +79,7 @@ func TestExecToolGateDeny(t *testing.T) {
 
 func TestExecToolGatePathDetail(t *testing.T) {
 	replies := make(chan Reply, 1)
-	c := Config{Tools: tools.Build(), Root: t.TempDir(), Replies: replies, Gate: alwaysGate}
+	c := Config{Tools: tools.Build(), Root: t.TempDir(), Decider: chanDecider(replies), Gate: alwaysGate}
 	ev := make(chan Event, 4)
 	got := make(chan Event, 1)
 	go func() {
@@ -99,7 +99,7 @@ func TestExecToolGatePathDetail(t *testing.T) {
 
 func TestExecToolGateAllow(t *testing.T) {
 	replies := make(chan Reply, 1)
-	c := Config{Tools: tools.Build(), Root: t.TempDir(), Replies: replies, Gate: alwaysGate}
+	c := Config{Tools: tools.Build(), Root: t.TempDir(), Decider: chanDecider(replies), Gate: alwaysGate}
 	ev := make(chan Event, 8)
 	go replyStart(t, ev, replies, true)
 	_, result, denied := c.execTool(t.Context(), ai.ToolCall{
@@ -113,7 +113,7 @@ func TestExecToolGateAllow(t *testing.T) {
 func TestExecToolGateCancelled(t *testing.T) {
 	replies := make(chan Reply) // unbuffered; leave unanswered
 	ctx, cancel := context.WithCancel(t.Context())
-	c := Config{Tools: tools.Build(), Root: t.TempDir(), Replies: replies, Gate: alwaysGate}
+	c := Config{Tools: tools.Build(), Root: t.TempDir(), Decider: chanDecider(replies), Gate: alwaysGate}
 	ev := make(chan Event, 4)
 
 	done := make(chan struct {
@@ -143,21 +143,21 @@ func TestExecToolGateCancelled(t *testing.T) {
 	}
 }
 
-func TestExecToolNilRepliesRuns(t *testing.T) {
+func TestExecToolNilDeciderRuns(t *testing.T) {
 	c := Config{Tools: tools.Build(), Root: t.TempDir(), Gate: alwaysGate}
 	ev := make(chan Event, 4)
 	_, _, denied := c.execTool(t.Context(), ai.ToolCall{
 		ID: "c1", Name: tools.Bash, Arguments: `{"command":"true"}`,
 	}, ev)
 	if denied {
-		t.Fatal("nil Replies should skip gate")
+		t.Fatal("nil Decider should skip gate")
 	}
 	recvKind(t, ev, KindToolStart)
 }
 
 func TestExecToolNilGateRuns(t *testing.T) {
 	replies := make(chan Reply, 1)
-	c := Config{Tools: tools.Build(), Root: t.TempDir(), Replies: replies}
+	c := Config{Tools: tools.Build(), Root: t.TempDir(), Decider: chanDecider(replies)}
 	ev := make(chan Event, 4)
 	_, _, denied := c.execTool(t.Context(), ai.ToolCall{
 		ID: "c1", Name: tools.Bash, Arguments: `{"command":"true"}`,
@@ -175,7 +175,7 @@ func TestExecToolNilGateRuns(t *testing.T) {
 func TestExecToolGateFalseSkipsWait(t *testing.T) {
 	replies := make(chan Reply, 1)
 	c := Config{
-		Tools: tools.Build(), Root: t.TempDir(), Replies: replies,
+		Tools: tools.Build(), Root: t.TempDir(), Decider: chanDecider(replies),
 		Gate: func(string, json.RawMessage) bool { return false },
 	}
 	ev := make(chan Event, 4)
@@ -242,7 +242,7 @@ func recvKind(t *testing.T, ev <-chan Event, want EventKind) {
 
 func TestExecToolReplyResult(t *testing.T) {
 	replies := make(chan Reply, 1)
-	c := Config{Tools: tools.Build(), Root: t.TempDir(), Replies: replies, Gate: alwaysGate}
+	c := Config{Tools: tools.Build(), Root: t.TempDir(), Decider: chanDecider(replies), Gate: alwaysGate}
 	ev := make(chan Event, 8)
 	go func() {
 		_ = recvStart(t, ev)
@@ -256,5 +256,17 @@ func TestExecToolReplyResult(t *testing.T) {
 	}
 	if result.Text != `{"answers":{"q":"yes"}}` {
 		t.Fatalf("result=%q", result.Text)
+	}
+}
+
+// chanDecider turns a reply channel into a Decider for tests.
+type chanDecider chan Reply
+
+func (d chanDecider) Decide(ctx context.Context, _ Request) (Reply, error) {
+	select {
+	case r := <-d:
+		return r, nil
+	case <-ctx.Done():
+		return Reply{}, ctx.Err()
 	}
 }

@@ -10,7 +10,6 @@ import (
 	"github.com/axispx/zeta/internal/ai"
 	"github.com/axispx/zeta/internal/compact"
 	"github.com/axispx/zeta/internal/image"
-	"github.com/axispx/zeta/internal/session"
 	"github.com/axispx/zeta/internal/styles"
 )
 
@@ -47,7 +46,7 @@ func (m *Model) finishTurn() {
 	}
 	m.turn.cancel()
 	m.turn = nil
-	m.history = compact.TrimIncomplete(m.history)
+	m.History = compact.TrimIncomplete(m.History)
 }
 
 const (
@@ -196,7 +195,7 @@ func (m *Model) deliverQueued(id int) tea.Cmd {
 		return nil
 	}
 	// OAuth recover owns the busy slot — do not start a competing turn.
-	if m.authRetrying {
+	if m.AuthRetrying {
 		return nil
 	}
 	i := m.queueIndex(id)
@@ -211,9 +210,9 @@ func (m *Model) deliverQueued(id int) tea.Cmd {
 		m.finishTurn()
 	}
 
-	nHist := len(m.history)
+	nHist := len(m.History)
 	cmd := m.submit(p.text, p.imgs)
-	if len(m.history) == nHist {
+	if len(m.History) == nHist {
 		if i > len(m.queue) {
 			i = len(m.queue)
 		}
@@ -264,10 +263,10 @@ func (m *Model) queueIndex(id int) int {
 
 // commitUserPrompt appends one user turn to transcript, API history, and JSONL.
 func (m *Model) commitUserPrompt(text string, imgs []image.Ref) {
-	display := userDisplayText(text, imgs)
-	m.messages = append(m.messages, Message{Role: RoleUser, Text: display})
-	m.history = append(m.history, ai.Message{Role: ai.RoleUser, Text: text, Images: imgs})
-	m.persist(session.Record{Role: session.RoleUser, Text: text, Images: imgs})
+	m.messages = append(m.messages, Message{Role: RoleUser, Text: userDisplayText(text, imgs)})
+	if err := m.Session.CommitUserPrompt(text, imgs); err != nil {
+		m.messages = append(m.messages, Message{Role: RoleError, Text: "session save failed: " + err.Error()})
+	}
 }
 
 // restoreUnstartedPrompt rolls the last user turn back into the composer.
@@ -283,21 +282,21 @@ func (m *Model) restoreUnstartedPrompt() bool {
 	if n == 0 || m.messages[n-1].Role != RoleUser {
 		return false
 	}
-	nh := len(m.history)
-	if nh == 0 || m.history[nh-1].Role != ai.RoleUser {
+	nh := len(m.History)
+	if nh == 0 || m.History[nh-1].Role != ai.RoleUser {
 		return false
 	}
-	if m.sess != nil && m.sess.Persisted() {
-		dropped, err := m.sess.DropLastUser()
+	if m.Log != nil && m.Log.Persisted() {
+		dropped, err := m.Log.DropLastUser()
 		if err != nil || !dropped {
 			return false
 		}
 	}
-	h := m.history[nh-1]
+	h := m.History[nh-1]
 	text := h.Text
 	imgs := append([]image.Ref(nil), h.Images...)
 	m.messages = m.messages[:n-1]
-	m.history = m.history[:nh-1]
+	m.History = m.History[:nh-1]
 	m.loadQueuedIntoComposer(newQueuedPrompt(0, text, imgs))
 	m.textarea.MoveToEnd()
 	m.refreshTranscript()

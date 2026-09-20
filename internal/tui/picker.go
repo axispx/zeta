@@ -26,7 +26,7 @@ func (p *pickerState) clear() {
 }
 
 func (m *Model) openPicker() {
-	entries, err := session.List(m.ws.Abs)
+	entries, err := session.List(m.WS.Abs)
 	if err != nil {
 		m.messages = append(m.messages, Message{Role: RoleError, Text: "session list: " + err.Error()})
 		m.refreshTranscript()
@@ -49,7 +49,7 @@ func (m *Model) resumeSelected() tea.Cmd {
 	id := m.picker.entries[m.picker.selected].ID
 	m.picker.clear()
 
-	sess, recs, err := session.OpenID(m.ws.Abs, id)
+	sess, recs, err := session.OpenID(m.WS.Abs, id)
 	m.applySession(sess, recs, err)
 	return m.ensureTitle(firstUserPrompt(m.messages))
 }
@@ -98,8 +98,8 @@ func (m Model) renderPicker(width, height int) string {
 	}
 
 	currentID := ""
-	if m.sess != nil {
-		currentID = m.sess.ID
+	if m.Log != nil {
+		currentID = m.Log.ID
 	}
 
 	start, end := windowAround(m.picker.selected, len(m.picker.entries), listH)

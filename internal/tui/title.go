@@ -7,6 +7,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/axispx/zeta/internal/ai"
+	"github.com/axispx/zeta/internal/core"
 	"github.com/axispx/zeta/internal/session"
 )
 
@@ -15,12 +16,11 @@ type sessionTitleMsg struct {
 	err  error
 }
 
-func requestSessionTitle(client *ai.Client, prompt string) tea.Cmd {
-	if client == nil || prompt == "" {
-		return nil
-	}
+// requestSessionTitle builds the async name request. sess is a copy, which is
+// fine: GenerateTitle does not mutate it, and ApplyTitle runs in the handler.
+func requestSessionTitle(sess core.Session, client *ai.Client, prompt string) tea.Cmd {
 	return func() tea.Msg {
-		name, err := client.SessionTitle(context.Background(), prompt)
+		name, err := sess.GenerateTitle(context.Background(), client, prompt)
 		return sessionTitleMsg{name: name, err: err}
 	}
 }

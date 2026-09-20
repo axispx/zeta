@@ -8,8 +8,8 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/axispx/zeta/internal/agent"
+	"github.com/axispx/zeta/internal/core"
 	"github.com/axispx/zeta/internal/permission"
-	"github.com/axispx/zeta/internal/policy"
 	"github.com/axispx/zeta/internal/styles"
 	"github.com/axispx/zeta/internal/tools"
 )
@@ -20,45 +20,53 @@ type permOption struct {
 	decide permission.Decision
 }
 
-// permOptionsFor returns the approval choices for a tool.
-// bash offers a class session grant; outside-workspace read offers a
-// directory-scoped session grant. dotenv reads use the edit/write file prompt
-// (persistable in-workspace). edit/write are allow-or-deny only, so every diff
-// is reviewed and no rule can pre-approve a future mutation. When canPersist, an
-// "always allow" row is added that writes a permission rule: a bash command
-// prefix or an in-workspace dotenv file. prefix is the derived bash prefix,
-// shown so the user sees the scope they are agreeing to. Hotkeys follow the
-// usual approval shortcut (p = persist). Deny is per-call only; a persistent
-// deny is a hand-edit of permissions.json.
-func permOptionsFor(tool string, canPersist bool, prefix string, envFile bool) []permOption {
-	if tool == tools.Read {
-		if envFile {
-			opts := []permOption{{"a", "Allow", permission.AllowOnce}}
-			if canPersist {
-				opts = append(opts, permOption{"p", "Always allow this file", permission.AllowAlways})
-			}
-			opts = append(opts, permOption{"d", "Deny", permission.Deny})
-			return opts
-		}
-		return []permOption{
-			{"a", "Allow once", permission.AllowOnce},
-			{"s", "Allow this directory for session", permission.AllowSession},
-			{"d", "Deny", permission.Deny},
-		}
+// permOptions maps an approval's choices to rows. The choice set is core policy
+// (core.Approval.Choices); keys and labels are this client's.
+func permOptions(tool string, a core.Approval) []permOption {
+	opts := make([]permOption, 0, len(a.Choices))
+	for _, d := range a.Choices {
+		opts = append(opts, permOption{key: permKey(d), label: permLabel(tool, d, a), decide: d})
 	}
-	if permission.SessionGrantable(tool) {
-		opts := []permOption{{"a", "Allow once", permission.AllowOnce}}
-		if canPersist {
-			opts = append(opts, permOption{"p", "Always allow " + codePrefix(prefix), permission.AllowAlways})
-		}
-		opts = append(opts, permOption{"s", "Allow for session", permission.AllowSession})
-		opts = append(opts, permOption{"d", "Deny", permission.Deny})
-		return opts
+	return opts
+}
+
+// permKey is the hotkey for a decision (p = persist), matching the usual
+// approval shortcut. Deny is per-call only; a persistent deny is a hand-edit of
+// permissions.json.
+func permKey(d permission.Decision) string {
+	switch d {
+	case permission.AllowAlways:
+		return "p"
+	case permission.AllowSession:
+		return "s"
+	case permission.Deny:
+		return "d"
+	default:
+		return "a"
 	}
-	// edit/write: once-only, every diff reviewed.
-	return []permOption{
-		{"a", "Allow", permission.AllowOnce},
-		{"d", "Deny", permission.Deny},
+}
+
+// permLabel names a decision. The "always allow" row shows the derived rule's
+// scope so the user sees what they are agreeing to.
+func permLabel(tool string, d permission.Decision, a core.Approval) string {
+	switch d {
+	case permission.AllowAlways:
+		if tool == tools.Read {
+			return "Always allow this file"
+		}
+		return "Always allow " + codePrefix(a.Call.Rule.CommandPrefix)
+	case permission.AllowSession:
+		if tool == tools.Read {
+			return "Allow this directory for session"
+		}
+		return "Allow for session"
+	case permission.Deny:
+		return "Deny"
+	default: // AllowOnce
+		if permission.SessionGrantable(tool) || (tool == tools.Read && !a.Env) {
+			return "Allow once"
+		}
+		return "Allow"
 	}
 }
 
@@ -71,24 +79,17 @@ func codePrefix(prefix string) string {
 // Diff/command payloads live on the active transcript tool row (Message.Out /
 // label), not in this panel. Decisions go through turnSession.reply (harness-owned).
 type permissionPrompt struct {
-	label   string
-	name    string
-	path    string
-	dir     string // outside-read session-grant directory
-	env     bool   // dotenv secret; file prompt instead of directory grant
-	outside bool   // path escapes the workspace root
-	// rule + canPersist are the persisted rule an "always allow" decision writes.
-	rule       policy.Rule
-	canPersist bool
-	// opts is the single source of truth for the rendered rows and the decision
-	// dispatched for a chosen index.
-	opts []permOption
-	list optionList
+	label string
+	name  string
+	path  string
+	appr  core.Approval // derived from the tool name, args, and workspace root
+	opts  []permOption  // source of truth for the row list and the decision dispatched for a chosen index
+	list  optionList
 }
 
 func newPermissionPrompt(label, name, path string) *permissionPrompt {
 	p := &permissionPrompt{label: label, name: name, path: path}
-	p.setOptions(permOptionsFor(name, false, "", false))
+	p.setApproval(core.ApprovalFor("", name, nil))
 	return p
 }
 
@@ -102,14 +103,17 @@ func (p *permissionPrompt) setOptions(opts []permOption) {
 	p.list.setRows(rows)
 }
 
-// setArgs derives everything a persist decision needs from the raw call args, in
-// one pass: the allow rule to write, whether it is rememberable, and whether the
-// edit/write target escapes the workspace.
+// setApproval records the derived approval and mirrors its choices into the rows.
+func (p *permissionPrompt) setApproval(a core.Approval) {
+	p.appr = a
+	p.setOptions(permOptions(p.name, a))
+}
+
+// setArgs derives the approval view of the call — the rule a persist decision
+// writes, whether it is rememberable, and whether the target escapes the
+// workspace.
 func (p *permissionPrompt) setArgs(args json.RawMessage, root string) {
-	call := permission.CallFor(root, p.name, args)
-	p.rule, p.canPersist, p.outside, p.dir = call.Rule, call.Persist, call.Outside, call.Dir
-	p.env = permission.EnvFile(call.Match.Path)
-	p.setOptions(permOptionsFor(p.name, p.canPersist, p.rule.CommandPrefix, p.env))
+	p.setApproval(core.ApprovalFor(root, p.name, args))
 }
 
 // sendReply delivers a harness decision to the agent. Non-blocking: on cancel the
@@ -123,35 +127,19 @@ func (m *Model) sendReply(r agent.Reply) {
 	}
 }
 
+// decidePermission applies the user's choice to the session and answers the
+// agent. The grant/persist/reply logic is core.Session.DecidePermission.
 func (m *Model) decidePermission(d permission.Decision) {
 	p := m.bottom.perm
 	if p == nil {
 		return
 	}
-	switch d {
-	case permission.AllowSession:
-		if p.name == tools.Read {
-			m.grants.GrantDir(p.dir)
-		} else {
-			m.grants.Grant(p.name)
-		}
-	case permission.AllowAlways:
-		if p.canPersist {
-			pol, err := policy.Add(p.rule)
-			if err != nil {
-				// Keep the decision even when the rule cannot be saved.
-				m.noteError("permissions: " + err.Error())
-			} else {
-				// Replace in place so the agent's Gate sees the new rule too.
-				m.rules.Replace(pol)
-			}
-		}
+	reply, err := m.Session.DecidePermission(d, p.appr.Call)
+	if err != nil {
+		// Keep the decision even when the rule cannot be saved.
+		m.noteError("permissions: " + err.Error())
 	}
-	if d == permission.Deny {
-		m.sendReply(agent.DenyTool())
-	} else {
-		m.sendReply(agent.RunTool())
-	}
+	m.sendReply(reply)
 	m.bottom.clear()
 	m.afterSetBottom()
 }
@@ -252,11 +240,11 @@ func (m Model) renderPermissionTitle(contentW int, ink styles.OverlayInk) string
 	c, ok := permission.ClassOf(p.name)
 	if !ok {
 		if p.name == tools.Read {
-			if p.env {
-				line := pathPermissionTitle(ink, "Read ", p.path, p.outside)
+			if p.appr.Env {
+				line := pathPermissionTitle(ink, "Read ", p.path, p.appr.Call.Outside)
 				return padPanel(ink.Gap.Width(inner).Render(line), panelGutter)
 			}
-			dir := p.dir
+			dir := p.appr.Call.Dir
 			if dir == "" {
 				dir = p.path
 			}
@@ -264,7 +252,7 @@ func (m Model) renderPermissionTitle(contentW int, ink styles.OverlayInk) string
 			if dir == "" {
 				line = ink.Header.Render("Access external directory")
 			} else {
-				line = pathPermissionTitle(ink, "Access ", dir, p.outside)
+				line = pathPermissionTitle(ink, "Access ", dir, p.appr.Call.Outside)
 			}
 			return padPanel(ink.Gap.Width(inner).Render(line), panelGutter)
 		}
@@ -285,7 +273,7 @@ func (m Model) renderPermissionTitle(contentW int, ink styles.OverlayInk) string
 		if p.name == tools.Write {
 			verb = "Write "
 		}
-		line = pathPermissionTitle(ink, verb, p.path, p.outside)
+		line = pathPermissionTitle(ink, verb, p.path, p.appr.Call.Outside)
 	}
 	return padPanel(ink.Gap.Width(inner).Render(line), panelGutter)
 }

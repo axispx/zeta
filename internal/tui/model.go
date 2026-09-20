@@ -2,7 +2,6 @@ package tui
 
 import (
 	"context"
-	"encoding/json"
 	"image/color"
 	"strings"
 
@@ -16,14 +15,13 @@ import (
 	"github.com/axispx/zeta/internal/ai"
 	"github.com/axispx/zeta/internal/compact"
 	"github.com/axispx/zeta/internal/config"
+	"github.com/axispx/zeta/internal/core"
 	"github.com/axispx/zeta/internal/image"
 	"github.com/axispx/zeta/internal/permission"
 	"github.com/axispx/zeta/internal/policy"
-	"github.com/axispx/zeta/internal/prompt"
 	"github.com/axispx/zeta/internal/session"
 	"github.com/axispx/zeta/internal/styles"
 	"github.com/axispx/zeta/internal/todo"
-	"github.com/axispx/zeta/internal/tools"
 	"github.com/axispx/zeta/internal/workspace"
 )
 
@@ -40,39 +38,23 @@ const (
 
 // Model is the root Bubble Tea model for zeta.
 type Model struct {
-	cfg         config.Config
-	client      *ai.Client
-	sess        *session.Session
-	viewport    viewport.Model
-	textarea    textarea.Model
-	messages    []Message
-	ws          workspace.Context
-	sessionDiff lineStats // memo of sessionDiff(messages); refreshSessionDiff only
-	width       int
-	height      int
-	// contentW is the wrap width for transcript lines (matches styles.Transcript inset).
-	contentW      int
+	core.Session
+	viewport      viewport.Model
+	textarea      textarea.Model
+	messages      []Message
+	sessionDiff   lineStats // memo of sessionDiff(messages); refreshSessionDiff only
+	width         int
+	height        int
+	contentW      int // contentW is the wrap width for transcript lines (matches styles.Transcript inset).
 	showScrollbar bool
 	ready         bool
 	quitting      bool
 	updateOnExit  bool // /update: quit so main updates in the CLI and relaunches
 	turn          *turnSession
-	nextTurnID    int          // last allocated turnSession.id
-	history       []ai.Message // durable API transcript (user/assistant/tool); no system/developer
-	contextTokens int64        // last response's context footprint (prompt+completion)
-	contextMsgs   int          // history messages contextTokens covers; 0 = none/estimated
-	usage         sessionUsage // cumulative provider token accounting for /usage
-	titlePending  bool
-	authRetried   bool // one 401 → OAuth refresh → retry per turn; reset on submit
-	authRetrying  bool // true while RecoverOAuth runs after a 401 (keeps busy())
-	compacting    bool // true while a compact LLM call is in flight (manual or auto)
+	nextTurnID    int // last allocated turnSession.id
 	compactCancel context.CancelFunc
-	mode          prompt.Mode
-	grants        *permission.Session // "allow for session" (bash only); reset on /clear
-	rules         *permission.Rules   // persisted permission rules; nil = none
-	todos         *todo.Store         // session checklist; non-nil after New/applySession
-	bottom        bottomSlot          // exclusive input-slot panel (perm | ask | plan)
-	pendingPlan   string              // plan body produced this turn; offered once on turnDone
+	bottom        bottomSlot // exclusive input-slot panel (perm | ask | plan)
+	pendingPlan   string     // plan body produced this turn; offered once on turnDone
 	overlay       filterOverlay
 	picker        pickerState
 	config        configDialog
@@ -91,9 +73,7 @@ type Model struct {
 	queueSel      listSel           // selection while queueFocus
 	pendingImages map[int]image.Ref // draft images keyed by stable [Image N] id
 	nextImageN    int               // last allocated token number (never renumbered)
-	// mainCache skips SoftWrap rebuilds on no-op frames. Pointer so View (value
-	// receiver) can update it across bubbletea's Update→View cycle.
-	mainCache *mainViewCache
+	mainCache     *mainViewCache    // memo of mainView() for transcript + gap; invalidated on transcript change
 }
 
 // Options controls how the TUI starts a session.
@@ -150,19 +130,21 @@ func New(cfg config.Config, opts Options) (Model, error) {
 
 	ws := workspace.Load()
 	m := Model{
-		cfg:       cfg,
-		viewport:  vp,
-		textarea:  ta,
-		ws:        ws,
+		viewport: vp,
+		textarea: ta,
+		Session: core.Session{
+			WS:     ws,
+			Cfg:    cfg,
+			Grants: &permission.Session{},
+			Rules:  permission.NewRules(opts.Rules),
+			Todos:  todo.NewStore(),
+		},
 		spinner:   spinner.New(spinner.WithSpinner(spinner.MiniDot)),
-		grants:    &permission.Session{},
-		rules:     permission.NewRules(opts.Rules),
 		mainCache: &mainViewCache{},
-		todos:     todo.NewStore(),
 	}
 	m.promptHist.reset()
 	applyTextareaStyles(&m.textarea, nil)
-	m.applyClient()
+	m.ApplyClient()
 
 	if opts.ResumeID != "" {
 		sess, recs, err := session.OpenID(ws.Abs, opts.ResumeID)
@@ -175,10 +157,10 @@ func New(cfg config.Config, opts Options) (Model, error) {
 
 	if sess, err := session.New(ws.Abs); err != nil {
 		m.messages = []Message{{Role: RoleError, Text: "session: " + err.Error()}}
-		m.seedTodos(nil)
+		m.SeedTodos(nil)
 	} else {
-		m.sess = sess
-		m.seedTodos(nil)
+		m.Log = sess
+		m.SeedTodos(nil)
 	}
 	if opts.Picker {
 		m.openPicker()
@@ -188,10 +170,10 @@ func New(cfg config.Config, opts Options) (Model, error) {
 
 // PersistedSessionID returns the current session id if it has been written to disk.
 func (m Model) PersistedSessionID() string {
-	if m.sess == nil || !m.sess.Persisted() {
+	if m.Log == nil || !m.Log.Persisted() {
 		return ""
 	}
-	return m.sess.ID
+	return m.Log.ID
 }
 
 // UpdateRequested reports that the user ran /update, so main should apply the
@@ -259,7 +241,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.FocusMsg:
-		m.ws.RefreshBranch()
+		m.RefreshWorkspace()
 		if m.config.active {
 			return m, nil
 		}
@@ -285,9 +267,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case sessionTitleMsg:
-		m.titlePending = false
-		if msg.err == nil && msg.name != "" && m.sess != nil {
-			_ = m.sess.SetName(msg.name)
+		m.TitlePending = false
+		if msg.err == nil {
+			_ = m.ApplyTitle(msg.name)
 		}
 		return m, nil
 
@@ -403,10 +385,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case msg.String() == "shift+tab":
 			if m.turn == nil && !m.inputBlocked() && !m.hasQueueState() {
-				m.mode = m.mode.Next()
+				m.Mode = m.Mode.Next()
 				// Mode swaps the developer message and the tool set, so the
 				// next request shares no prefix with the last one.
-				m.resetUsage()
+				m.ResetContext()
 			}
 			return m, nil
 		case isPasteKey(msg):
@@ -461,20 +443,20 @@ func (m *Model) submit(text string, imgs []image.Ref) tea.Cmd {
 	// Refuse before committing anything: a turn that cannot be sent must stay
 	// out of history and off disk, and its text stays in the composer so the
 	// user can retry it after /config instead of retyping.
-	if m.client == nil {
+	if m.Client == nil {
 		m.noteError("no provider configured, run /config to connect one")
 		return nil
 	}
 	// Exclusive jobs / OAuth recover own the busy slot — callers should queue
 	// or no-op first; this is the last line of defense against a competing turn.
-	if m.exclusiveJob() || m.authRetrying {
+	if m.exclusiveJob() || m.AuthRetrying {
 		return nil
 	}
-	if err := m.ensureFreshClient(); err != nil {
+	if err := m.EnsureFreshClient(context.Background()); err != nil {
 		m.noteError(err.Error())
 		return nil
 	}
-	m.authRetried = false
+	m.AuthRetried = false
 
 	m.commitUserPrompt(text, imgs)
 	// Keep an in-progress follow-up edit in the composer (drain of another item).
@@ -491,27 +473,19 @@ func (m *Model) submit(text string, imgs []image.Ref) tea.Cmd {
 		titlePrompt = transcriptLabel(imgs[0], 1)
 	}
 	// Fresh before auto-compact estimate and the turn that follows.
-	m.refreshWorkspace()
-	if m.shouldAutoCompact() {
+	m.RefreshWorkspace()
+	if m.ShouldAutoCompact(m.Client, m.Cfg) {
 		return m.runCompact(compactAuto, titlePrompt)
 	}
 	return m.beginTurn(titlePrompt)
 }
 
-// refreshWorkspace re-reads the volatile workspace fields at a turn boundary.
-// Branch is re-read because the agent checks out branches itself; AGENTS.md is
-// deliberately left alone. It heads the request prefix providers cache, so
-// reloading it every turn would invalidate the transcript whenever the file
-// changed — including when the agent edits it. The snapshot is refreshed at
-// session boundaries instead: /clear, /resume, and compaction (ReloadAgents).
-func (m *Model) refreshWorkspace() {
-	m.ws.RefreshBranch()
-}
-
 // beginTurn starts the agent loop for the current history.
-// Callers must refreshWorkspace first (or have just done so).
+// Callers must RefreshWorkspace first (or have just done so).
 func (m *Model) beginTurn(titlePrompt string) tea.Cmd {
-	if m.client == nil {
+	// A new turn: clear the replay gate so a 401 before any output can retry.
+	m.Session.BeginTurn()
+	if m.Client == nil {
 		return nil
 	}
 	// Defensive: never orphan an in-flight agent loop (e.g. race with submit).
@@ -521,7 +495,7 @@ func (m *Model) beginTurn(titlePrompt string) tea.Cmd {
 	var cmds []tea.Cmd
 	var turnCmd tea.Cmd
 	m.nextTurnID++
-	m.turn, turnCmd = startTurn(m.nextTurnID, m.client, m.ws, m.mode, m.history, m.grants, m.todos, m.rules)
+	m.turn, turnCmd = startTurn(m.nextTurnID, m.Client, &m.Session)
 	// Busy gap grows (GapBeforeInput → busyStatusRows); shrink transcript now.
 	m.layoutPreservingBottom()
 	cmds = append(cmds, turnCmd, m.spinner.Tick)
@@ -533,15 +507,11 @@ func (m *Model) beginTurn(titlePrompt string) tea.Cmd {
 
 // ensureTitle requests an AI title once for an untitled session.
 func (m *Model) ensureTitle(prompt string) tea.Cmd {
-	if m.client == nil || m.sess == nil || m.titlePending || m.sess.Name != "" {
+	if m.Client == nil || !m.WantsTitle() {
 		return nil
 	}
-	prompt = strings.TrimSpace(prompt)
-	if prompt == "" {
-		return nil
-	}
-	m.titlePending = true
-	return requestSessionTitle(m.client, prompt)
+	m.TitlePending = true
+	return requestSessionTitle(m.Session, m.Client, prompt)
 }
 
 func firstUserPrompt(msgs []Message) string {
@@ -567,53 +537,20 @@ func (m *Model) quit() tea.Cmd {
 	return tea.Quit
 }
 
+// persist appends one durable record, surfacing a write failure in the transcript.
 func (m *Model) persist(rec session.Record) {
-	if m.sess == nil {
+	m.reportSaveErr(m.Session.Persist(rec))
+}
+
+// reportSaveErr surfaces a durable-write failure as a transcript error row.
+func (m *Model) reportSaveErr(err error) {
+	if err == nil {
 		return
 	}
-	if err := m.sess.Append(rec); err != nil {
-		m.messages = append(m.messages, Message{
-			Role: RoleError,
-			Text: "session save failed: " + err.Error(),
-		})
-	}
-}
-
-func recordFromAPI(m ai.Message) session.Record {
-	switch m.Role {
-	case ai.RoleUser:
-		return session.Record{
-			Role:   session.RoleUser,
-			Text:   m.Text,
-			Images: m.Images,
-		}
-	case ai.RoleAssistant:
-		rec := session.Record{Role: session.RoleAgent, Text: m.Text}
-		for _, tc := range m.ToolCalls {
-			rec.ToolCalls = append(rec.ToolCalls, session.ToolCall{
-				ID:        tc.ID,
-				Name:      tc.Name,
-				Arguments: tc.Arguments,
-			})
-		}
-		return rec
-	case ai.RoleTool:
-		return session.Record{
-			Role:       session.RoleTool,
-			Text:       m.Text,
-			ToolCallID: m.ToolCallID,
-		}
-	default:
-		return session.Record{Role: session.RoleError, Text: m.Text}
-	}
-}
-
-func toolRecord(m ai.Message, label, name string, denied bool) session.Record {
-	rec := recordFromAPI(m)
-	rec.Label = label
-	rec.Tool = name
-	rec.Denied = denied
-	return rec
+	m.messages = append(m.messages, Message{
+		Role: RoleError,
+		Text: "session save failed: " + err.Error(),
+	})
 }
 
 func loadSession(recs []session.Record) (ui []Message, history []ai.Message) {
@@ -649,55 +586,6 @@ func loadSession(recs []session.Record) (ui []Message, history []ai.Message) {
 		}
 	}
 	return ui, compact.RebuildAPIHistory(recs)
-}
-
-// seedTodos replaces the in-memory checklist (resume / new session).
-// items come from todosFromRecords (already normalized) or nil to clear.
-func (m *Model) seedTodos(items []todo.Item) {
-	if m.todos == nil {
-		m.todos = todo.NewStore()
-	}
-	// Replace is the only mutation path; soft in_progress warning ignored on hydrate.
-	_, _ = m.todos.Replace(items)
-}
-
-// todosFromRecords returns items from the latest successful todo tool call.
-// Success = non-denied tool result whose body is Format output ("Todos (N):…").
-// Denied, cancelled, error, and incomplete calls are skipped.
-func todosFromRecords(recs []session.Record) []todo.Item {
-	results := make(map[string]session.Record, len(recs))
-	for _, r := range recs {
-		if r.Role == session.RoleTool && r.ToolCallID != "" {
-			results[r.ToolCallID] = r
-		}
-	}
-	for i := len(recs) - 1; i >= 0; i-- {
-		r := recs[i]
-		if r.Role != session.RoleAgent {
-			continue
-		}
-		for j := len(r.ToolCalls) - 1; j >= 0; j-- {
-			tc := r.ToolCalls[j]
-			if tc.Name != tools.Todo {
-				continue
-			}
-			res, ok := results[tc.ID]
-			if !ok || res.Denied || !todoResultOK(res.Text) {
-				continue
-			}
-			items, err := todo.ParseArgs(json.RawMessage(tc.Arguments))
-			if err != nil {
-				continue
-			}
-			return items
-		}
-	}
-	return nil
-}
-
-// todoResultOK reports a successful todo tool body (Format output).
-func todoResultOK(text string) bool {
-	return strings.HasPrefix(strings.TrimSpace(text), "Todos (")
 }
 
 // layout sizes chrome regions. m.showScrollbar reserves one column for the transcript scrollbar.
@@ -887,7 +775,7 @@ func (m Model) renderFooter() string {
 	}
 	return lipgloss.NewStyle().
 		Margin(0, styles.InputMarginH).
-		Render(inputFooter(footerW, m.ws, m.cfg, m.mode, m.contextTokens, m.sessionDiff))
+		Render(inputFooter(footerW, m.WS, m.Cfg, m.Mode, m.ContextTokens, m.sessionDiff))
 }
 
 // stackMainChrome places the main surface (transcript [+ gap] [+ pinned overlay]),
@@ -908,6 +796,6 @@ func (m Model) programView(content string) tea.View {
 	// Enables shift+enter and other modified keys on supporting terminals.
 	v.KeyboardEnhancements.ReportEventTypes = true
 	// Bubble Tea v2 maps WindowTitle → OSC 2.
-	v.WindowTitle = terminalTitle(m.sess)
+	v.WindowTitle = terminalTitle(m.Log)
 	return v
 }

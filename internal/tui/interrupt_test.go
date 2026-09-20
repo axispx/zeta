@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/axispx/zeta/internal/ai"
+	"github.com/axispx/zeta/internal/core"
 	"github.com/axispx/zeta/internal/image"
 	"github.com/axispx/zeta/internal/session"
 )
@@ -72,7 +73,7 @@ func TestTryInterruptDismissesCommandOverlay(t *testing.T) {
 }
 
 func TestTryInterruptCancelsCompact(t *testing.T) {
-	m := Model{compacting: true}
+	m := Model{Session: core.Session{Compacting: true}}
 	cancelled := false
 	m.compactCancel = func() { cancelled = true }
 	if !m.tryInterrupt() {
@@ -125,7 +126,7 @@ func TestFinishTurnDoesNotMarkCancelled(t *testing.T) {
 func TestTryInterruptRestoresUnstartedPrompt(t *testing.T) {
 	m := testModel()
 	m.messages = []Message{{Role: RoleUser, Text: "fix the flaky test"}}
-	m.history = []ai.Message{{Role: ai.RoleUser, Text: "fix the flaky test"}}
+	m.History = []ai.Message{{Role: ai.RoleUser, Text: "fix the flaky test"}}
 	cancelled := false
 	m.turn = &turnSession{cancel: func() { cancelled = true }, ch: closedAgentEvents(), activeTool: -1}
 
@@ -141,8 +142,8 @@ func TestTryInterruptRestoresUnstartedPrompt(t *testing.T) {
 	if len(m.messages) != 0 {
 		t.Fatalf("user row should be uncommitted: %+v", m.messages)
 	}
-	if len(m.history) != 0 {
-		t.Fatalf("history=%+v", m.history)
+	if len(m.History) != 0 {
+		t.Fatalf("history=%+v", m.History)
 	}
 }
 
@@ -150,7 +151,7 @@ func TestTryInterruptRestoresUnstartedPromptWithImage(t *testing.T) {
 	img := image.Ref{URL: "data:image/png;base64,AAAA", MIME: "image/png", Name: "shot.png"}
 	m := testModel()
 	m.messages = []Message{{Role: RoleUser, Text: userDisplayText("look", []image.Ref{img})}}
-	m.history = []ai.Message{{Role: ai.RoleUser, Text: "look", Images: []image.Ref{img}}}
+	m.History = []ai.Message{{Role: ai.RoleUser, Text: "look", Images: []image.Ref{img}}}
 	m.turn = &turnSession{cancel: func() {}, ch: closedAgentEvents(), activeTool: -1}
 
 	if !m.tryInterrupt() {
@@ -160,16 +161,17 @@ func TestTryInterruptRestoresUnstartedPromptWithImage(t *testing.T) {
 	if text != "look" || len(imgs) != 1 || imgs[0].Name != "shot.png" {
 		t.Fatalf("composer text=%q imgs=%+v", text, imgs)
 	}
-	if len(m.messages) != 0 || len(m.history) != 0 {
-		t.Fatalf("messages=%+v history=%+v", m.messages, m.history)
+	if len(m.messages) != 0 || len(m.History) != 0 {
+		t.Fatalf("messages=%+v history=%+v", m.messages, m.History)
 	}
 }
 
 func TestTryInterruptAfterProgressKeepsPrompt(t *testing.T) {
 	m := testModel()
 	m.messages = []Message{{Role: RoleUser, Text: "keep me"}}
-	m.history = []ai.Message{{Role: ai.RoleUser, Text: "keep me"}}
-	m.turn = &turnSession{cancel: func() {}, ch: closedAgentEvents(), activeTool: -1, progressed: true}
+	m.History = []ai.Message{{Role: ai.RoleUser, Text: "keep me"}}
+	m.turn = &turnSession{cancel: func() {}, ch: closedAgentEvents(), activeTool: -1}
+	m.Streamed = true
 
 	if !m.tryInterrupt() {
 		t.Fatal("expected interrupt")
@@ -185,7 +187,7 @@ func TestTryInterruptAfterProgressKeepsPrompt(t *testing.T) {
 func TestTryInterruptDraftBlocksRestore(t *testing.T) {
 	m := testModel()
 	m.messages = []Message{{Role: RoleUser, Text: "original"}}
-	m.history = []ai.Message{{Role: ai.RoleUser, Text: "original"}}
+	m.History = []ai.Message{{Role: ai.RoleUser, Text: "original"}}
 	m.textarea.SetValue("follow-up draft")
 	m.turn = &turnSession{cancel: func() {}, ch: closedAgentEvents(), activeTool: -1}
 
@@ -210,7 +212,7 @@ func TestTryInterruptRestoresUnstartedPromptFromDisk(t *testing.T) {
 	}
 
 	m := testModel()
-	m.sess = sess
+	m.Log = sess
 	m.commitUserPrompt("ship it", nil)
 	m.turn = &turnSession{cancel: func() {}, ch: closedAgentEvents(), activeTool: -1}
 
@@ -234,14 +236,14 @@ func TestTryInterruptRestoresUnstartedPromptFromDisk(t *testing.T) {
 
 func TestTryInterruptAuthRetryRestoresPrompt(t *testing.T) {
 	m := testModel()
-	m.authRetrying = true
+	m.AuthRetrying = true
 	m.messages = []Message{{Role: RoleUser, Text: "hello"}}
-	m.history = []ai.Message{{Role: ai.RoleUser, Text: "hello"}}
+	m.History = []ai.Message{{Role: ai.RoleUser, Text: "hello"}}
 
 	if !m.tryInterrupt() {
 		t.Fatal("expected interrupt")
 	}
-	if m.authRetrying {
+	if m.AuthRetrying {
 		t.Fatal("auth retry should clear")
 	}
 	if m.textarea.Value() != "hello" {

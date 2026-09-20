@@ -24,10 +24,10 @@ func (m *Model) tryInterrupt() bool {
 		// Slash/model wipe their query; @ keeps the draft (see cancelOverlay).
 		m.cancelOverlay()
 		return true
-	case m.compacting:
+	case m.Compacting:
 		m.cancelCompact()
 		return true
-	case m.authRetrying:
+	case m.AuthRetrying:
 		// Recover cmd still completes; result handler installs creds, no restart.
 		// No model/tool work happened — put the prompt back if the composer is free.
 		m.cancelAuthRetry()
@@ -37,7 +37,7 @@ func (m *Model) tryInterrupt() bool {
 		return true
 	case m.turn != nil:
 		// Late KindDone must not drain the queue.
-		unstarted := !m.turn.progressed
+		unstarted := m.CanReplay()
 		m.finishTurn()
 		if unstarted && m.restoreUnstartedPrompt() {
 			return true

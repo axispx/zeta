@@ -7,11 +7,9 @@ import (
 	"github.com/axispx/zeta/internal/tools"
 )
 
-// openInteractiveTool opens harness UI for core.WaitInteractive tools.
-// Single dispatch: add cases here as interactive tools land; the tool must be
-// flagged by tools.Interactive() (enforced by askUserTool.Interactive).
-// (A UI-supplied opener registry belongs on the long-lived core session in a
-// later slice — this Model is copied by value, so it cannot hold live closures.)
+// openInteractiveTool picks the widget for a core.WaitInteractive tool.
+// Add cases here as interactive tools land; each must be flagged by
+// tools.Interactive() so the agent gates it.
 func (m *Model) openInteractiveTool(name string, argsJSON json.RawMessage) {
 	switch name {
 	case tools.AskUser:

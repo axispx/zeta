@@ -8,6 +8,7 @@ import (
 	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/axispx/zeta/internal/core"
 	"github.com/axispx/zeta/internal/workspace"
 )
 
@@ -90,7 +91,7 @@ func TestSyncFileOverlayListOnceAndInsert(t *testing.T) {
 	ta.MoveToEnd()
 	m := Model{
 		textarea: ta,
-		ws:       workspace.Context{Abs: t.TempDir()},
+		Session:  core.Session{WS: workspace.Context{Abs: t.TempDir()}},
 	}
 	cmd := m.syncOverlay()
 	if m.overlay.mode != overlayFiles {
@@ -151,8 +152,8 @@ func TestSubmitInputInsertsFileNotSend(t *testing.T) {
 	ta := textarea.New()
 	ta.SetValue("@x")
 	ta.MoveToEnd()
-	m := Model{textarea: ta, cfg: testClientCfg()}
-	m.applyClient()
+	m := Model{textarea: ta, Session: core.Session{Cfg: testClientCfg()}}
+	m.ApplyClient()
 	m.overlay.mode = overlayFiles
 	m.overlay.files.matches = []string{"a.go"}
 	m.overlay.files.query = "x"
@@ -173,8 +174,8 @@ func TestEnterEmptyFileOverlaySubmits(t *testing.T) {
 	ta := textarea.New()
 	ta.SetValue("hello @zzzz")
 	ta.MoveToEnd()
-	m := Model{textarea: ta, cfg: testClientCfg()}
-	m.applyClient()
+	m := Model{textarea: ta, Session: core.Session{Cfg: testClientCfg()}}
+	m.ApplyClient()
 	m.overlay.mode = overlayFiles
 	m.overlay.files.matches = nil
 	m.overlay.files.all = []string{"a.go"}
@@ -208,7 +209,7 @@ func TestEmptyFileMatchesRefilterShowsAgain(t *testing.T) {
 	ta.MoveToEnd()
 	m := Model{
 		textarea: ta,
-		ws:       workspace.Context{Abs: t.TempDir()},
+		Session:  core.Session{WS: workspace.Context{Abs: t.TempDir()}},
 	}
 	m.overlay.mode = overlayFiles
 	m.overlay.files.all = []string{"a.go", "b.md"}

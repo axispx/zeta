@@ -18,7 +18,7 @@ const (
 	KindDelta EventKind = iota
 	// KindToolStart is a tool call beginning (Text=label, Name=tool).
 	// Path/Detail carry optional preview for the harness. When Gate asks
-	// for a decision, the agent waits on Replies before running the tool.
+	// for a decision, the agent waits on Decide before running the tool.
 	// Args is the raw tool JSON (used by interactive tools like ask_user).
 	KindToolStart
 	// KindToolOut is live tool output so far (Text=snapshot, Name=tool). May be dropped if the UI is behind.
@@ -90,17 +90,31 @@ func InjectResult(result string) Reply {
 	return Reply{Kind: ReplyInject, Result: result}
 }
 
+// Request is one gated tool call the loop is waiting on.
+type Request struct {
+	Name   string
+	Args   json.RawMessage
+	Label  string
+	Path   string
+	Detail string
+}
+
+// Decider answers gated tool calls. Decide may block a long time — an approval
+// can arrive from another device — and must respect ctx.
+type Decider interface {
+	Decide(ctx context.Context, req Request) (Reply, error)
+}
+
 // Config runs a streaming completion with a tool loop.
 type Config struct {
 	Client   *ai.Client
 	Tools    []tools.Tool
 	Root     string
 	MaxTurns int // <=0 means unlimited
-	// Replies is harness-owned: one decision per gated KindToolStart.
-	// Nil skips waiting.
-	Replies <-chan Reply
+	// Decider answers gated tool calls. Nil skips waiting.
+	Decider Decider
 	// Gate reports whether the harness must decide before this tool runs.
-	// Nil means never wait. Ignored when Replies is nil.
+	// Nil means never wait. Ignored when Decider is nil.
 	Gate func(name string, args json.RawMessage) bool
 	// StreamFn replaces Client.Stream when set (tests).
 	StreamFn func(context.Context, []ai.Message, []ai.Tool) <-chan ai.Event
@@ -207,15 +221,22 @@ func (c Config) execTool(ctx context.Context, call ai.ToolCall, ev chan<- Event)
 	args := json.RawMessage(call.Arguments)
 	label = toolLabel(c.Tools, call.Name, args)
 
-	ev <- Event{
-		Kind:   KindToolStart,
-		Text:   label,
+	req := Request{
 		Name:   call.Name,
+		Args:   args,
+		Label:  label,
 		Path:   tools.ArgPath(args),
 		Detail: tools.Preview(c.Tools, call.Name, c.Root, args),
-		Args:   args,
 	}
-	reply, err := c.awaitReply(ctx, call.Name, args)
+	ev <- Event{
+		Kind:   KindToolStart,
+		Text:   req.Label,
+		Name:   req.Name,
+		Path:   req.Path,
+		Detail: req.Detail,
+		Args:   req.Args,
+	}
+	reply, err := c.awaitReply(ctx, req)
 	if err != nil {
 		return label, denialResult(call, denyReason(reply, err)), true
 	}
@@ -240,21 +261,23 @@ func (c Config) execTool(ctx context.Context, call ai.ToolCall, ev chan<- Event)
 	}, false
 }
 
-// awaitReply waits for a harness decision when Replies is set and Gate asks.
-// Nil Replies or a false/nil Gate skips the wait (ReplyRun → execute tool).
+// awaitReply waits for a harness decision when Decider is set and Gate asks.
+// Nil Decider or a false/nil Gate skips the wait (ReplyRun → execute tool).
 // ReplyDeny / cancel reject.
-func (c Config) awaitReply(ctx context.Context, name string, args json.RawMessage) (Reply, error) {
-	if c.Replies == nil || c.Gate == nil || !c.Gate(name, args) {
+func (c Config) awaitReply(ctx context.Context, req Request) (Reply, error) {
+	if c.Decider == nil || c.Gate == nil || !c.Gate(req.Name, req.Args) {
 		return RunTool(), nil
 	}
-	select {
-	case r := <-c.Replies:
-		if r.Kind == ReplyDeny {
-			return r, errUserDenied
-		}
-		return r, nil
-	case <-ctx.Done():
+	r, err := c.Decider.Decide(ctx, req)
+	switch {
+	case err != nil && ctx.Err() != nil:
 		return Reply{}, errCancelled
+	case err != nil:
+		return Reply{}, err
+	case r.Kind == ReplyDeny:
+		return r, errUserDenied
+	default:
+		return r, nil
 	}
 }
 

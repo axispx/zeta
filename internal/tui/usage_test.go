@@ -5,118 +5,20 @@ import (
 	"testing"
 
 	"github.com/axispx/zeta/internal/ai"
+	"github.com/axispx/zeta/internal/core"
 	"github.com/axispx/zeta/internal/session"
 )
 
-func TestSessionUsageAddSkipsUnreported(t *testing.T) {
-	var u sessionUsage
-	u.add("m", ai.Usage{})
-	if !u.empty() || u.responses != 0 {
-		t.Fatalf("empty usage must not count a turn: %+v", u)
-	}
-	if len(u.models) != 0 {
-		t.Fatalf("unreported turn must not create a bucket: %+v", u.models)
-	}
-	u.add("m", ai.Usage{PromptTokens: 100, CompletionTokens: 20, TotalTokens: 120})
-	if u.empty() || u.responses != 1 {
-		t.Fatalf("reported usage must count: %+v", u)
-	}
-}
-
-func TestSessionUsageTotals(t *testing.T) {
-	var u sessionUsage
-	u.add("M1", ai.Usage{
-		PromptTokens:     1000,
-		CompletionTokens: 200,
-		TotalTokens:      1200,
-		CachedTokens:     800,
-		CacheReported:    true,
-	})
-	// A provider that omits TotalTokens falls back to prompt+completion.
-	u.add("M1", ai.Usage{
-		PromptTokens:     500,
-		CompletionTokens: 100,
-		CachedTokens:     100,
-		CacheWriteTokens: 50,
-		CacheReported:    true,
-	})
-	if u.responses != 2 {
-		t.Fatalf("responses = %d", u.responses)
-	}
-	if u.input != 1500 || u.output != 300 {
-		t.Fatalf("input/output = %d/%d, want 1500/300", u.input, u.output)
-	}
-	if u.total != 1800 {
-		t.Fatalf("total = %d, want 1200+600", u.total)
-	}
-	if u.cached != 900 || !u.cacheReported {
-		t.Fatalf("cached = %d reported = %v", u.cached, u.cacheReported)
-	}
-	if u.cacheWrite != 50 {
-		t.Fatalf("cacheWrite = %d", u.cacheWrite)
-	}
-	if len(u.models) != 1 || u.models[0].total != 1800 {
-		t.Fatalf("model bucket = %+v", u.models)
-	}
-}
-
-// Switching models mid-session must not reset the total: every turn was billed.
-// It does split the accounting, because cache numbers are per-model.
-func TestSessionUsageAccumulatesAcrossModelSwitch(t *testing.T) {
-	var u sessionUsage
-	u.add("Model A", ai.Usage{PromptTokens: 1000, CompletionTokens: 100, TotalTokens: 1100, CachedTokens: 800, CacheReported: true})
-	u.add("Model B", ai.Usage{PromptTokens: 2000, CompletionTokens: 300, TotalTokens: 2300, CachedTokens: 0, CacheReported: true})
-
-	if u.responses != 2 || u.total != 3400 || u.input != 3000 {
-		t.Fatalf("switch must not drop spend: %+v", u)
-	}
-	if len(u.models) != 2 {
-		t.Fatalf("want one bucket per model: %+v", u.models)
-	}
-	if u.models[0].name != "Model A" || u.models[1].name != "Model B" {
-		t.Fatalf("order must be first-seen: %+v", u.models)
-	}
-	if u.models[0].cached != 800 || u.models[1].cached != 0 {
-		t.Fatalf("cache must stay per-model: %+v", u.models)
-	}
-	if u.models[0].total+u.models[1].total != u.total {
-		t.Fatalf("buckets must sum to the total: %+v", u)
-	}
-}
-
-func TestSessionUsageFromRecords(t *testing.T) {
-	recs := []session.Record{
-		{Role: session.RoleUser, Text: "hi"},
-		{Role: session.RoleAgent, Text: "a", Model: "M1", Usage: &ai.Usage{PromptTokens: 100, CompletionTokens: 10, TotalTokens: 110}},
-		{Role: session.RoleTool, Text: "out"},
-		{Role: session.RoleAgent, Text: "b", Model: "M1", Usage: &ai.Usage{PromptTokens: 200, CompletionTokens: 20, TotalTokens: 220}},
-		{Role: session.RoleCompact, Text: "summary"},
-		{Role: session.RoleAgent, Text: "c", Model: "M2", Usage: &ai.Usage{PromptTokens: 300, CompletionTokens: 30, TotalTokens: 330}},
-		{Role: session.RoleAgent, Text: "d"}, // provider reported nothing
-	}
-	got := sessionUsageFrom(recs)
-	if got.responses != 3 || got.input != 600 || got.total != 660 {
-		t.Fatalf("totals from records = %+v", got)
-	}
-	byModel := map[string]int64{}
-	for _, m := range got.models {
-		byModel[m.name] = m.total
-	}
-	if byModel["M1"] != 330 || byModel["M2"] != 330 {
-		t.Fatalf("per-model totals = %+v", byModel)
-	}
-}
-
 func TestSessionUsageRender(t *testing.T) {
-	var u sessionUsage
-	u.add("Sonnet", ai.Usage{
+	var u core.Usage
+	u.Add("Sonnet", ai.Usage{
 		PromptTokens:     120_000,
 		CompletionTokens: 8_400,
 		TotalTokens:      128_400,
 		CachedTokens:     96_000,
 		CacheReported:    true,
 	})
-	out := u.render()
+	out := renderUsage(u)
 	for _, want := range []string{
 		"Usage · 1 response",
 		"input", "120.0k",
@@ -133,19 +35,19 @@ func TestSessionUsageRender(t *testing.T) {
 		t.Fatalf("single model needs no breakdown:\n%s", out)
 	}
 	// No cache accounting reported: the cached row is hidden, not shown as 0%.
-	var cold sessionUsage
-	cold.add("Sonnet", ai.Usage{PromptTokens: 100, CompletionTokens: 5})
-	if out := cold.render(); strings.Contains(out, "cached") {
+	var cold core.Usage
+	cold.Add("Sonnet", ai.Usage{PromptTokens: 100, CompletionTokens: 5})
+	if out := renderUsage(cold); strings.Contains(out, "cached") {
 		t.Fatalf("unreported cache must be hidden:\n%s", out)
 	}
 }
 
 func TestSessionUsageRenderByModel(t *testing.T) {
-	var u sessionUsage
-	u.add("Sonnet", ai.Usage{PromptTokens: 1000, CompletionTokens: 100, TotalTokens: 1100, CachedTokens: 900, CacheReported: true})
-	u.add("Grok", ai.Usage{PromptTokens: 2000, CompletionTokens: 200, TotalTokens: 2200, CacheReported: true})
+	var u core.Usage
+	u.Add("Sonnet", ai.Usage{PromptTokens: 1000, CompletionTokens: 100, TotalTokens: 1100, CachedTokens: 900, CacheReported: true})
+	u.Add("Grok", ai.Usage{PromptTokens: 2000, CompletionTokens: 200, TotalTokens: 2200, CacheReported: true})
 
-	out := u.render()
+	out := renderUsage(u)
 	if !strings.Contains(out, "By model:") {
 		t.Fatalf("multi-model session needs a breakdown:\n%s", out)
 	}
@@ -155,18 +57,18 @@ func TestSessionUsageRenderByModel(t *testing.T) {
 		}
 	}
 	// Unknown attribution is labelled, not blank.
-	var unknown sessionUsage
-	unknown.add("", ai.Usage{PromptTokens: 10, CompletionTokens: 1})
-	unknown.add("M", ai.Usage{PromptTokens: 10, CompletionTokens: 1})
-	if out := unknown.render(); !strings.Contains(out, "unknown ·") {
+	var unknown core.Usage
+	unknown.Add("", ai.Usage{PromptTokens: 10, CompletionTokens: 1})
+	unknown.Add("M", ai.Usage{PromptTokens: 10, CompletionTokens: 1})
+	if out := renderUsage(unknown); !strings.Contains(out, "unknown ·") {
 		t.Fatalf("unattributed bucket must be labelled:\n%s", out)
 	}
 }
 
 func TestSessionUsageRenderCacheWrite(t *testing.T) {
-	var u sessionUsage
-	u.add("M", ai.Usage{PromptTokens: 1000, CompletionTokens: 100, CacheWriteTokens: 900, CacheReported: true})
-	out := u.render()
+	var u core.Usage
+	u.Add("M", ai.Usage{PromptTokens: 1000, CompletionTokens: 100, CacheWriteTokens: 900, CacheReported: true})
+	out := renderUsage(u)
 	if !strings.Contains(out, "cache write") || !strings.Contains(out, "900") {
 		t.Fatalf("write side missing:\n%s", out)
 	}
@@ -179,7 +81,7 @@ func TestReportUsageNotesTranscript(t *testing.T) {
 		t.Fatalf("empty session should say so: %+v", last)
 	}
 
-	m.usage.add("M", ai.Usage{PromptTokens: 100, CompletionTokens: 10})
+	m.Usage.Add("M", ai.Usage{PromptTokens: 100, CompletionTokens: 10})
 	n := len(m.messages)
 	m.reportUsage()
 	if len(m.messages) != n+1 {
@@ -187,16 +89,6 @@ func TestReportUsageNotesTranscript(t *testing.T) {
 	}
 	if got := m.messages[len(m.messages)-1].Text; !strings.Contains(got, "Usage · 1 response") {
 		t.Fatalf("report = %q", got)
-	}
-}
-
-func TestUsageOrNil(t *testing.T) {
-	if got := usageOrNil(ai.Usage{}); got != nil {
-		t.Fatalf("unreported usage must not persist: %+v", got)
-	}
-	got := usageOrNil(ai.Usage{PromptTokens: 1, CompletionTokens: 1})
-	if got == nil || got.PromptTokens != 1 {
-		t.Fatalf("got %+v", got)
 	}
 }
 
@@ -210,8 +102,8 @@ func TestHandleTurnAssistantPersistsUsage(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := testModel()
-	m.sess = sess
-	m.cfg = testFooterCfg()
+	m.Log = sess
+	m.Cfg = testFooterCfg()
 	m.turn = &turnSession{activeTool: -1}
 
 	usage := ai.Usage{
@@ -228,11 +120,11 @@ func TestHandleTurnAssistantPersistsUsage(t *testing.T) {
 	if cmd := m.handleTurnAssistant(msg); cmd == nil {
 		t.Fatal("expected a wait command")
 	}
-	if m.usage.responses != 1 || m.usage.total != 1200 {
-		t.Fatalf("live usage = %+v", m.usage)
+	if m.Usage.Responses != 1 || m.Usage.Total != 1200 {
+		t.Fatalf("live usage = %+v", m.Usage)
 	}
-	if m.contextTokens != 1200 {
-		t.Fatalf("contextTokens = %d", m.contextTokens)
+	if m.ContextTokens != 1200 {
+		t.Fatalf("contextTokens = %d", m.ContextTokens)
 	}
 
 	_, recs, err := session.OpenID(proj, sess.ID)
@@ -245,11 +137,11 @@ func TestHandleTurnAssistantPersistsUsage(t *testing.T) {
 	if *recs[0].Usage != usage {
 		t.Fatalf("persisted usage = %+v, want %+v", *recs[0].Usage, usage)
 	}
-	if recs[0].Model != m.cfg.ModelName() {
-		t.Fatalf("persisted model = %q, want %q", recs[0].Model, m.cfg.ModelName())
+	if recs[0].Model != m.Cfg.ModelName() {
+		t.Fatalf("persisted model = %q, want %q", recs[0].Model, m.Cfg.ModelName())
 	}
-	if got := sessionUsageFrom(recs); got.total != m.usage.total || got.input != m.usage.input {
-		t.Fatalf("resumed totals = %+v, want %+v", got, m.usage)
+	if got := core.UsageFromRecords(recs); got.Total != m.Usage.Total || got.Input != m.Usage.Input {
+		t.Fatalf("resumed totals = %+v, want %+v", got, m.Usage)
 	}
 }
 
@@ -260,13 +152,13 @@ func TestApplySessionSeedsAndClearsUsage(t *testing.T) {
 	recs := []session.Record{
 		{Role: session.RoleAgent, Text: "a", Model: "M1", Usage: &ai.Usage{PromptTokens: 100, CompletionTokens: 10}},
 	}
-	m.usage.add("M0", ai.Usage{PromptTokens: 9, CompletionTokens: 1})
+	m.Usage.Add("M0", ai.Usage{PromptTokens: 9, CompletionTokens: 1})
 	m.applySession(nil, recs, nil)
-	if m.usage.responses != 1 || m.usage.total != 110 {
-		t.Fatalf("resume totals = %+v", m.usage)
+	if m.Usage.Responses != 1 || m.Usage.Total != 110 {
+		t.Fatalf("resume totals = %+v", m.Usage)
 	}
 	m.applySession(nil, nil, nil)
-	if !m.usage.empty() {
-		t.Fatalf("new session must zero usage: %+v", m.usage)
+	if !m.Usage.Empty() {
+		t.Fatalf("new session must zero usage: %+v", m.Usage)
 	}
 }

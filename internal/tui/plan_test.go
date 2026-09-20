@@ -14,7 +14,7 @@ import (
 
 func TestMaybeOfferPlan(t *testing.T) {
 	m := testModel()
-	m.mode = prompt.ModePlan
+	m.Mode = prompt.ModePlan
 	m.pendingPlan = "## Auth fix\nDo the thing."
 	m.maybeOfferPlan()
 	if m.bottom.plan == nil {
@@ -33,7 +33,7 @@ func TestMaybeOfferPlan(t *testing.T) {
 
 func TestMaybeOfferPlanSkipsWithoutPending(t *testing.T) {
 	m := testModel()
-	m.mode = prompt.ModePlan
+	m.Mode = prompt.ModePlan
 	m.maybeOfferPlan()
 	if m.bottom.plan != nil {
 		t.Fatal("unexpected plan prompt")
@@ -42,7 +42,7 @@ func TestMaybeOfferPlanSkipsWithoutPending(t *testing.T) {
 
 func TestMaybeOfferPlanSkipsBuildMode(t *testing.T) {
 	m := testModel()
-	m.mode = prompt.ModeBuild
+	m.Mode = prompt.ModeBuild
 	m.pendingPlan = "## X\nbody"
 	m.maybeOfferPlan()
 	if m.bottom.plan != nil {
@@ -57,7 +57,7 @@ func TestMaybeOfferPlanSkipsBuildMode(t *testing.T) {
 func TestMaybeOfferPlanDoesNotRescanHistory(t *testing.T) {
 	// After discard, history may still contain a plan; without pending, no re-offer.
 	m := testModel()
-	m.mode = prompt.ModePlan
+	m.Mode = prompt.ModePlan
 	m.messages = []Message{{
 		Role: RoleAgent,
 		Text: "Intro.\n\n<proposed_plan>\n## Old\nstale\n</proposed_plan>",
@@ -70,7 +70,7 @@ func TestMaybeOfferPlanDoesNotRescanHistory(t *testing.T) {
 
 func TestNoteProducedPlan(t *testing.T) {
 	m := testModel()
-	m.mode = prompt.ModePlan
+	m.Mode = prompt.ModePlan
 	m.noteProducedPlan("Intro.\n\n<proposed_plan>\n## Ship\nDo it.\n</proposed_plan>\n")
 	if m.pendingPlan == "" || !strings.Contains(m.pendingPlan, "Do it.") {
 		t.Fatalf("pending=%q", m.pendingPlan)
@@ -81,7 +81,7 @@ func TestNoteProducedPlan(t *testing.T) {
 	if m.pendingPlan == "" || !strings.Contains(m.pendingPlan, "body here") {
 		t.Fatalf("fence pending=%q", m.pendingPlan)
 	}
-	m.mode = prompt.ModeBuild
+	m.Mode = prompt.ModeBuild
 	m.pendingPlan = ""
 	m.noteProducedPlan("<proposed_plan>\n## X\ny\n</proposed_plan>")
 	if m.pendingPlan != "" {
@@ -116,8 +116,8 @@ func TestLoadSessionFramePlanDefaultFalse(t *testing.T) {
 
 func TestHandlePlanKeyApproveOpensBuildPick(t *testing.T) {
 	m := testModel()
-	m.cfg = sampleTUIConfig()
-	m.mode = prompt.ModePlan
+	m.Cfg = sampleTUIConfig()
+	m.Mode = prompt.ModePlan
 	m.bottom.plan = newPlanPrompt("## T\nbody", "T")
 
 	cmd, ok := m.handlePlanKey(tea.KeyPressMsg{Code: 'a', Text: "a"})
@@ -209,38 +209,38 @@ func TestConfirmPlanBuild(t *testing.T) {
 	t.Setenv("ZETA_HOME", home)
 
 	m := testModel()
-	m.cfg = sampleTUIConfig()
-	m.ws = workspace.Context{Abs: home, Cwd: home}
-	m.mode = prompt.ModePlan
+	m.Cfg = sampleTUIConfig()
+	m.WS = workspace.Context{Abs: home, Cwd: home}
+	m.Mode = prompt.ModePlan
 	m.bottom.build = &buildPickPrompt{
 		body:  "## Ship it\n\n1. Do work",
 		title: "Ship it",
 	}
-	m.client = nil
+	m.Client = nil
 
 	_ = m.confirmPlanBuild("deepseek/deepseek-v4-flash")
-	if m.mode != prompt.ModeBuild {
-		t.Fatalf("mode = %v", m.mode)
+	if m.Mode != prompt.ModeBuild {
+		t.Fatalf("mode = %v", m.Mode)
 	}
 	if m.bottom.plan != nil || m.bottom.build != nil {
 		t.Fatal("plan/build should clear")
 	}
-	if m.cfg.Active != "deepseek/deepseek-v4-flash" {
-		t.Fatalf("active = %q", m.cfg.Active)
+	if m.Cfg.Active != "deepseek/deepseek-v4-flash" {
+		t.Fatalf("active = %q", m.Cfg.Active)
 	}
-	if m.cfg.Defaults.Build != "deepseek/deepseek-v4-flash" {
-		t.Fatalf("build default = %q", m.cfg.Defaults.Build)
+	if m.Cfg.Defaults.Build != "deepseek/deepseek-v4-flash" {
+		t.Fatalf("build default = %q", m.Cfg.Defaults.Build)
 	}
 
 	found := false
-	for _, msg := range m.history {
+	for _, msg := range m.History {
 		if strings.Contains(msg.Text, "Ship it") {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Fatalf("history missing plan: %+v", m.history)
+		t.Fatalf("history missing plan: %+v", m.History)
 	}
 }
 

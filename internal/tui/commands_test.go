@@ -9,6 +9,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/axispx/zeta/internal/config"
+	"github.com/axispx/zeta/internal/core"
 	"github.com/axispx/zeta/internal/styles"
 )
 
@@ -253,7 +254,7 @@ func TestCycleModelReasoning(t *testing.T) {
 		},
 	}
 	m := Model{
-		cfg:      cfg,
+		Session:  core.Session{Cfg: cfg},
 		textarea: textarea.New(),
 		overlay: filterOverlay{
 			mode:   overlayModels,
@@ -267,7 +268,7 @@ func TestCycleModelReasoning(t *testing.T) {
 	if m.overlay.selected != 0 {
 		t.Fatalf("tab must not move selection: %d", m.overlay.selected)
 	}
-	if got := m.cfg.Providers["a"].Models["1"].ReasoningEffort; got != "low" {
+	if got := m.Cfg.Providers["a"].Models["1"].ReasoningEffort; got != "low" {
 		t.Fatalf("effort = %q, want low", got)
 	}
 	if m.overlay.models[0].Effort != "low" {
@@ -278,7 +279,7 @@ func TestCycleModelReasoning(t *testing.T) {
 		if _, ok := m.handleOverlayKey(tea.KeyPressMsg{Code: tea.KeyTab}); !ok {
 			t.Fatal("tab should be consumed")
 		}
-		if got := m.cfg.Providers["a"].Models["1"].ReasoningEffort; got != want {
+		if got := m.Cfg.Providers["a"].Models["1"].ReasoningEffort; got != want {
 			t.Fatalf("effort = %q, want %q", got, want)
 		}
 	}
@@ -294,7 +295,7 @@ func TestCycleModelReasoning(t *testing.T) {
 
 func TestRenderModelOverlayShowsEffort(t *testing.T) {
 	m := Model{
-		cfg: config.Config{Active: "p/a"},
+		Session: core.Session{Cfg: config.Config{Active: "p/a"}},
 		overlay: filterOverlay{
 			mode: overlayModels,
 			models: []config.ModelChoice{
@@ -350,7 +351,7 @@ func TestRenderModelOverlayMaxRows(t *testing.T) {
 		}
 	}
 	m := Model{
-		cfg: config.Config{Active: "p/a"},
+		Session: core.Session{Cfg: config.Config{Active: "p/a"}},
 		overlay: filterOverlay{
 			mode:   overlayModels,
 			models: entries,

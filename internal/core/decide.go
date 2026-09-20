@@ -2,8 +2,10 @@
 //
 // It owns every decision the harness must make while a turn runs — whether a
 // tool call needs approval, which kind, and how interactive tools reach the
-// user — without importing any UI framework. The TUI (and future web/desktop
-// shells) renders core's decisions and reports the outcomes back.
+// user — and assembles each model request (tool set, system prompt, mode
+// instructions, trailing context) without importing any UI framework. The TUI
+// (and future web/desktop shells) renders core's decisions and reports the
+// outcomes back.
 //
 // The decision vocabulary itself (permission.Decision, permission.Call) already
 // lives outside the UI; core reuses it rather than inventing parallel types.
@@ -12,6 +14,7 @@ package core
 import (
 	"encoding/json"
 
+	"github.com/axispx/zeta/internal/agent"
 	"github.com/axispx/zeta/internal/permission"
 	"github.com/axispx/zeta/internal/policy"
 	"github.com/axispx/zeta/internal/tools"
@@ -56,4 +59,34 @@ func Gate(rules *permission.Rules, grants *permission.Session, root string) func
 	return func(name string, args json.RawMessage) bool {
 		return Classify(rules, grants, root, name, args) != WaitNone
 	}
+}
+
+// DecidePermission applies an approval decision to the session and returns the
+// reply the agent is waiting on: it records session grants, persists the rule an
+// "always allow" writes, and allows or denies the call. The rule is persisted
+// with policy.Add and swapped in place, so the agent's Gate sees it mid-turn.
+// A rule that cannot be saved is reported but does not change the decision.
+func (s *Session) DecidePermission(d permission.Decision, call permission.Call) (agent.Reply, error) {
+	var persistErr error
+	switch d {
+	case permission.AllowSession:
+		if call.Match.Tool == tools.Read {
+			s.Grants.GrantDir(call.Dir)
+		} else {
+			s.Grants.Grant(call.Match.Tool)
+		}
+	case permission.AllowAlways:
+		if call.Persist {
+			pol, err := policy.Add(call.Rule)
+			if err != nil {
+				persistErr = err
+			} else {
+				s.Rules.Replace(pol)
+			}
+		}
+	}
+	if d == permission.Deny {
+		return agent.DenyTool(), persistErr
+	}
+	return agent.RunTool(), persistErr
 }

@@ -34,8 +34,8 @@ func TestSubmitWithoutClientLeavesTurnUncommitted(t *testing.T) {
 	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter, Text: "enter"})
 	m = next.(Model)
 
-	if len(m.history) != 0 {
-		t.Fatalf("history = %#v", m.history)
+	if len(m.History) != 0 {
+		t.Fatalf("history = %#v", m.History)
 	}
 	if m.textarea.Value() != "hey" {
 		t.Fatalf("input = %q", m.textarea.Value())

@@ -10,12 +10,6 @@ import (
 	"github.com/axispx/zeta/internal/agent"
 	"github.com/axispx/zeta/internal/ai"
 	"github.com/axispx/zeta/internal/core"
-	"github.com/axispx/zeta/internal/permission"
-	"github.com/axispx/zeta/internal/prompt"
-	"github.com/axispx/zeta/internal/skill"
-	"github.com/axispx/zeta/internal/todo"
-	"github.com/axispx/zeta/internal/tools"
-	"github.com/axispx/zeta/internal/workspace"
 )
 
 // streamPaintEvery caps how often live answer/thinking/tool-out redraw the transcript.
@@ -29,6 +23,19 @@ type streamPaint struct {
 	scheduled bool
 }
 
+// turnDecider delivers harness decisions to the agent over the turn's reply
+// channel. Send-only on the turn side, so it takes a bidirectional channel.
+type turnDecider struct{ reply chan agent.Reply }
+
+func (d turnDecider) Decide(ctx context.Context, _ agent.Request) (agent.Reply, error) {
+	select {
+	case r := <-d.reply:
+		return r, nil
+	case <-ctx.Done():
+		return agent.Reply{}, ctx.Err()
+	}
+}
+
 // turnSession is one in-flight agent turn (stream + tool loop).
 type turnSession struct {
 	id         int // matches turn*Msg.id; drops late events after cancel/replace
@@ -39,10 +46,6 @@ type turnSession struct {
 	pending    *agent.Event       // set when coalesce peeks a non-matching event
 	thinking   string             // live reasoning tail; only while thinkingPhase
 	activeTool int                // index of open tool row in Model.messages; -1 if none
-	// progressed marks that content or a tool reached the UI. A 401 is only
-	// retried before any progress — re-running the agent loop after a tool
-	// executed would repeat its side effects.
-	progressed bool
 }
 
 // thinkingPhase is true before answer deltas or an open tool (pre-answer reasoning).
@@ -153,61 +156,6 @@ func (m *Model) handleStreamPaint(msg streamPaintMsg) {
 	m.repaintTranscript()
 }
 
-func toolsForMode(mode prompt.Mode, store *todo.Store) []tools.Tool {
-	env := tools.Env{Todos: store}
-	switch mode {
-	case prompt.ModeAsk, prompt.ModePlan:
-		return tools.ForMode(false, env)
-	default:
-		return tools.ForMode(true, env)
-	}
-}
-
-// requestPrefix is the byte-stable head of every request in a session: the
-// system prompt and mode instructions. It heads the prefix providers cache, so
-// it is also what compaction reuses (see Model.compactPrefix). Nothing volatile
-// belongs here.
-func requestPrefix(ws workspace.Context, mode prompt.Mode) []ai.Message {
-	return []ai.Message{
-		{Role: ai.RoleSystem, Text: prompt.System(ws)},
-		{Role: ai.RoleDeveloper, Text: mode.Instructions()},
-	}
-}
-
-// requestMsgs prepends system + mode instructions to the durable history and
-// appends the per-request developer blocks: a trailing slash-skill playbook
-// (invoking turn only), the environment, and the todo checklist.
-//
-// Only those trailing blocks may differ between requests. Providers cache the
-// request prefix, so the system prompt and the durable history have to stay
-// byte-identical for the cache to hit; anything injected ahead of them would
-// invalidate the whole transcript whenever it moved. The tail is ordered by
-// volatility, most stable first: environment changes on checkout or day
-// rollover, the todos block on most tool turns.
-func requestMsgs(ws workspace.Context, mode prompt.Mode, history []ai.Message, todos *todo.Store) []ai.Message {
-	out := make([]ai.Message, 0, len(history)+5)
-	out = append(out, requestPrefix(ws, mode)...)
-	// Durable history keeps the user text (token + optional args); completed
-	// slash turns are not re-injected on later requests.
-	out = append(out, history...)
-	if n := len(history); n > 0 {
-		last := history[n-1]
-		if last.Role == ai.RoleUser {
-			if s, ok := skill.MatchSlash(last.Text); ok {
-				out = append(out, ai.Message{Role: ai.RoleDeveloper, Text: skill.SlashInjection(s)})
-			}
-		}
-	}
-	out = append(out, ai.Message{Role: ai.RoleDeveloper, Text: prompt.Environment(ws)})
-
-	if todos != nil {
-		if block := todos.PromptBlock(); block != "" {
-			out = append(out, ai.Message{Role: ai.RoleDeveloper, Text: block})
-		}
-	}
-	return out
-}
-
 func waitTurn(t *turnSession) tea.Cmd {
 	id := t.id
 	return func() tea.Msg {
@@ -291,19 +239,10 @@ func turnEventMsg(id int, evt agent.Event) tea.Msg {
 	}
 }
 
-func startTurn(id int, client *ai.Client, ws workspace.Context, mode prompt.Mode, history []ai.Message, grants *permission.Session, todos *todo.Store, rules *permission.Rules) (*turnSession, tea.Cmd) {
+func startTurn(id int, client *ai.Client, sess *core.Session) (*turnSession, tea.Cmd) {
 	ctx, cancel := context.WithCancel(context.Background())
 	replies := make(chan agent.Reply, 1)
-	cfg := agent.Config{
-		Client:  client,
-		Tools:   toolsForMode(mode, todos),
-		Root:    ws.Abs,
-		Replies: replies,
-		// Same classifier as handleTurnToolStart (core.Classify), over the same
-		// live rules/grants holders the harness mutates.
-		Gate: core.Gate(rules, grants, ws.Abs),
-	}
-	ch := cfg.Run(ctx, requestMsgs(ws, mode, history, todos))
+	ch := sess.Run(ctx, client, turnDecider{replies})
 	t := &turnSession{
 		id:         id,
 		cancel:     cancel,

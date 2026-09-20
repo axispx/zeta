@@ -29,7 +29,7 @@ internal/cli/        flags, usage, folder-trust prompt
 internal/tui/        bubbletea UI
 internal/ai/         OpenAI-compatible streaming + tools
 internal/agent/      tool loop + permission gate
-internal/core/       UI-agnostic runtime (decision gate; harness logic migrates here)
+internal/core/       UI-agnostic runtime: decision gate, request assembly, session state and the durable write path, approvals, usage, client construction
 internal/permission/ allow | deny for side-effect tools
 internal/policy/     persisted permission rules (~/.zeta/permissions.json)
 internal/compact/    context compaction
@@ -79,7 +79,7 @@ Rebuild picks up embeds. Every bundled skill is:
 Optional `Slash: "/name"` also registers a palette entry (`command.skill`).
 Palette Enter/Tab always fills `"/name "` into the input (never runs) so the
 user can add args; a second Enter submits. Durable history stores the user
-text (token + optional args); on the invoking turn only, `requestMsgs` appends
+text (token + optional args); on the invoking turn only, `core.RequestMsgs` appends
 the playbook as a developer message. Args after the token stay on the user
 message. Slash tokens must not collide with harness commands — `internal/tui`
 panics at init if a skill claims `/clear`, `/config`, etc.
@@ -92,7 +92,7 @@ Providers cache the request prefix, so the head of every request stays
 byte-identical: system prompt (`internal/prompt`), mode instructions, then
 durable history. Anything that changes between turns — slash-skill playbook,
 environment, todos checklist — is appended as a trailing developer block in
-`requestMsgs`, ordered most stable first. Put new context in that tail, not the
+`core.RequestMsgs`, ordered most stable first. Put new context in that tail, not the
 head; a churn in the head re-reads the whole transcript.
 
 That is why AGENTS.md is re-read only at a session boundary — `/clear`,
@@ -105,7 +105,7 @@ conversation layer is already being rewritten. No timestamps or other per-turn
 values in the head, and no per-turn tool-set changes.
 
 The summarizer rides the same prefix. `compact.Config.Prefix`
-(`requestPrefix` + `tools.Defs`) must stay byte-identical to a live turn's head,
+(`core.RequestPrefix` + `tools.Defs`) must stay byte-identical to a live turn's head,
 with the head and the instruction appended after it — that is what lets the
 provider serve the history being summarized from cache instead of charging full
 uncached input for it. Hence the summarizer's own steering lives in a trailing

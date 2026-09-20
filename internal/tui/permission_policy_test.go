@@ -8,6 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/axispx/zeta/internal/agent"
+	"github.com/axispx/zeta/internal/core"
 	"github.com/axispx/zeta/internal/permission"
 	"github.com/axispx/zeta/internal/policy"
 	"github.com/axispx/zeta/internal/tools"
@@ -15,11 +16,16 @@ import (
 )
 
 func TestPermOptionsOrderAndKeys(t *testing.T) {
-	var keys, labels []string
-	for _, o := range permOptionsFor(tools.Bash, true, "go test", false) {
-		keys = append(keys, o.key)
-		labels = append(labels, o.label)
+	root := t.TempDir()
+	keysOf := func(tool string, args json.RawMessage) (keys, labels []string) {
+		for _, o := range permOptions(tool, core.ApprovalFor(root, tool, args)) {
+			keys = append(keys, o.key)
+			labels = append(labels, o.label)
+		}
+		return keys, labels
 	}
+
+	keys, labels := keysOf(tools.Bash, bashArgs("go test"))
 	wantKeys := []string{"a", "p", "s", "d"}
 	wantLabels := []string{"Allow once", "Always allow `go test`", "Allow for session", "Deny"}
 	if strings.Join(keys, ",") != strings.Join(wantKeys, ",") {
@@ -30,36 +36,25 @@ func TestPermOptionsOrderAndKeys(t *testing.T) {
 	}
 
 	// There is no always-deny row or hotkey.
-	for _, o := range permOptionsFor(tools.Bash, true, "go test", false) {
+	for _, o := range permOptions(tools.Bash, core.ApprovalFor(root, tools.Bash, bashArgs("go test"))) {
 		if strings.Contains(o.label, "deny ") || o.key == "x" {
 			t.Fatalf("no persistent deny row: %+v", o)
 		}
 	}
 
 	// Without a derivable rule the persist row drops out.
-	keys = nil
-	for _, o := range permOptionsFor(tools.Bash, false, "", false) {
-		keys = append(keys, o.key)
-	}
+	keys, _ = keysOf(tools.Bash, json.RawMessage(`{}`))
 	if strings.Join(keys, ",") != "a,s,d" {
 		t.Fatalf("bash no-persist keys=%v", keys)
 	}
 
 	// edit/write are allow/deny only — persist is deliberately ignored.
-	keys = nil
-	for _, o := range permOptionsFor(tools.Edit, true, "", false) {
-		keys = append(keys, o.key)
-	}
+	keys, _ = keysOf(tools.Edit, json.RawMessage(`{"path":"a.go"}`))
 	if strings.Join(keys, ",") != "a,d" {
 		t.Fatalf("edit keys=%v", keys)
 	}
 
-	keys = nil
-	labels = nil
-	for _, o := range permOptionsFor(tools.Read, false, "", false) {
-		keys = append(keys, o.key)
-		labels = append(labels, o.label)
-	}
+	keys, labels = keysOf(tools.Read, json.RawMessage(`{"path":"../x.txt"}`))
 	if strings.Join(keys, ",") != "a,s,d" {
 		t.Fatalf("read keys=%v", keys)
 	}
@@ -67,10 +62,7 @@ func TestPermOptionsOrderAndKeys(t *testing.T) {
 		t.Fatalf("read labels=%v", labels)
 	}
 
-	keys = nil
-	for _, o := range permOptionsFor(tools.Read, true, "", true) {
-		keys = append(keys, o.key)
-	}
+	keys, _ = keysOf(tools.Read, json.RawMessage(`{"path":".env"}`))
 	if strings.Join(keys, ",") != "a,p,d" {
 		t.Fatalf("env read keys=%v", keys)
 	}
@@ -79,7 +71,7 @@ func TestPermOptionsOrderAndKeys(t *testing.T) {
 func TestAutoDenyNoPanel(t *testing.T) {
 	replies := make(chan agent.Reply, 1)
 	m := testModel()
-	m.rules = permission.NewRules(policy.Policy{Rules: []policy.Rule{{Tool: tools.Bash, Command: "rm -rf /", Action: policy.ActionDeny}}})
+	m.Rules = permission.NewRules(policy.Policy{Rules: []policy.Rule{{Tool: tools.Bash, Command: "rm -rf /", Action: policy.ActionDeny}}})
 	m.turn = &turnSession{activeTool: -1, ch: make(chan agent.Event), reply: replies, cancel: func() {}}
 
 	_ = m.handleTurnToolStart(turnToolStartMsg{name: tools.Bash, label: "bash rm -rf /", args: bashArgs("rm -rf /")})
@@ -105,7 +97,7 @@ func TestPromptPersistRows(t *testing.T) {
 	// bash with a command offers persist rows
 	p := newPermissionPrompt("bash go test", tools.Bash, "")
 	p.setArgs(bashArgs("go test"), root)
-	if !p.canPersist {
+	if !p.appr.Call.Persist {
 		t.Fatal("bash with command should be persistable")
 	}
 	out := stripANSI(Model{width: 80, bottom: bottomSlot{perm: p}}.renderPermission(80))
@@ -130,7 +122,7 @@ func TestPromptNoPersistOutOfWorkspace(t *testing.T) {
 	root := t.TempDir()
 	p := newPermissionPrompt("edit ../x.txt", tools.Edit, "../x.txt")
 	p.setArgs(json.RawMessage(`{"path":"../x.txt"}`), root)
-	if p.canPersist {
+	if p.appr.Call.Persist {
 		t.Fatal("out-of-workspace edit must not be persistable")
 	}
 	out := stripANSI(Model{width: 80, bottom: bottomSlot{perm: p}}.renderPermission(80))
@@ -140,8 +132,8 @@ func TestPromptNoPersistOutOfWorkspace(t *testing.T) {
 
 	pr := newPermissionPrompt("read ../x.txt", tools.Read, "../x.txt")
 	pr.setArgs(json.RawMessage(`{"path":"../x.txt"}`), root)
-	if pr.canPersist || !pr.outside {
-		t.Fatalf("out-of-workspace read: persist=%v outside=%v", pr.canPersist, pr.outside)
+	if pr.appr.Call.Persist || !pr.appr.Call.Outside {
+		t.Fatalf("out-of-workspace read: persist=%v outside=%v", pr.appr.Call.Persist, pr.appr.Call.Outside)
 	}
 	out = stripANSI(Model{width: 80, bottom: bottomSlot{perm: pr}}.renderPermission(80))
 	if strings.Contains(out, "Always") {
@@ -154,7 +146,7 @@ func TestPromptNoPersistOutOfWorkspace(t *testing.T) {
 	// bash without a command is not persistable either
 	pb := newPermissionPrompt("bash", tools.Bash, "")
 	pb.setArgs(json.RawMessage(`{}`), root)
-	if pb.canPersist {
+	if pb.appr.Call.Persist {
 		t.Fatal("bash with no command must not be persistable")
 	}
 }
@@ -163,7 +155,7 @@ func TestPromptNoPersistChainedCommand(t *testing.T) {
 	root := t.TempDir()
 	p := newPermissionPrompt("bash go test && rm -rf /", tools.Bash, "")
 	p.setArgs(bashArgs("go test && rm -rf /"), root)
-	if p.canPersist {
+	if p.appr.Call.Persist {
 		t.Fatal("chained command must not be rememberable")
 	}
 	out := stripANSI(Model{width: 80, bottom: bottomSlot{perm: p}}.renderPermission(80))
@@ -173,8 +165,8 @@ func TestPromptNoPersistChainedCommand(t *testing.T) {
 	// A flag-first command still remembers, but keeps the whole command (no broadening).
 	pf := newPermissionPrompt("bash rm -rf /", tools.Bash, "")
 	pf.setArgs(bashArgs("rm -rf /"), root)
-	if !pf.canPersist || pf.rule.CommandPrefix != "rm -rf /" {
-		t.Fatalf("flag-first rule: canPersist=%v rule=%+v", pf.canPersist, pf.rule)
+	if !pf.appr.Call.Persist || pf.appr.Call.Rule.CommandPrefix != "rm -rf /" {
+		t.Fatalf("flag-first rule: canPersist=%v rule=%+v", pf.appr.Call.Persist, pf.appr.Call.Rule)
 	}
 }
 
@@ -183,11 +175,11 @@ func TestPersistAllowWritesRuleAndSkipsSecondPrompt(t *testing.T) {
 	root := t.TempDir()
 	replies := make(chan agent.Reply, 1)
 	m := testModel()
-	m.ws = workspace.Context{Abs: root}
+	m.WS = workspace.Context{Abs: root}
 	m.turn = &turnSession{activeTool: -1, ch: make(chan agent.Event), reply: replies, cancel: func() {}}
 
 	_ = m.handleTurnToolStart(turnToolStartMsg{name: tools.Bash, label: "bash go test", args: bashArgs("go test")})
-	if m.bottom.perm == nil || !m.bottom.perm.canPersist {
+	if m.bottom.perm == nil || !m.bottom.perm.appr.Call.Persist {
 		t.Fatalf("expected a persistable prompt: %+v", m.bottom.perm)
 	}
 	m.turn.activeTool = -1 // reset the open row for the decision
@@ -197,8 +189,8 @@ func TestPersistAllowWritesRuleAndSkipsSecondPrompt(t *testing.T) {
 		t.Fatal("allow-always should allow the current call")
 	}
 	want := policy.Rule{Tool: tools.Bash, CommandPrefix: "go test", Action: policy.ActionAllow}
-	if len(m.rules.Policy().Rules) != 1 || m.rules.Policy().Rules[0] != want {
-		t.Fatalf("in-memory rules: %+v", m.rules.Policy())
+	if len(m.Rules.Policy().Rules) != 1 || m.Rules.Policy().Rules[0] != want {
+		t.Fatalf("in-memory rules: %+v", m.Rules.Policy())
 	}
 	loaded, err := policy.Load()
 	if err != nil {
@@ -226,8 +218,8 @@ func TestHandWrittenReadDenyAutoDenies(t *testing.T) {
 	root := t.TempDir()
 	replies := make(chan agent.Reply, 1)
 	m := testModel()
-	m.ws = workspace.Context{Abs: root}
-	m.rules = permission.NewRules(policy.Policy{Rules: []policy.Rule{{Tool: tools.Read, Path: ".env", Action: policy.ActionDeny}}})
+	m.WS = workspace.Context{Abs: root}
+	m.Rules = permission.NewRules(policy.Policy{Rules: []policy.Rule{{Tool: tools.Read, Path: ".env", Action: policy.ActionDeny}}})
 	m.turn = &turnSession{activeTool: -1, ch: make(chan agent.Event), reply: replies, cancel: func() {}}
 
 	_ = m.handleTurnToolStart(turnToolStartMsg{name: tools.Read, label: "read .env", path: ".env", args: json.RawMessage(`{"path":".env"}`)})
@@ -251,8 +243,8 @@ func TestHandWrittenDenyRuleAutoDenies(t *testing.T) {
 	root := t.TempDir()
 	replies := make(chan agent.Reply, 1)
 	m := testModel()
-	m.ws = workspace.Context{Abs: root}
-	m.rules = permission.NewRules(policy.Policy{Rules: []policy.Rule{{Tool: tools.Edit, Path: "a.go", Action: policy.ActionDeny}}})
+	m.WS = workspace.Context{Abs: root}
+	m.Rules = permission.NewRules(policy.Policy{Rules: []policy.Rule{{Tool: tools.Edit, Path: "a.go", Action: policy.ActionDeny}}})
 	m.turn = &turnSession{activeTool: -1, ch: make(chan agent.Event), reply: replies, cancel: func() {}}
 
 	_ = m.handleTurnToolStart(turnToolStartMsg{name: tools.Edit, label: "edit a.go", path: "a.go", args: json.RawMessage(`{"path":"a.go"}`)})
@@ -274,7 +266,7 @@ func TestPersistHotkeyPWritesAllow(t *testing.T) {
 	root := t.TempDir()
 	replies := make(chan agent.Reply, 1)
 	m := testModel()
-	m.ws = workspace.Context{Abs: root}
+	m.WS = workspace.Context{Abs: root}
 	m.turn = &turnSession{activeTool: -1, ch: make(chan agent.Event), reply: replies, cancel: func() {}}
 
 	_ = m.handleTurnToolStart(turnToolStartMsg{name: tools.Bash, label: "bash go test", args: bashArgs("go test")})
@@ -285,8 +277,8 @@ func TestPersistHotkeyPWritesAllow(t *testing.T) {
 		t.Fatalf("p should allow this call: %+v", r)
 	}
 	want := policy.Rule{Tool: tools.Bash, CommandPrefix: "go test", Action: policy.ActionAllow}
-	if len(m.rules.Policy().Rules) != 1 || m.rules.Policy().Rules[0] != want {
-		t.Fatalf("rules: %+v", m.rules.Policy())
+	if len(m.Rules.Policy().Rules) != 1 || m.Rules.Policy().Rules[0] != want {
+		t.Fatalf("rules: %+v", m.Rules.Policy())
 	}
 	if m.bottom.perm != nil {
 		t.Fatal("prompt should clear")
@@ -298,7 +290,7 @@ func TestHotkeyXIsInert(t *testing.T) {
 	root := t.TempDir()
 	replies := make(chan agent.Reply, 1)
 	m := testModel()
-	m.ws = workspace.Context{Abs: root}
+	m.WS = workspace.Context{Abs: root}
 	m.turn = &turnSession{activeTool: -1, ch: make(chan agent.Event), reply: replies, cancel: func() {}}
 
 	_ = m.handleTurnToolStart(turnToolStartMsg{name: tools.Edit, label: "edit a.go", path: "a.go", args: json.RawMessage(`{"path":"a.go"}`)})
@@ -314,8 +306,8 @@ func TestHotkeyXIsInert(t *testing.T) {
 		t.Fatalf("x must not decide: %+v", r)
 	default:
 	}
-	if len(m.rules.Policy().Rules) != 0 {
-		t.Fatalf("x must not write a rule: %+v", m.rules.Policy())
+	if len(m.Rules.Policy().Rules) != 0 {
+		t.Fatalf("x must not write a rule: %+v", m.Rules.Policy())
 	}
 }
 

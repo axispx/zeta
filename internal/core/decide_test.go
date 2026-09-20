@@ -2,9 +2,11 @@ package core
 
 import (
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/axispx/zeta/internal/agent"
 	"github.com/axispx/zeta/internal/permission"
 	"github.com/axispx/zeta/internal/policy"
 	"github.com/axispx/zeta/internal/tools"
@@ -124,5 +126,82 @@ func TestGateMatchesClassify(t *testing.T) {
 		if got := gate(c.name, c.args); got != want {
 			t.Fatalf("%s: gate=%v classify-waits=%v", c.name, got, want)
 		}
+	}
+}
+
+func TestDecidePermissionSessionGrantAndDeny(t *testing.T) {
+	root := t.TempDir()
+	var grants permission.Session
+	s := &Session{Grants: &grants, Rules: permission.NewRules(policy.Policy{})}
+
+	bash := permission.CallFor(root, tools.Bash, bashArgs("go test"))
+	reply, err := s.DecidePermission(permission.AllowSession, bash)
+	if err != nil || reply.Kind != agent.ReplyRun {
+		t.Fatalf("grant: reply=%+v err=%v", reply, err)
+	}
+	if !grants.Granted(tools.Bash) {
+		t.Fatal("bash should be granted for the session")
+	}
+
+	// An outside read grants the directory, not the read class.
+	outside := permission.CallFor(root, tools.Read, json.RawMessage(`{"path":"../x.txt"}`))
+	if _, err := s.DecidePermission(permission.AllowSession, outside); err != nil {
+		t.Fatal(err)
+	}
+	if grants.Granted(tools.Read) {
+		t.Fatal("read class must not be granted")
+	}
+	if !grants.DirGranted(outside) {
+		t.Fatal("outside directory should be granted")
+	}
+
+	if r, err := s.DecidePermission(permission.Deny, bash); err != nil || r.Kind != agent.ReplyDeny {
+		t.Fatalf("deny: reply=%+v err=%v", r, err)
+	}
+}
+
+func TestDecidePermissionAllowAlwaysPersists(t *testing.T) {
+	t.Setenv("ZETA_HOME", t.TempDir())
+	root := t.TempDir()
+	rules := permission.NewRules(policy.Policy{})
+	s := &Session{Grants: &permission.Session{}, Rules: rules}
+
+	reply, err := s.DecidePermission(permission.AllowAlways, permission.CallFor(root, tools.Bash, bashArgs("go test")))
+	if err != nil || reply.Kind != agent.ReplyRun {
+		t.Fatalf("reply=%+v err=%v", reply, err)
+	}
+	want := policy.Rule{Tool: tools.Bash, CommandPrefix: "go test", Action: policy.ActionAllow}
+	if got := rules.Policy().Rules; len(got) != 1 || got[0] != want {
+		t.Fatalf("live rules=%+v", got)
+	}
+	loaded, err := policy.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded.Rules) != 1 || loaded.Rules[0] != want {
+		t.Fatalf("persisted=%+v", loaded)
+	}
+}
+
+func TestDecidePermissionPersistFailureStillAllows(t *testing.T) {
+	// A regular file where ZETA_HOME should be makes policy.Save fail.
+	file := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(file, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ZETA_HOME", filepath.Join(file, "zeta"))
+	root := t.TempDir()
+	rules := permission.NewRules(policy.Policy{})
+	s := &Session{Grants: &permission.Session{}, Rules: rules}
+
+	reply, err := s.DecidePermission(permission.AllowAlways, permission.CallFor(root, tools.Bash, bashArgs("go test")))
+	if err == nil {
+		t.Fatal("expected a persist error")
+	}
+	if reply.Kind != agent.ReplyRun {
+		t.Fatalf("decision must survive a failed persist: %+v", reply)
+	}
+	if len(rules.Policy().Rules) != 0 {
+		t.Fatalf("failed persist must not install a rule: %+v", rules.Policy())
 	}
 }

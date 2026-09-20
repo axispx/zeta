@@ -13,7 +13,7 @@ import (
 
 func TestTurnDeltaSetsFramePlanInPlanMode(t *testing.T) {
 	m := testModel()
-	m.mode = prompt.ModePlan
+	m.Mode = prompt.ModePlan
 	m.turn = &turnSession{
 		cancel:     func() {},
 		ch:         closedAgentEvents(),
@@ -26,7 +26,7 @@ func TestTurnDeltaSetsFramePlanInPlanMode(t *testing.T) {
 	}
 
 	m2 := testModel()
-	m2.mode = prompt.ModeBuild
+	m2.Mode = prompt.ModeBuild
 	m2.turn = &turnSession{
 		cancel:     func() {},
 		ch:         closedAgentEvents(),
@@ -58,8 +58,8 @@ func TestAssistantPersistsFramePlan(t *testing.T) {
 				t.Fatal(err)
 			}
 			m := testModel()
-			m.sess = sess
-			m.mode = tc.mode
+			m.Log = sess
+			m.Mode = tc.mode
 			m.turn = &turnSession{
 				cancel:     func() {},
 				ch:         closedAgentEvents(),

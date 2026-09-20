@@ -17,11 +17,11 @@ func TestBusyLabel(t *testing.T) {
 		t.Fatalf("idle = %q", got)
 	}
 
-	m.compacting = true
+	m.Compacting = true
 	if got := m.busyLabel(); got != statusCompacting {
 		t.Fatalf("compacting = %q, want %q", got, statusCompacting)
 	}
-	m.compacting = false
+	m.Compacting = false
 
 	m.turn = &turnSession{streaming: false, activeTool: -1}
 	if got := m.busyLabel(); got != statusWaiting {
@@ -131,7 +131,7 @@ func TestGapHeight(t *testing.T) {
 		t.Fatalf("busy gapHeight=%d, want %d", got, busyStatusRows)
 	}
 	m.turn = nil
-	m.compacting = true
+	m.Compacting = true
 	if got := m.gapHeight(); got != busyStatusRows {
 		t.Fatalf("compacting gapHeight=%d, want %d", got, busyStatusRows)
 	}

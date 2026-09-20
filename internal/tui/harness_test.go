@@ -34,9 +34,9 @@ func TestGateAndHarnessShareLiveRules(t *testing.T) {
 	rules := permission.NewRules(policy.Policy{})
 
 	m := testModel()
-	m.ws = workspace.Context{Abs: root}
-	m.grants = &grants
-	m.rules = rules
+	m.WS = workspace.Context{Abs: root}
+	m.Grants = &grants
+	m.Rules = rules
 	replies := make(chan agent.Reply, 1)
 	m.turn = &turnSession{activeTool: -1, ch: make(chan agent.Event), reply: replies, cancel: func() {}}
 

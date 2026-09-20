@@ -5,7 +5,6 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/axispx/zeta/internal/agent"
 	"github.com/axispx/zeta/internal/core"
 	"github.com/axispx/zeta/internal/prompt"
 )
@@ -15,32 +14,32 @@ import (
 func (m *Model) dispatchTurnMsg(msg tea.Msg) (tea.Cmd, bool) {
 	switch msg := msg.(type) {
 	case turnDeltaMsg:
-		if !m.markTurnProgress(msg.id) {
+		if !m.markStreamed(msg.id) {
 			return nil, true
 		}
 		return m.handleTurnDelta(msg), true
 	case turnReasoningMsg:
-		if !m.markTurnProgress(msg.id) {
+		if !m.markStreamed(msg.id) {
 			return nil, true
 		}
 		return m.handleTurnReasoning(msg), true
 	case turnAssistantMsg:
-		if !m.markTurnProgress(msg.id) {
+		if !m.markStreamed(msg.id) {
 			return nil, true
 		}
 		return m.handleTurnAssistant(msg), true
 	case turnToolStartMsg:
-		if !m.markTurnProgress(msg.id) {
+		if !m.markEffects(msg.id) {
 			return nil, true
 		}
 		return m.handleTurnToolStart(msg), true
 	case turnToolOutMsg:
-		if !m.markTurnProgress(msg.id) {
+		if !m.markEffects(msg.id) {
 			return nil, true
 		}
 		return m.handleTurnToolOut(msg), true
 	case turnToolMsg:
-		if !m.markTurnProgress(msg.id) {
+		if !m.markEffects(msg.id) {
 			return nil, true
 		}
 		return m.handleTurnTool(msg), true
@@ -59,13 +58,22 @@ func (m *Model) dispatchTurnMsg(msg tea.Msg) (tea.Cmd, bool) {
 	}
 }
 
-// markTurnProgress is turnMsgLive plus the pre-progress auth-retry gate:
-// any content/tool event means a later 401 must not re-run the agent loop.
-func (m *Model) markTurnProgress(id int) bool {
+// markStreamed is turnMsgLive plus the replay gate: visible output means a
+// later 401 must not re-run the agent loop.
+func (m *Model) markStreamed(id int) bool {
 	if !m.turnMsgLive(id) {
 		return false
 	}
-	m.turn.progressed = true
+	m.MarkStreamed()
+	return true
+}
+
+// markEffects is turnMsgLive plus the replay gate for tool work.
+func (m *Model) markEffects(id int) bool {
+	if !m.turnMsgLive(id) {
+		return false
+	}
+	m.MarkEffects()
 	return true
 }
 
@@ -79,7 +87,7 @@ func (m Model) turnMsgLive(id int) bool {
 // runs, so the same snapshot is used for the live agent row and JSONL persist.
 // Stored on the message so framing survives later mode switches and resume.
 func (m *Model) planFraming() bool {
-	return m.mode == prompt.ModePlan
+	return m.Mode == prompt.ModePlan
 }
 
 func (m *Model) handleTurnDelta(msg turnDeltaMsg) tea.Cmd {
@@ -121,30 +129,7 @@ func (m *Model) handleTurnAssistant(msg turnAssistantMsg) tea.Cmd {
 	if m.turn.endStreaming() {
 		m.refreshTranscript()
 	}
-	m.history = append(m.history, msg.message)
-	if n := msg.usage.ContextTokens(); n > 0 {
-		m.contextTokens = n
-		// The provider billed this request for the history as it stood, and
-		// the completion tokens stand in for the assistant message they became
-		// — which has just been appended. So the measurement covers exactly the
-		// history we now hold, and the auto-compact budget check can use it
-		// instead of guessing from character counts.
-		m.contextMsgs = len(m.history)
-	}
-	// Attributed to the model that answered, not the currently active one: a
-	// /model switch mid-turn must not relabel the previous model's spend.
-	m.usage.add(m.cfg.ModelName(), msg.usage)
-	// Full assistant text (including <proposed_plan>) on the agent row for UI,
-	// JSONL, and API history. FramePlan snapshots planFraming at ingest.
-	rec := recordFromAPI(msg.message)
-	rec.FramePlan = m.planFraming()
-	// Persist the turn's accounting next to the turn it belongs to, so /usage
-	// totals survive /resume. Nil when the provider reported nothing.
-	rec.Usage = usageOrNil(msg.usage)
-	if rec.Usage != nil {
-		rec.Model = m.cfg.ModelName()
-	}
-	m.persist(rec)
+	m.reportSaveErr(m.Session.CommitAssistant(msg.message, msg.usage))
 	m.noteProducedPlan(msg.message.Text)
 	return waitTurn(m.turn)
 }
@@ -166,16 +151,20 @@ func (m *Model) handleTurnToolStart(msg turnToolStartMsg) tea.Cmd {
 	m.refreshTranscript()
 
 	// Agent only waits when core.Classify matches Gate — do not send a Reply it isn't awaiting.
-	switch core.Classify(m.rules, m.grants, m.ws.Abs, msg.name, msg.args) {
+	wait := core.Classify(m.Rules, m.Grants, m.WS.Abs, msg.name, msg.args)
+	// Calls the harness settles without the user (policy deny) are answered here.
+	if r, ok := core.AutoReply(wait); ok {
+		m.messages[m.turn.activeTool].Status = ToolDenied
+		m.sendReply(r)
+		m.refreshTranscript()
+		return waitTurn(m.turn)
+	}
+	switch wait {
 	case core.WaitInteractive:
 		m.openInteractiveTool(msg.name, msg.args)
-	case core.WaitAutoDeny:
-		m.messages[m.turn.activeTool].Status = ToolDenied
-		m.sendReply(agent.DenyToolReason("denied by permission policy"))
-		m.refreshTranscript()
 	case core.WaitPermission:
 		p := newPermissionPrompt(label, msg.name, msg.path)
-		p.setArgs(msg.args, m.ws.Abs)
+		p.setArgs(msg.args, m.WS.Abs)
 		m.bottom.setPerm(p)
 		m.afterSetBottom()
 	}
@@ -197,7 +186,6 @@ func (m *Model) handleTurnTool(msg turnToolMsg) tea.Cmd {
 	if m.turn == nil {
 		return nil
 	}
-	m.history = append(m.history, msg.message)
 	if i := m.turn.activeTool; i >= 0 && i < len(m.messages) && m.messages[i].Tool == msg.name {
 		if msg.denied {
 			m.messages[i].Status = ToolDenied
@@ -210,7 +198,7 @@ func (m *Model) handleTurnTool(msg turnToolMsg) tea.Cmd {
 		}
 	}
 	m.turn.activeTool = -1
-	m.persist(toolRecord(msg.message, msg.label, msg.name, msg.denied))
+	m.reportSaveErr(m.Session.CommitTool(msg.message, msg.label, msg.name, msg.denied))
 	m.refreshTranscript()
 	return waitTurn(m.turn)
 }

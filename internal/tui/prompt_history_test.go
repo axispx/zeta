@@ -129,7 +129,7 @@ func TestPromptHistoryIgnoresCompactCheckpoint(t *testing.T) {
 	// Up/down must still walk real user prompts from the UI transcript only.
 	m := histModel()
 	cp := compact.CheckpointMessage("## Task\n- secret summary blob")
-	m.history = []ai.Message{
+	m.History = []ai.Message{
 		cp,
 		{Role: ai.RoleUser, Text: "after compact"},
 	}

@@ -88,10 +88,10 @@ func (m Model) gapHeight() int {
 
 // busyLabel derives the chrome status from turn phase (no stored status field).
 func (m Model) busyLabel() string {
-	if m.compacting {
+	if m.Compacting {
 		return statusCompacting
 	}
-	if m.authRetrying {
+	if m.AuthRetrying {
 		return statusWorking
 	}
 	if m.turn == nil {

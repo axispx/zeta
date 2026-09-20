@@ -71,21 +71,16 @@ type buildPickPrompt struct {
 // segment. Offered once on turnDone via maybeOfferPlan (not re-scanned from
 // history, so discard/revise do not re-open a stale plan).
 func (m *Model) noteProducedPlan(asstText string) {
-	if m.mode != prompt.ModePlan {
-		return
+	if body, ok := m.ProducedPlan(asstText); ok {
+		m.pendingPlan = body
 	}
-	body, ok := plan.Extract(asstText)
-	if !ok {
-		return
-	}
-	m.pendingPlan = body
 }
 
 // maybeOfferPlan opens the approval panel when this turn produced a plan.
 func (m *Model) maybeOfferPlan() {
 	body := strings.TrimSpace(m.pendingPlan)
 	m.pendingPlan = ""
-	if body == "" || m.mode != prompt.ModePlan || m.bottom.plan != nil || m.bottom.build != nil || m.turn != nil {
+	if body == "" || m.Mode != prompt.ModePlan || m.bottom.plan != nil || m.bottom.build != nil || m.turn != nil {
 		return
 	}
 	m.bottom.setPlan(newPlanPrompt(body, plan.Title(body)))
@@ -144,14 +139,14 @@ func (m *Model) beginPlanBuildPick() tea.Cmd {
 	if p == nil {
 		return nil
 	}
-	entries := m.cfg.ModelChoices()
+	entries := m.Cfg.ModelChoices()
 	if len(entries) == 0 {
 		m.dismissPlan()
 		m.noteError("no models configured")
 		return nil
 	}
 	sel := 0
-	prefer := m.cfg.PreferredBuildModel()
+	prefer := m.Cfg.PreferredBuildModel()
 	for i, e := range entries {
 		if e.ID() == prefer {
 			sel = i
@@ -192,28 +187,28 @@ func (m *Model) confirmPlanBuild(modelID string) tea.Cmd {
 // beginBuildFromPlan is the atomic plan→build handoff: persist preferred model,
 // clear plan UI, new Build session, seed implement prompt.
 func (m *Model) beginBuildFromPlan(body, title, modelID string) tea.Cmd {
-	prevCfg := m.cfg
-	prevClient := m.client
-	m.cfg.SetActive(modelID)
-	m.cfg.SetBuildDefault(modelID)
-	if err := m.cfg.Save(); err != nil {
-		m.cfg = prevCfg
-		m.client = prevClient
+	prevCfg := m.Cfg
+	prevClient := m.Client
+	m.Cfg.SetActive(modelID)
+	m.Cfg.SetBuildDefault(modelID)
+	if err := m.Cfg.Save(); err != nil {
+		m.Cfg = prevCfg
+		m.Client = prevClient
 		m.dismissPlan()
 		m.noteError("config save: " + err.Error())
 		return nil
 	}
-	m.resetUsage()
-	m.applyClient()
+	m.ResetContext()
+	m.ApplyClient()
 
 	m.bottom.clear()
 	m.pendingPlan = ""
 	m.closeOverlay()
 	m.resetInput()
-	m.mode = prompt.ModeBuild
+	m.Mode = prompt.ModeBuild
 	m.startNewSession()
 
-	m.noteSystem("Building with " + m.cfg.ModelName() + " · " + title)
+	m.noteSystem("Building with " + m.Cfg.ModelName() + " · " + title)
 	return m.submit(plan.BuildPrompt(body), nil)
 }
 
@@ -361,9 +356,9 @@ func (m Model) renderPlanBuildPick(width int) string {
 	_, contentW := overlayWidths(width)
 	ink := m.chrome.OverlayInk()
 
-	markID := m.cfg.PreferredBuildModel()
+	markID := m.Cfg.PreferredBuildModel()
 	if markID == "" {
-		markID = m.cfg.Active
+		markID = m.Cfg.Active
 	}
 
 	var sb strings.Builder

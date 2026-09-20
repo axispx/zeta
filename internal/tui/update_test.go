@@ -70,12 +70,12 @@ func TestExclusiveJob(t *testing.T) {
 	if m.exclusiveJob() {
 		t.Fatal("idle")
 	}
-	m.compacting = true
+	m.Compacting = true
 	if !m.exclusiveJob() || !m.busy() {
 		t.Fatal("compacting")
 	}
-	m.compacting = false
-	m.authRetrying = true
+	m.Compacting = false
+	m.AuthRetrying = true
 	if m.exclusiveJob() {
 		t.Fatal("auth is busy but not exclusive")
 	}

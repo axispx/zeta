@@ -96,8 +96,8 @@ func TestSubmitWithImages(t *testing.T) {
 	if !strings.Contains(m.messages[0].Text, "describe") || !strings.Contains(m.messages[0].Text, "[Image 1 · a.png]") {
 		t.Fatalf("display=%q", m.messages[0].Text)
 	}
-	if len(m.history) != 1 || m.history[0].Text != "describe" || len(m.history[0].Images) != 1 || m.history[0].Images[0].URL != testPNGDataURL {
-		t.Fatalf("history=%+v", m.history)
+	if len(m.History) != 1 || m.History[0].Text != "describe" || len(m.History[0].Images) != 1 || m.History[0].Images[0].URL != testPNGDataURL {
+		t.Fatalf("history=%+v", m.History)
 	}
 }
 
@@ -110,11 +110,11 @@ func TestSubmitImageOnly(t *testing.T) {
 	}
 	m.insertImageAttach(testAttach("b.png"))
 	_ = m.submitInput()
-	if len(m.history) != 1 || m.history[0].Text != "" || len(m.history[0].Images) != 1 {
-		t.Fatalf("history=%+v", m.history)
+	if len(m.History) != 1 || m.History[0].Text != "" || len(m.History[0].Images) != 1 {
+		t.Fatalf("history=%+v", m.History)
 	}
-	if m.history[0].Images[0].URL != testPNGDataURL {
-		t.Fatalf("url=%q", m.history[0].Images[0].URL)
+	if m.History[0].Images[0].URL != testPNGDataURL {
+		t.Fatalf("url=%q", m.History[0].Images[0].URL)
 	}
 }
 

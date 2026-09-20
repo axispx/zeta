@@ -1,15 +1,14 @@
 package tui
 
 import (
-	"context"
 	"fmt"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/axispx/zeta/internal/ai"
 	"github.com/axispx/zeta/internal/config"
+	"github.com/axispx/zeta/internal/core"
 	"github.com/axispx/zeta/internal/image"
 	"github.com/axispx/zeta/internal/permission"
 	"github.com/axispx/zeta/internal/search"
@@ -193,36 +192,6 @@ func (m *Model) resetInput() {
 	m.clearPendingImages()
 }
 
-func (m *Model) applyClient() {
-	choice, ok := m.cfg.ActiveChoice()
-	if !ok {
-		m.client = nil
-		return
-	}
-	p, ok := m.cfg.Provider(choice.ProviderID)
-	if !ok {
-		m.client = nil
-		return
-	}
-	m.client = ai.New(p, choice.ModelID)
-}
-
-// ensureFreshClient refreshes OAuth tokens if needed, then rebuilds the client.
-func (m *Model) ensureFreshClient() error {
-	choice, ok := m.cfg.ActiveChoice()
-	if !ok {
-		return nil
-	}
-	refreshed, err := m.cfg.EnsureOAuthFresh(context.Background(), choice.ProviderID)
-	if err != nil {
-		return err
-	}
-	if refreshed {
-		m.applyClient()
-	}
-	return nil
-}
-
 func (m *Model) syncOverlay() tea.Cmd {
 	// Filter overlays float (no layout height); gap stays idle blank / status.
 	if m.picker.active || m.config.active {
@@ -334,7 +303,7 @@ func (m *Model) fillSkillSlash(name string) {
 func (m *Model) openConfigDialog() tea.Cmd {
 	m.closeOverlay()
 	m.picker.clear()
-	return m.config.Open(m.cfg)
+	return m.config.Open(m.Cfg)
 }
 
 // updateConfigDialog forwards a msg to the dialog and collects anything it
@@ -342,10 +311,10 @@ func (m *Model) openConfigDialog() tea.Cmd {
 func (m *Model) updateConfigDialog(msg tea.Msg) (tea.Cmd, bool) {
 	cmd, handled := m.config.Update(msg)
 	if c := m.config.takeSaved(); c != nil {
-		m.cfg = *c
-		m.applyClient()
+		m.Cfg = *c
+		m.ApplyClient()
 		// A saved model change switches the prefix (and the provider cache).
-		m.resetUsage()
+		m.ResetContext()
 	}
 	return cmd, handled
 }
@@ -353,40 +322,40 @@ func (m *Model) updateConfigDialog(msg tea.Msg) (tea.Cmd, bool) {
 func (m *Model) applySession(sess *session.Session, recs []session.Record, err error) {
 	if err != nil {
 		m.messages = []Message{{Role: RoleError, Text: "session: " + err.Error()}}
-		m.sess = nil
-		m.history = nil
-		m.seedTodos(nil)
+		m.Log = nil
+		m.History = nil
+		m.SeedTodos(nil)
 	} else {
-		m.sess = sess
-		m.messages, m.history = loadSession(recs)
-		m.seedTodos(todosFromRecords(recs))
+		m.Log = sess
+		m.messages, m.History = loadSession(recs)
+		m.SeedTodos(core.TodosFromRecords(recs))
 	}
 	// A session boundary is when project instructions are read: /clear and
 	// /resume pick up an edited AGENTS.md, turns in between do not.
-	m.ws.ReloadAgents()
+	m.ReloadAgents()
 	m.refreshSessionDiff()
-	m.resetUsage()
+	m.ResetContext()
 	// /resume replays the persisted per-turn accounting; /clear starts at zero.
-	m.usage = sessionUsageFrom(recs)
-	m.titlePending = false
+	m.Usage = core.UsageFromRecords(recs)
+	m.TitlePending = false
 	m.clearCompactState()
 	m.resetPromptHistory()
 	m.clearBottom()
 	m.pendingPlan = ""
 	m.clearQueue()
 	m.closeOverlay()
-	m.grants = &permission.Session{}
+	m.Grants = &permission.Session{}
 	m.tx.invalidate()
 	m.refreshTranscript()
 }
 
 func (m *Model) startNewSession() {
-	sess, err := session.New(m.ws.Abs)
+	sess, err := session.New(m.WS.Abs)
 	m.applySession(sess, nil, err)
 }
 
 func (m *Model) openModelOverlay() {
-	entries := m.cfg.ModelChoices()
+	entries := m.Cfg.ModelChoices()
 	if len(entries) == 0 {
 		m.messages = append(m.messages, Message{Role: RoleSystem, Text: "no models configured"})
 		m.refreshTranscript()
@@ -396,7 +365,7 @@ func (m *Model) openModelOverlay() {
 	m.overlay.mode = overlayModels
 	m.overlay.models = entries
 	m.resetInput()
-	active := m.cfg.Active
+	active := m.Cfg.Active
 	for i, e := range entries {
 		if e.ID() == active {
 			m.overlay.selected = i
@@ -418,20 +387,20 @@ func (m *Model) selectModel() {
 	}
 	choice := visible[m.overlay.selected]
 
-	prevCfg := m.cfg
-	prevClient := m.client
+	prevCfg := m.Cfg
+	prevClient := m.Client
 
-	m.cfg.SetActive(choice.ID())
-	if err := m.cfg.Save(); err != nil {
-		m.cfg = prevCfg
-		m.client = prevClient
+	m.Cfg.SetActive(choice.ID())
+	if err := m.Cfg.Save(); err != nil {
+		m.Cfg = prevCfg
+		m.Client = prevClient
 		m.cancelOverlay()
 		m.messages = append(m.messages, Message{Role: RoleError, Text: "config save: " + err.Error()})
 		m.refreshTranscript()
 		return
 	}
-	m.resetUsage()
-	m.applyClient()
+	m.ResetContext()
+	m.ApplyClient()
 	m.cancelOverlay()
 	m.refreshTranscript()
 }
@@ -449,13 +418,13 @@ func (m *Model) cycleModelReasoning() {
 	choice := visible[m.overlay.selected]
 	next := config.CycleReasoningEffort(choice.Effort)
 	prev := choice.Effort
-	if err := m.cfg.SetReasoningEffort(choice.ProviderID, choice.ModelID, next); err != nil {
+	if err := m.Cfg.SetReasoningEffort(choice.ProviderID, choice.ModelID, next); err != nil {
 		m.messages = append(m.messages, Message{Role: RoleError, Text: err.Error()})
 		m.refreshTranscript()
 		return
 	}
-	if err := m.cfg.Save(); err != nil {
-		_ = m.cfg.SetReasoningEffort(choice.ProviderID, choice.ModelID, prev)
+	if err := m.Cfg.Save(); err != nil {
+		_ = m.Cfg.SetReasoningEffort(choice.ProviderID, choice.ModelID, prev)
 		m.messages = append(m.messages, Message{Role: RoleError, Text: "config save: " + err.Error()})
 		m.refreshTranscript()
 		return
@@ -466,8 +435,8 @@ func (m *Model) cycleModelReasoning() {
 			break
 		}
 	}
-	if m.cfg.Active == choice.ID() {
-		m.applyClient()
+	if m.Cfg.Active == choice.ID() {
+		m.ApplyClient()
 	}
 }
 
@@ -555,7 +524,7 @@ func (m *Model) submitInput() tea.Cmd {
 			return nil
 		}
 		// Do not interrupt/replace an in-flight OAuth recover.
-		if m.authRetrying {
+		if m.AuthRetrying {
 			return nil
 		}
 		return m.drainNextQueuedPrompt()
@@ -565,7 +534,7 @@ func (m *Model) submitInput() tea.Cmd {
 		m.saveEdit(text, imgs)
 		return nil
 	}
-	if m.turn == nil && !m.authRetrying && text == ":q" { // vim
+	if m.turn == nil && !m.AuthRetrying && text == ":q" { // vim
 		return m.requestQuit()
 	}
 
@@ -577,7 +546,7 @@ func (m *Model) submitInput() tea.Cmd {
 	}
 	// Mid-turn / OAuth recover: queue for later. Send-now is empty Enter /
 	// queue-focus Enter (blocked while authRetrying).
-	if m.turn != nil || m.authRetrying {
+	if m.turn != nil || m.AuthRetrying {
 		return m.enqueuePrompt(text, imgs)
 	}
 	return m.submit(text, imgs)
@@ -590,7 +559,7 @@ func (m *Model) submitHarnessSlash(text string, imgs []image.Ref) tea.Cmd {
 		m.noteSystem("slash commands cannot include images")
 		return nil
 	}
-	if m.turn != nil || m.authRetrying {
+	if m.turn != nil || m.AuthRetrying {
 		return nil
 	}
 	if c, ok := lookupCommand(text); ok && !c.skill {
@@ -757,7 +726,7 @@ func (m Model) renderModelOverlay(width int) string {
 	ink := m.chrome.OverlayInk()
 	// Drop leading newline from shared list helper (overlay has no header above).
 	body := strings.TrimPrefix(
-		renderModelChoiceList(visible, m.overlay.selected, m.cfg.Active, "active", contentW, modelOverlayMaxRows, ink),
+		renderModelChoiceList(visible, m.overlay.selected, m.Cfg.Active, "active", contentW, modelOverlayMaxRows, ink),
 		"\n",
 	)
 	return m.paintOverlay(body, innerW)

@@ -198,7 +198,7 @@ func (m *Model) ensureFileList() tea.Cmd {
 	if f.loading || f.all != nil {
 		return nil
 	}
-	root := m.ws.Abs
+	root := m.WS.Abs
 	// Cancel any leftover list (should already be gone after clear).
 	if f.cancel != nil {
 		f.cancel()

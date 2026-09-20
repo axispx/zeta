@@ -26,20 +26,20 @@ func assistantTurn(t *testing.T, m Model, text string, usage ai.Usage) Model {
 // so the measurement spans the history we now hold.
 func TestTurnRecordsMeasuredSpan(t *testing.T) {
 	m := testModel()
-	m.history = []ai.Message{
+	m.History = []ai.Message{
 		{Role: ai.RoleUser, Text: "first"},
 		{Role: ai.RoleAssistant, Text: "ok"},
 	}
 
 	m = assistantTurn(t, m, "done", ai.Usage{PromptTokens: 4_000, CompletionTokens: 100})
 
-	if got, want := m.contextMsgs, len(m.history); got != want {
+	if got, want := m.ContextMsgs, len(m.History); got != want {
 		t.Fatalf("contextMsgs = %d, want %d", got, want)
 	}
-	cfg := m.compactConfig()
-	if cfg.Measured != 4_100 || cfg.MeasuredMsgs != len(m.history) {
+	cfg := m.CompactConfig(m.Cfg)
+	if cfg.Measured != 4_100 || cfg.MeasuredMsgs != len(m.History) {
 		t.Fatalf("compactConfig measurement = %d/%d, want 4100/%d",
-			cfg.Measured, cfg.MeasuredMsgs, len(m.history))
+			cfg.Measured, cfg.MeasuredMsgs, len(m.History))
 	}
 }
 
@@ -47,13 +47,13 @@ func TestTurnRecordsMeasuredSpan(t *testing.T) {
 // check falls back to the estimate instead of reading 0 as "fits fine".
 func TestTurnWithoutUsageLeavesSpanUnset(t *testing.T) {
 	m := testModel()
-	m.history = []ai.Message{{Role: ai.RoleUser, Text: "hi"}}
+	m.History = []ai.Message{{Role: ai.RoleUser, Text: "hi"}}
 	m = assistantTurn(t, m, "done", ai.Usage{})
 
-	if m.contextMsgs != 0 || m.contextTokens != 0 {
-		t.Fatalf("unreported usage left contextTokens=%d contextMsgs=%d", m.contextTokens, m.contextMsgs)
+	if m.ContextMsgs != 0 || m.ContextTokens != 0 {
+		t.Fatalf("unreported usage left contextTokens=%d contextMsgs=%d", m.ContextTokens, m.ContextMsgs)
 	}
-	cfg := m.compactConfig()
+	cfg := m.CompactConfig(m.Cfg)
 	if cfg.Measured != 0 || cfg.MeasuredMsgs != 0 {
 		t.Fatalf("unreported usage carried a measurement: %+v", cfg)
 	}
@@ -63,12 +63,12 @@ func TestTurnWithoutUsageLeavesSpanUnset(t *testing.T) {
 // character estimate that under-counts source code and tool output.
 func TestAutoCompactUsesMeasurement(t *testing.T) {
 	m := testModel()
-	m.cfg = testClientCfg() // 128k window
-	m.applyClient()
-	if m.client == nil {
+	m.Cfg = testClientCfg() // 128k window
+	m.ApplyClient()
+	if m.Client == nil {
 		t.Fatal("expected a client")
 	}
-	m.history = []ai.Message{
+	m.History = []ai.Message{
 		// Big enough that Select has a head to free: the newest turn alone
 		// stays under DefaultKeep, the older one does not.
 		{Role: ai.RoleUser, Text: strings.Repeat("old ", 20_000)}, // ~20k est tokens
@@ -77,21 +77,21 @@ func TestAutoCompactUsesMeasurement(t *testing.T) {
 	}
 
 	// No measurement: the estimate (~23k) is well inside the 128k window.
-	if m.shouldAutoCompact() {
+	if m.ShouldAutoCompact(m.Client, m.Cfg) {
 		t.Fatal("small unmeasured history should not auto-compact")
 	}
 
 	// The provider says the last request was already past the window minus the
 	// buffer (128k - 20k = 108k). The estimate still says a few thousand.
-	m.contextTokens = 110_000
-	m.contextMsgs = len(m.history)
-	if !m.shouldAutoCompact() {
+	m.ContextTokens = 110_000
+	m.ContextMsgs = len(m.History)
+	if !m.ShouldAutoCompact(m.Client, m.Cfg) {
 		t.Fatal("a measurement over budget must trigger auto-compact")
 	}
 
 	// Just under, and it must not.
-	m.contextTokens = 107_000
-	if m.shouldAutoCompact() {
+	m.ContextTokens = 107_000
+	if m.ShouldAutoCompact(m.Client, m.Cfg) {
 		t.Fatal("a measurement under budget must not trigger auto-compact")
 	}
 }
@@ -100,13 +100,13 @@ func TestAutoCompactUsesMeasurement(t *testing.T) {
 // measurement from the old one describes a request the session will not send.
 func TestResetUsageClearsMeasurement(t *testing.T) {
 	m := testModel()
-	m.contextTokens = 90_000
-	m.contextMsgs = 12
-	m.resetUsage()
-	if m.contextTokens != 0 || m.contextMsgs != 0 {
-		t.Fatalf("resetUsage left contextTokens=%d contextMsgs=%d", m.contextTokens, m.contextMsgs)
+	m.ContextTokens = 90_000
+	m.ContextMsgs = 12
+	m.ResetContext()
+	if m.ContextTokens != 0 || m.ContextMsgs != 0 {
+		t.Fatalf("resetUsage left contextTokens=%d contextMsgs=%d", m.ContextTokens, m.ContextMsgs)
 	}
-	if m.compactConfig().Measured != 0 {
+	if m.CompactConfig(m.Cfg).Measured != 0 {
 		t.Fatal("a cleared model must not report a measurement")
 	}
 }
@@ -116,13 +116,13 @@ func TestResetUsageClearsMeasurement(t *testing.T) {
 // the next budget check counts only what is appended afterwards.
 func TestCompactRebasesMeasurement(t *testing.T) {
 	m := testModel()
-	m.history = []ai.Message{
+	m.History = []ai.Message{
 		{Role: ai.RoleUser, Text: strings.Repeat("old ", 500)},
 		{Role: ai.RoleAssistant, Text: "ok"},
 		{Role: ai.RoleUser, Text: "recent"},
 	}
-	m.contextTokens = 500_000 // a huge pre-compaction measurement
-	m.contextMsgs = len(m.history)
+	m.ContextTokens = 500_000 // a huge pre-compaction measurement
+	m.ContextMsgs = len(m.History)
 
 	res := compact.Result{
 		History: []ai.Message{
@@ -135,19 +135,19 @@ func TestCompactRebasesMeasurement(t *testing.T) {
 	}
 	m.applyCompactResult(res)
 
-	if m.contextMsgs != len(m.history) {
-		t.Fatalf("contextMsgs = %d, want %d", m.contextMsgs, len(m.history))
+	if m.ContextMsgs != len(m.History) {
+		t.Fatalf("contextMsgs = %d, want %d", m.ContextMsgs, len(m.History))
 	}
-	if m.contextTokens >= 500_000 {
-		t.Fatalf("stale measurement survived compaction: %d", m.contextTokens)
+	if m.ContextTokens >= 500_000 {
+		t.Fatalf("stale measurement survived compaction: %d", m.ContextTokens)
 	}
-	cfg := m.compactConfig()
-	if cfg.MeasuredMsgs != len(m.history) {
-		t.Fatalf("measured span = %d, want %d", cfg.MeasuredMsgs, len(m.history))
+	cfg := m.CompactConfig(m.Cfg)
+	if cfg.MeasuredMsgs != len(m.History) {
+		t.Fatalf("measured span = %d, want %d", cfg.MeasuredMsgs, len(m.History))
 	}
 	// The stale 500k must not be carried into a budget check on the shorter
 	// history, which would compact again immediately and forever.
-	if m.shouldAutoCompact() {
+	if m.ShouldAutoCompact(m.Client, m.Cfg) {
 		t.Fatal("post-compaction state must not re-trigger compaction")
 	}
 }

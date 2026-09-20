@@ -10,6 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/axispx/zeta/internal/agent"
+	"github.com/axispx/zeta/internal/core"
 	"github.com/axispx/zeta/internal/permission"
 	"github.com/axispx/zeta/internal/prompt"
 	"github.com/axispx/zeta/internal/tools"
@@ -19,9 +20,9 @@ import (
 func TestHandlePermissionKey(t *testing.T) {
 	replies := make(chan agent.Reply, 1)
 	m := Model{
-		grants: &permission.Session{},
-		bottom: bottomSlot{perm: newPermissionPrompt("bash echo", tools.Bash, "")},
-		turn:   &turnSession{reply: replies, activeTool: -1, cancel: func() {}},
+		Session: core.Session{Grants: &permission.Session{}},
+		bottom:  bottomSlot{perm: newPermissionPrompt("bash echo", tools.Bash, "")},
+		turn:    &turnSession{reply: replies, activeTool: -1, cancel: func() {}},
 	}
 	if _, ok := m.handlePermissionKey(tea.KeyPressMsg{Code: 'a', Text: "a"}); !ok {
 		t.Fatal("expected handled")
@@ -35,11 +36,12 @@ func TestHandlePermissionKey(t *testing.T) {
 
 	replies = make(chan agent.Reply, 1)
 	m.bottom.perm = newPermissionPrompt("", tools.Bash, "")
+	m.bottom.perm.setArgs(bashArgs("echo"), t.TempDir())
 	m.turn.reply = replies
 	if _, ok := m.handlePermissionKey(tea.KeyPressMsg{Code: 's', Text: "s"}); !ok {
 		t.Fatal("expected s handled")
 	}
-	if !m.grants.Granted(tools.Bash) {
+	if !m.Grants.Granted(tools.Bash) {
 		t.Fatal("session grant should stick on harness")
 	}
 	if allow := <-replies; allow.Kind == agent.ReplyDeny {
@@ -60,9 +62,9 @@ func TestHandlePermissionKey(t *testing.T) {
 func TestHandlePermissionKeyEditNoSession(t *testing.T) {
 	replies := make(chan agent.Reply, 1)
 	m := Model{
-		grants: &permission.Session{},
-		bottom: bottomSlot{perm: newPermissionPrompt("", tools.Edit, "a.go")},
-		turn:   &turnSession{reply: replies, activeTool: -1, cancel: func() {}},
+		Session: core.Session{Grants: &permission.Session{}},
+		bottom:  bottomSlot{perm: newPermissionPrompt("", tools.Edit, "a.go")},
+		turn:    &turnSession{reply: replies, activeTool: -1, cancel: func() {}},
 	}
 	// [s] is not an option for edit — swallowed, no decision.
 	if _, ok := m.handlePermissionKey(tea.KeyPressMsg{Code: 's', Text: "s"}); !ok {
@@ -71,7 +73,7 @@ func TestHandlePermissionKeyEditNoSession(t *testing.T) {
 	if m.bottom.perm == nil {
 		t.Fatal("perm should remain")
 	}
-	if m.grants.Granted(tools.Edit) {
+	if m.Grants.Granted(tools.Edit) {
 		t.Fatal("edit must never receive a session grant")
 	}
 	select {
@@ -86,7 +88,7 @@ func TestHandlePermissionKeyEditNoSession(t *testing.T) {
 	if allow := <-replies; allow.Kind == agent.ReplyDeny {
 		t.Fatal("want allow")
 	}
-	if m.grants.Granted(tools.Edit) || m.grants.Granted(tools.Write) {
+	if m.Grants.Granted(tools.Edit) || m.Grants.Granted(tools.Write) {
 		t.Fatal("allow once must not grant edit/write")
 	}
 }
@@ -95,9 +97,9 @@ func TestHandlePermissionKeyNavEnter(t *testing.T) {
 	// edit has Allow / Deny (2 options)
 	replies := make(chan agent.Reply, 1)
 	m := Model{
-		grants: &permission.Session{},
-		bottom: bottomSlot{perm: newPermissionPrompt("", tools.Edit, "")},
-		turn:   &turnSession{reply: replies, activeTool: -1, cancel: func() {}},
+		Session: core.Session{Grants: &permission.Session{}},
+		bottom:  bottomSlot{perm: newPermissionPrompt("", tools.Edit, "")},
+		turn:    &turnSession{reply: replies, activeTool: -1, cancel: func() {}},
 	}
 	if _, ok := m.handlePermissionKey(tea.KeyPressMsg{Text: "down"}); !ok {
 		t.Fatal("down")
@@ -347,7 +349,7 @@ func TestHandlePermissionClick(t *testing.T) {
 	m := Model{
 		width:    80,
 		viewport: vp,
-		grants:   &permission.Session{},
+		Session:  core.Session{Grants: &permission.Session{}},
 		bottom:   bottomSlot{perm: newPermissionPrompt("", tools.Bash, "")},
 		turn:     &turnSession{reply: replies, activeTool: -1, cancel: func() {}},
 	}
@@ -391,7 +393,7 @@ func TestRenderDeniedEdit(t *testing.T) {
 func TestSessionGrantSkipsPrompt(t *testing.T) {
 	replies := make(chan agent.Reply, 1)
 	m := testModel()
-	m.grants.Grant(tools.Bash)
+	m.Grants.Grant(tools.Bash)
 	m.turn = &turnSession{
 		activeTool: -1,
 		ch:         make(chan agent.Event),
@@ -412,7 +414,7 @@ func TestSessionGrantSkipsPrompt(t *testing.T) {
 func TestEditAlwaysPromptsEvenAfterBashGrant(t *testing.T) {
 	replies := make(chan agent.Reply, 1)
 	m := testModel()
-	m.grants.Grant(tools.Bash)
+	m.Grants.Grant(tools.Bash)
 	m.turn = &turnSession{
 		activeTool: -1,
 		ch:         make(chan agent.Event),
@@ -433,7 +435,7 @@ func TestEditAlwaysPromptsEvenAfterBashGrant(t *testing.T) {
 func TestEditOutsideWorkspacePromptFlagsOutside(t *testing.T) {
 	replies := make(chan agent.Reply, 1)
 	m := testModel()
-	m.ws = workspace.Context{Abs: t.TempDir()}
+	m.WS = workspace.Context{Abs: t.TempDir()}
 	m.turn = &turnSession{
 		activeTool: -1,
 		ch:         make(chan agent.Event),
@@ -444,7 +446,7 @@ func TestEditOutsideWorkspacePromptFlagsOutside(t *testing.T) {
 		name: tools.Edit, label: "edit ../x.txt", path: "../x.txt",
 		args: json.RawMessage(`{"path":"../x.txt"}`),
 	})
-	if m.bottom.perm == nil || !m.bottom.perm.outside {
+	if m.bottom.perm == nil || !m.bottom.perm.appr.Call.Outside {
 		t.Fatalf("outside edit must flag prompt: %+v", m.bottom.perm)
 	}
 	if view := m.renderPermission(80); !strings.Contains(view, "outside workspace") {
@@ -455,7 +457,7 @@ func TestEditOutsideWorkspacePromptFlagsOutside(t *testing.T) {
 		name: tools.Edit, label: "edit a.go", path: "a.go",
 		args: json.RawMessage(`{"path":"a.go"}`),
 	})
-	if m.bottom.perm == nil || m.bottom.perm.outside {
+	if m.bottom.perm == nil || m.bottom.perm.appr.Call.Outside {
 		t.Fatalf("in-tree edit must not be flagged: %+v", m.bottom.perm)
 	}
 	if view := m.renderPermission(80); strings.Contains(view, "outside workspace") {
@@ -464,13 +466,13 @@ func TestEditOutsideWorkspacePromptFlagsOutside(t *testing.T) {
 }
 
 func TestActiveGrantsSurviveMode(t *testing.T) {
-	m := Model{grants: &permission.Session{}}
-	m.grants.Grant(tools.Bash)
-	if !m.grants.Granted(tools.Bash) {
+	m := Model{Session: core.Session{Grants: &permission.Session{}}}
+	m.Grants.Grant(tools.Bash)
+	if !m.Grants.Granted(tools.Bash) {
 		t.Fatal("session grant should stick")
 	}
-	m.mode = prompt.ModeAsk
-	if !m.grants.Granted(tools.Bash) {
+	m.Mode = prompt.ModeAsk
+	if !m.Grants.Granted(tools.Bash) {
 		t.Fatal("session grant should survive mode switch")
 	}
 }
@@ -478,7 +480,7 @@ func TestActiveGrantsSurviveMode(t *testing.T) {
 func TestReadToolStartSkipsPrompt(t *testing.T) {
 	replies := make(chan agent.Reply, 1)
 	m := testModel()
-	m.ws = workspace.Context{Abs: t.TempDir()}
+	m.WS = workspace.Context{Abs: t.TempDir()}
 	m.turn = &turnSession{
 		activeTool: -1,
 		ch:         make(chan agent.Event),
@@ -499,7 +501,7 @@ func TestReadToolStartSkipsPrompt(t *testing.T) {
 func TestEnvReadOpensApproval(t *testing.T) {
 	replies := make(chan agent.Reply, 1)
 	m := testModel()
-	m.ws = workspace.Context{Abs: t.TempDir()}
+	m.WS = workspace.Context{Abs: t.TempDir()}
 	m.turn = &turnSession{
 		activeTool: -1,
 		ch:         make(chan agent.Event),
@@ -510,7 +512,7 @@ func TestEnvReadOpensApproval(t *testing.T) {
 		name: tools.Read, label: "read .env", path: ".env",
 		args: json.RawMessage(`{"path":".env"}`),
 	})
-	if m.bottom.perm == nil || !m.bottom.perm.env || m.bottom.perm.outside {
+	if m.bottom.perm == nil || !m.bottom.perm.appr.Env || m.bottom.perm.appr.Call.Outside {
 		t.Fatalf("env read must open file prompt: %+v", m.bottom.perm)
 	}
 	out := stripANSI(m.renderPermission(80))
@@ -533,7 +535,7 @@ func TestEnvReadOpensApproval(t *testing.T) {
 func TestReadOutsideOpensApproval(t *testing.T) {
 	replies := make(chan agent.Reply, 1)
 	m := testModel()
-	m.ws = workspace.Context{Abs: t.TempDir()}
+	m.WS = workspace.Context{Abs: t.TempDir()}
 	m.turn = &turnSession{
 		activeTool: -1,
 		ch:         make(chan agent.Event),
@@ -544,7 +546,7 @@ func TestReadOutsideOpensApproval(t *testing.T) {
 		name: tools.Read, label: "read ../x.txt", path: "../x.txt",
 		args: json.RawMessage(`{"path":"../x.txt"}`),
 	})
-	if m.bottom.perm == nil || m.bottom.perm.name != tools.Read || !m.bottom.perm.outside {
+	if m.bottom.perm == nil || m.bottom.perm.name != tools.Read || !m.bottom.perm.appr.Call.Outside {
 		t.Fatalf("outside read must open prompt: %+v", m.bottom.perm)
 	}
 	out := stripANSI(m.renderPermission(80))
@@ -578,7 +580,7 @@ func TestReadOutsideSessionGrantSkipsLater(t *testing.T) {
 	twoC, _ := json.Marshal(map[string]string{"path": filepath.Join(outer, "two", "c.txt")})
 
 	m := testModel()
-	m.ws = workspace.Context{Abs: root}
+	m.WS = workspace.Context{Abs: root}
 	m.turn = &turnSession{
 		activeTool: -1,
 		ch:         make(chan agent.Event),
@@ -592,10 +594,10 @@ func TestReadOutsideSessionGrantSkipsLater(t *testing.T) {
 	if _, ok := m.handlePermissionKey(tea.KeyPressMsg{Code: 's', Text: "s"}); !ok {
 		t.Fatal("s")
 	}
-	if !m.grants.DirGranted(permission.CallFor(root, tools.Read, oneA)) {
+	if !m.Grants.DirGranted(permission.CallFor(root, tools.Read, oneA)) {
 		t.Fatal("directory grant should stick")
 	}
-	if m.grants.Granted(tools.Read) {
+	if m.Grants.Granted(tools.Read) {
 		t.Fatal("must not class-grant read")
 	}
 	if allow := <-replies; allow.Kind == agent.ReplyDeny {
@@ -623,7 +625,7 @@ func TestReadOutsideSessionGrantSkipsLater(t *testing.T) {
 			name: tools.Read, label: "read " + name, path: filepath.Join(outer, "one", name),
 			args: env,
 		})
-		if m.bottom.perm == nil || !m.bottom.perm.env {
+		if m.bottom.perm == nil || !m.bottom.perm.appr.Env {
 			t.Fatalf("directory grant must still prompt %s: %+v", name, m.bottom.perm)
 		}
 		m.bottom.clear()
@@ -650,8 +652,8 @@ func TestReadOutsideSessionGrantSkipsLater(t *testing.T) {
 func TestReadOutsidePromptsInAskMode(t *testing.T) {
 	replies := make(chan agent.Reply, 1)
 	m := testModel()
-	m.mode = prompt.ModeAsk
-	m.ws = workspace.Context{Abs: t.TempDir()}
+	m.Mode = prompt.ModeAsk
+	m.WS = workspace.Context{Abs: t.TempDir()}
 	m.turn = &turnSession{
 		activeTool: -1,
 		ch:         make(chan agent.Event),
@@ -670,9 +672,9 @@ func TestReadOutsidePromptsInAskMode(t *testing.T) {
 func TestHandlePermissionKeySwallowsUnknown(t *testing.T) {
 	replies := make(chan agent.Reply, 1)
 	m := Model{
-		grants: &permission.Session{},
-		bottom: bottomSlot{perm: newPermissionPrompt("", tools.Bash, "")},
-		turn:   &turnSession{reply: replies, activeTool: -1, cancel: func() {}},
+		Session: core.Session{Grants: &permission.Session{}},
+		bottom:  bottomSlot{perm: newPermissionPrompt("", tools.Bash, "")},
+		turn:    &turnSession{reply: replies, activeTool: -1, cancel: func() {}},
 	}
 	if _, ok := m.handlePermissionKey(tea.KeyPressMsg{Text: "/"}); !ok {
 		t.Fatal("unknown keys should be consumed while prompt open")

@@ -12,8 +12,8 @@ import (
 
 func testModelWithClient() Model {
 	m := testModel()
-	m.cfg = testClientCfg()
-	m.applyClient()
+	m.Cfg = testClientCfg()
+	m.ApplyClient()
 	return m
 }
 
@@ -42,8 +42,8 @@ func TestEnterMidTurnQueues(t *testing.T) {
 	if len(mm.queue) != 1 || mm.queue[0].text != "later" {
 		t.Fatalf("queue=%+v", mm.queue)
 	}
-	if len(mm.history) != 0 {
-		t.Fatalf("history=%+v", mm.history)
+	if len(mm.History) != 0 {
+		t.Fatalf("history=%+v", mm.History)
 	}
 	if mm.textarea.Value() != "" {
 		t.Fatalf("input=%q", mm.textarea.Value())
@@ -68,8 +68,8 @@ func TestEmptyEnterMidTurnSendsQueueHead(t *testing.T) {
 	if !cancelled {
 		t.Fatal("send-now must cancel the live turn")
 	}
-	if len(m.history) != 1 || m.history[0].Text != "head" {
-		t.Fatalf("history=%+v", m.history)
+	if len(m.History) != 1 || m.History[0].Text != "head" {
+		t.Fatalf("history=%+v", m.History)
 	}
 	if len(m.queue) != 1 || m.queue[0].id != 2 {
 		t.Fatalf("queue=%+v", m.queue)
@@ -104,8 +104,8 @@ func TestEmptyEnterMidTurnNoQueueNoop(t *testing.T) {
 	if cancelled {
 		t.Fatal("empty enter with empty queue must not cancel")
 	}
-	if len(m.history) != 0 {
-		t.Fatalf("history=%+v", m.history)
+	if len(m.History) != 0 {
+		t.Fatalf("history=%+v", m.History)
 	}
 }
 
@@ -168,8 +168,8 @@ func TestQueueEnterSendsSelected(t *testing.T) {
 	if len(mm.queue) != 1 || mm.queue[0].id != 2 {
 		t.Fatalf("remaining queue=%+v", mm.queue)
 	}
-	if len(mm.history) != 1 || mm.history[0].Text != "first" {
-		t.Fatalf("history=%+v", mm.history)
+	if len(mm.History) != 1 || mm.History[0].Text != "first" {
+		t.Fatalf("history=%+v", mm.History)
 	}
 	if mm.turn == nil || mm.turn.id != 2 {
 		t.Fatalf("new turn id=%v", mm.turn)
@@ -187,8 +187,8 @@ func TestIdleEmptyEnterDrainsQueue(t *testing.T) {
 	if len(m.queue) != 0 {
 		t.Fatalf("queue=%+v", m.queue)
 	}
-	if len(m.history) != 1 {
-		t.Fatalf("history=%+v", m.history)
+	if len(m.History) != 1 {
+		t.Fatalf("history=%+v", m.History)
 	}
 }
 
@@ -219,8 +219,8 @@ func TestTurnDoneDrainsQueueFIFO(t *testing.T) {
 	if len(m.queue) != 1 || m.queue[0].text != "second" {
 		t.Fatalf("queue=%+v", m.queue)
 	}
-	if len(m.history) != 1 || m.history[0].Text != "first" {
-		t.Fatalf("history=%+v", m.history)
+	if len(m.History) != 1 || m.History[0].Text != "first" {
+		t.Fatalf("history=%+v", m.History)
 	}
 }
 
@@ -526,9 +526,9 @@ func TestClearQueueOnApplySession(t *testing.T) {
 func TestModeSwitchBlockedWithQueue(t *testing.T) {
 	m := testModel()
 	m.queue = []queuedPrompt{qp(1, "x")}
-	before := m.mode
+	before := m.Mode
 	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift, Text: "shift+tab"})
-	if next.(Model).mode != before {
+	if next.(Model).Mode != before {
 		t.Fatal("mode should not change with queue")
 	}
 }
