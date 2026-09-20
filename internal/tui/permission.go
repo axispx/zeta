@@ -119,9 +119,9 @@ func (p *permissionPrompt) setArgs(args json.RawMessage, root string) {
 // sendReply delivers a harness decision to the agent. Non-blocking: on cancel the
 // agent may already have taken ctx.Done() and left the buffer free or stale.
 func (m *Model) sendReply(r agent.Reply) {
-	if m.turn != nil && m.turn.reply != nil {
+	if m.turn.current != nil && m.turn.current.reply != nil {
 		select {
-		case m.turn.reply <- r:
+		case m.turn.current.reply <- r:
 		default:
 		}
 	}
@@ -130,24 +130,24 @@ func (m *Model) sendReply(r agent.Reply) {
 // decidePermission applies the user's choice to the session and answers the
 // agent. The grant/persist/reply logic is core.Session.DecidePermission.
 func (m *Model) decidePermission(d permission.Decision) {
-	p := m.bottom.perm
+	p := m.panel.perm
 	if p == nil {
 		return
 	}
-	reply, err := m.Session.DecidePermission(d, p.appr.Call)
+	reply, err := m.session.DecidePermission(d, p.appr.Call)
 	if err != nil {
 		// Keep the decision even when the rule cannot be saved.
 		m.noteError("permissions: " + err.Error())
 	}
 	m.sendReply(reply)
-	m.bottom.clear()
-	m.afterSetBottom()
+	m.panel.clear()
+	m.afterPanelChange()
 }
 
 // abandonPermission sends Deny so the agent unblocks on the same path as a
 // user deny, then clears the prompt. Used when the turn is cancelled.
 func (m *Model) abandonPermission() {
-	if m.bottom.perm == nil {
+	if m.panel.perm == nil {
 		return
 	}
 	m.decidePermission(permission.Deny)
@@ -156,7 +156,7 @@ func (m *Model) abandonPermission() {
 // handlePermissionKey consumes nav / a/s/d / enter while the prompt is open.
 // Esc returns handled=false so Update's interrupt path still runs.
 func (m *Model) handlePermissionKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
-	p := m.bottom.perm
+	p := m.panel.perm
 	if p == nil {
 		return nil, false
 	}
@@ -174,13 +174,13 @@ func (m *Model) handlePermissionKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 
 // handlePermissionClick selects an option under the cursor on left-click.
 func (m *Model) handlePermissionClick(msg tea.MouseClickMsg) (tea.Cmd, bool) {
-	p := m.bottom.perm
+	p := m.panel.perm
 	if p == nil || msg.Button != tea.MouseLeft {
 		return nil, false
 	}
 	titleH := m.permissionTitleH()
-	_, contentW := overlayWidths(m.width)
-	idx, chose := p.list.handleClick(msg.X, msg.Y, m.viewport.Height(), m.width, titleH, contentW)
+	_, contentW := overlayWidths(m.term.width)
+	idx, chose := p.list.handleClick(msg.X, msg.Y, m.transcript.viewport.Height(), m.term.width, titleH, contentW)
 	if !chose {
 		return nil, false
 	}
@@ -193,39 +193,39 @@ func (m *Model) handlePermissionClick(msg tea.MouseClickMsg) (tea.Cmd, bool) {
 
 // handlePermissionMotion highlights the option under the cursor.
 func (m *Model) handlePermissionMotion(msg tea.MouseMotionMsg) bool {
-	p := m.bottom.perm
+	p := m.panel.perm
 	if p == nil {
 		return false
 	}
-	_, contentW := overlayWidths(m.width)
-	return p.list.handleMotion(msg.X, msg.Y, m.viewport.Height(), m.width, m.permissionTitleH(), contentW)
+	_, contentW := overlayWidths(m.term.width)
+	return p.list.handleMotion(msg.X, msg.Y, m.transcript.viewport.Height(), m.term.width, m.permissionTitleH(), contentW)
 }
 
 func (m Model) permissionTitleH() int {
-	_, contentW := overlayWidths(m.width)
-	ink := m.chrome.OverlayInk()
+	_, contentW := overlayWidths(m.term.width)
+	ink := m.term.chrome.OverlayInk()
 	return lipgloss.Height(m.renderPermissionTitle(contentW, ink))
 }
 
 // permissionOptionAt returns the option index at terminal (x,y), or -1.
 // Used by tests.
 func (m Model) permissionOptionAt(x, y int) int {
-	if m.bottom.perm == nil {
+	if m.panel.perm == nil {
 		return -1
 	}
-	return optionIndexAt(x, y, m.viewport.Height(), m.width, m.permissionTitleH(), m.bottom.perm.list.n())
+	return optionIndexAt(x, y, m.transcript.viewport.Height(), m.term.width, m.permissionTitleH(), m.panel.perm.list.n())
 }
 
 func (m Model) renderPermission(width int) string {
-	p := m.bottom.perm
+	p := m.panel.perm
 	if p == nil {
 		return ""
 	}
 	_, contentW := overlayWidths(width)
-	ink := m.chrome.OverlayInk()
+	ink := m.term.chrome.OverlayInk()
 
 	body := m.renderPermissionTitle(contentW, ink) + p.list.render(contentW, ink)
-	return renderBottomPanel(m.chrome, width, body)
+	return renderPanelFrame(m.term.chrome, width, body)
 }
 
 func (m Model) renderPermissionTitle(contentW int, ink styles.OverlayInk) string {
@@ -233,7 +233,7 @@ func (m Model) renderPermissionTitle(contentW int, ink styles.OverlayInk) string
 	if inner < 1 {
 		inner = 1
 	}
-	p := m.bottom.perm
+	p := m.panel.perm
 	if p == nil {
 		return ""
 	}

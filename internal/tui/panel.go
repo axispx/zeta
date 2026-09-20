@@ -9,155 +9,156 @@ import (
 	"github.com/axispx/zeta/internal/styles"
 )
 
-// panelGutter aligns bottom-panel body text with the input prompt column.
+// panelGutter aligns panel body text with the input prompt column.
 const panelGutter = inputPromptWidth
 
-// bottomSlot is the exclusive input-slot panel (permission / ask / plan / build pick).
-// At most one field is non-nil — always use set* / clear, never assign ad-hoc.
-type bottomSlot struct {
+// panel is the exclusive occupant of the input row: at most one of the
+// permission / ask / plan / build widgets is open at a time. Open through set*
+// and close through clear — never assign a field ad-hoc.
+type panel struct {
 	perm  *permissionPrompt
 	ask   *askPrompt
 	plan  *planPrompt
 	build *buildPickPrompt
 }
 
-func (b *bottomSlot) blocked() bool {
-	return b.perm != nil || b.ask != nil || b.plan != nil || b.build != nil
+func (p *panel) blocked() bool {
+	return p.perm != nil || p.ask != nil || p.plan != nil || p.build != nil
 }
 
-func (b *bottomSlot) clear() {
-	b.perm = nil
-	b.ask = nil
-	b.plan = nil
-	b.build = nil
+func (p *panel) clear() {
+	p.perm = nil
+	p.ask = nil
+	p.plan = nil
+	p.build = nil
 }
 
-func (b *bottomSlot) setPerm(p *permissionPrompt) {
-	b.clear()
-	b.perm = p
+func (p *panel) setPerm(perm *permissionPrompt) {
+	p.clear()
+	p.perm = perm
 }
 
-func (b *bottomSlot) setAsk(a *askPrompt) {
-	b.clear()
-	b.ask = a
+func (p *panel) setAsk(ask *askPrompt) {
+	p.clear()
+	p.ask = ask
 }
 
-func (b *bottomSlot) setPlan(p *planPrompt) {
-	b.clear()
-	b.plan = p
+func (p *panel) setPlan(plan *planPrompt) {
+	p.clear()
+	p.plan = plan
 }
 
-func (b *bottomSlot) setBuild(p *buildPickPrompt) {
-	b.clear()
-	b.build = p
+func (p *panel) setBuild(build *buildPickPrompt) {
+	p.clear()
+	p.build = build
 }
 
-// inputBlocked reports whether a bottom panel owns the input slot.
+// inputBlocked reports whether a panel owns the input slot.
 func (m Model) inputBlocked() bool {
-	return m.bottom.blocked()
+	return m.panel.blocked()
 }
 
-// clearBottom drops any bottom panel without side effects (no deny reply).
-func (m *Model) clearBottom() {
-	m.bottom.clear()
+// clearPanel drops any panel without side effects (no deny reply).
+func (m *Model) clearPanel() {
+	m.panel.clear()
 }
 
-// abandonBottom cancels open harness panels so the agent unblocks (deny),
+// abandonPanel cancels open harness panels so the agent unblocks (deny),
 // then clears the slot. Used when the turn ends. Plan/build are post-turn.
-func (m *Model) abandonBottom() {
-	if m.bottom.perm != nil {
+func (m *Model) abandonPanel() {
+	if m.panel.perm != nil {
 		m.abandonPermission()
 	}
-	if m.bottom.ask != nil {
+	if m.panel.ask != nil {
 		m.abandonAsk()
 	}
 }
 
-// interruptBottom handles esc/ctrl+c for post-turn bottom panels.
+// interruptPanel handles esc/ctrl+c for post-turn panels.
 // Returns true when something was dismissed (caller should not quit further).
 // Open harness panels (perm/ask) return false so finishTurn abandons them.
-func (m *Model) interruptBottom() bool {
+func (m *Model) interruptPanel() bool {
 	switch {
-	case m.bottom.build != nil:
+	case m.panel.build != nil:
 		m.cancelPlanBuildPick()
 		return true
-	case m.bottom.plan != nil:
+	case m.panel.plan != nil:
 		m.dismissPlan()
 		return true
-	case m.bottom.ask != nil, m.bottom.perm != nil:
+	case m.panel.ask != nil, m.panel.perm != nil:
 		return false
 	default:
 		return false
 	}
 }
 
-// handleBottomKey routes keys to the exclusive bottom panel.
+// handlePanelKey routes keys to the exclusive panel.
 // handled=false for esc (and when no panel) so Update's interrupt path runs.
-func (m *Model) handleBottomKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
+func (m *Model) handlePanelKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 	switch {
-	case m.bottom.perm != nil:
+	case m.panel.perm != nil:
 		return m.handlePermissionKey(msg)
-	case m.bottom.ask != nil:
+	case m.panel.ask != nil:
 		return m.handleAskKey(msg)
-	case m.bottom.plan != nil:
+	case m.panel.plan != nil:
 		return m.handlePlanKey(msg)
-	case m.bottom.build != nil:
+	case m.panel.build != nil:
 		return m.handleBuildPickKey(msg)
 	default:
 		return nil, false
 	}
 }
 
-// handleBottomClick routes mouse to the active panel.
-func (m *Model) handleBottomClick(msg tea.MouseClickMsg) (tea.Cmd, bool) {
+// handlePanelClick routes mouse to the active panel.
+func (m *Model) handlePanelClick(msg tea.MouseClickMsg) (tea.Cmd, bool) {
 	switch {
-	case m.bottom.perm != nil:
+	case m.panel.perm != nil:
 		return m.handlePermissionClick(msg)
-	case m.bottom.ask != nil:
+	case m.panel.ask != nil:
 		return m.handleAskClick(msg)
-	case m.bottom.plan != nil:
+	case m.panel.plan != nil:
 		return m.handlePlanClick(msg)
-	case m.bottom.build != nil:
+	case m.panel.build != nil:
 		return m.handleBuildPickClick(msg)
 	default:
 		return nil, false
 	}
 }
 
-func (m *Model) handleBottomMotion(msg tea.MouseMotionMsg) bool {
+func (m *Model) handlePanelMotion(msg tea.MouseMotionMsg) bool {
 	switch {
-	case m.bottom.perm != nil:
+	case m.panel.perm != nil:
 		return m.handlePermissionMotion(msg)
-	case m.bottom.ask != nil:
+	case m.panel.ask != nil:
 		return m.handleAskMotion(msg)
-	case m.bottom.plan != nil:
+	case m.panel.plan != nil:
 		return m.handlePlanMotion(msg)
-	case m.bottom.build != nil:
+	case m.panel.build != nil:
 		return m.handleBuildPickMotion(msg)
 	default:
 		return false
 	}
 }
 
-// renderBottom returns the exclusive bottom-panel view, or "".
-func (m Model) renderBottom(width int) string {
+// renderPanel returns the exclusive panel view, or "".
+func (m Model) renderPanel(width int) string {
 	switch {
-	case m.bottom.perm != nil:
+	case m.panel.perm != nil:
 		return m.renderPermission(width)
-	case m.bottom.ask != nil:
+	case m.panel.ask != nil:
 		return m.renderAsk(width)
-	case m.bottom.plan != nil:
+	case m.panel.plan != nil:
 		return m.renderPlanApproval(width)
-	case m.bottom.build != nil:
+	case m.panel.build != nil:
 		return m.renderPlanBuildPick(width)
 	default:
 		return ""
 	}
 }
 
-// renderBottomPanel wraps option-list body in the shared bottom-slot chrome
+// renderPanelFrame wraps option-list body in the shared panel chrome
 // (blank spacer + margin + overlay panel padding). Used by permission/ask/plan.
-func renderBottomPanel(chrome styles.Chrome, width int, body string) string {
+func renderPanelFrame(chrome styles.Chrome, width int, body string) string {
 	innerW, _ := overlayWidths(width)
 	panel := lipgloss.NewStyle().
 		Margin(0, styles.InputMarginH, styles.InputMarginB, styles.InputMarginH).
@@ -214,9 +215,9 @@ func optionLineAt(x, y, viewportH, termW int) int {
 	return y - viewportH - 1 - 1
 }
 
-// afterSetBottom re-lays out when a panel opens/closes while the TUI is ready.
-func (m *Model) afterSetBottom() {
-	if m.ready {
+// afterPanelChange re-lays out when a panel opens/closes while the TUI is ready.
+func (m *Model) afterPanelChange() {
+	if m.term.ready {
 		m.layoutPreservingBottom()
 	}
 }

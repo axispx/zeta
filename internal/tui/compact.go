@@ -39,12 +39,12 @@ type compactDoneMsg struct {
 // exclusiveJob freezes the composer while a compact run is in flight.
 // Auth recover is busy but still accepts queue input — not exclusive.
 func (m *Model) exclusiveJob() bool {
-	return m.Exclusive()
+	return m.session.Exclusive()
 }
 
 // busy reports whether a turn, exclusive job, or auth recover is in flight.
 func (m *Model) busy() bool {
-	return m.Busy(m.turn != nil)
+	return m.session.Busy(m.turn.current != nil)
 }
 
 // startCompact runs a manual /compact (forced). Context window is optional.
@@ -52,34 +52,34 @@ func (m *Model) startCompact() tea.Cmd {
 	if m.busy() {
 		return nil
 	}
-	if m.Client == nil {
+	if m.session.Client == nil {
 		m.noteSystem(compactNoClientText)
 		return nil
 	}
-	if len(m.History) == 0 {
+	if len(m.session.History) == 0 {
 		m.noteSystem(compactNothingText)
 		return nil
 	}
-	if err := m.EnsureFreshClient(context.Background()); err != nil {
+	if err := m.session.EnsureFreshClient(context.Background()); err != nil {
 		m.noteError(err.Error())
 		return nil
 	}
 	// Match submit: overhead estimate uses current system prompt.
-	m.RefreshWorkspace()
+	m.session.RefreshWorkspace()
 	return m.runCompact(compactManual, "")
 }
 
 // runCompact starts an async compact. Auto kind continues into a turn when done.
 func (m *Model) runCompact(kind compactKind, titlePrompt string) tea.Cmd {
-	hist := append([]ai.Message(nil), m.History...)
-	cfg := m.CompactConfig(m.Cfg)
-	cfg.Prefix = m.CompactPrefix()
-	client := m.Client
+	hist := append([]ai.Message(nil), m.session.History...)
+	cfg := m.session.CompactConfig(m.session.Cfg)
+	cfg.Prefix = m.session.CompactPrefix()
+	client := m.session.Client
 	force := kind == compactManual
 
 	ctx, cancel := context.WithCancel(context.Background())
-	m.compactCancel = cancel
-	m.Compacting = true
+	m.turn.compactCancel = cancel
+	m.session.Compacting = true
 	// Busy gap grows while compacting; shrink transcript now.
 	m.layoutPreservingBottom()
 
@@ -103,23 +103,17 @@ func (m *Model) runCompact(kind compactKind, titlePrompt string) tea.Cmd {
 // cancelCompact aborts an in-flight compact (Esc). The async cmd still returns
 // compactDoneMsg with context.Canceled.
 func (m *Model) cancelCompact() {
-	if m.compactCancel != nil {
-		m.compactCancel()
-		m.compactCancel = nil
-	}
+	m.turn.abortCompact()
 }
 
 func (m *Model) clearCompactState() {
-	m.Compacting = false
-	if m.compactCancel != nil {
-		m.compactCancel()
-		m.compactCancel = nil
-	}
+	m.session.Compacting = false
+	m.turn.abortCompact()
 }
 
 func (m *Model) handleCompactDone(msg compactDoneMsg) tea.Cmd {
 	m.clearCompactState()
-	if m.quitting {
+	if m.exit.quitting {
 		return nil
 	}
 
@@ -141,7 +135,7 @@ func (m *Model) handleCompactDone(msg compactDoneMsg) tea.Cmd {
 	if msg.kind == compactAuto {
 		// Compact can take a while, and the agent may have checked out a
 		// branch in the meantime. AGENTS.md stays the session snapshot.
-		m.RefreshWorkspace()
+		m.session.RefreshWorkspace()
 		return m.beginTurn(msg.titlePrompt)
 	}
 	return nil
@@ -152,15 +146,15 @@ func (m *Model) applyCompactResult(res compact.Result) {
 	// /resume. It is nearly free: the conversation layer is being rewritten
 	// anyway, and an unchanged AGENTS.md leaves the system prompt layer intact.
 	// Reload before the overhead estimate below so it reflects the new prompt.
-	m.ReloadAgents()
-	m.History = res.History
+	m.session.ReloadAgents()
+	m.session.History = res.History
 	// The provider's measurement described the pre-compaction request, so it is
 	// gone. Re-base on an estimate of the new history: the footer shows the
 	// shrink immediately, and the next auto-compact check measures only what is
 	// appended from here (see compact.usedTokens).
-	m.ContextTokens = int64(compact.Estimate(res.History) + m.CompactConfig(m.Cfg).Overhead)
-	m.ContextMsgs = len(m.History)
-	m.messages = append(m.messages, Message{Role: RoleSystem, Text: compactDividerText})
+	m.session.ContextTokens = int64(compact.Estimate(res.History) + m.session.CompactConfig(m.session.Cfg).Overhead)
+	m.session.ContextMsgs = len(m.session.History)
+	m.transcript.messages = append(m.transcript.messages, Message{Role: RoleSystem, Text: compactDividerText})
 	m.persist(session.Record{
 		Role: session.RoleCompact,
 		Text: res.Summary,
@@ -170,11 +164,11 @@ func (m *Model) applyCompactResult(res compact.Result) {
 }
 
 func (m *Model) noteSystem(text string) {
-	m.messages = append(m.messages, Message{Role: RoleSystem, Text: text})
+	m.transcript.messages = append(m.transcript.messages, Message{Role: RoleSystem, Text: text})
 	m.refreshTranscript()
 }
 
 func (m *Model) noteError(text string) {
-	m.messages = append(m.messages, Message{Role: RoleError, Text: text})
+	m.transcript.messages = append(m.transcript.messages, Message{Role: RoleError, Text: text})
 	m.refreshTranscript()
 }

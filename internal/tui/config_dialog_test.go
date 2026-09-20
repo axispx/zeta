@@ -197,18 +197,18 @@ func TestConfigDialogSaveReachesLiveModel(t *testing.T) {
 	t.Setenv("ZETA_HOME", dir)
 
 	m := testModel()
-	m.Cfg = config.Config{Providers: map[string]config.Provider{
+	m.session.Cfg = config.Config{Providers: map[string]config.Provider{
 		"p": {
 			Name: "P", BaseURL: "https://p/v1", APIKey: "k",
 			Models: map[string]config.ModelDef{"m1": {Name: "M1", ContextWindow: 1000, Disabled: true}},
 		},
 	}}
-	m.ApplyClient()
-	if m.Client != nil {
+	m.session.ApplyClient()
+	if m.session.Client != nil {
 		t.Fatal("no model enabled; client should start nil")
 	}
 
-	m.textarea.SetValue("/config")
+	m.composer.textarea.SetValue("/config")
 	m = stepModel(t, m, keyEnter)
 	if !m.config.active {
 		t.Fatal("/config did not open the dialog")
@@ -233,10 +233,10 @@ func TestConfigDialogSaveReachesLiveModel(t *testing.T) {
 	if m.config.active {
 		t.Fatal("dialog still open")
 	}
-	if m.Cfg.Active != "p/m1" {
-		t.Fatalf("Active = %q", m.Cfg.Active)
+	if m.session.Cfg.Active != "p/m1" {
+		t.Fatalf("Active = %q", m.session.Cfg.Active)
 	}
-	if m.Client == nil {
+	if m.session.Client == nil {
 		t.Fatal("client nil; the save never reached the live model")
 	}
 }

@@ -37,3 +37,25 @@ func terminalTitle(sess *session.Session) string {
 	}
 	return truncateRight(name, 40)
 }
+
+// ensureTitle requests an AI title once for an untitled session.
+func (m *Model) ensureTitle(prompt string) tea.Cmd {
+	if m.session.Client == nil || !m.session.WantsTitle() {
+		return nil
+	}
+	m.session.TitlePending = true
+	return requestSessionTitle(m.session, m.session.Client, prompt)
+}
+
+// firstUserPrompt is the oldest non-empty user text: the title seed for a
+// resumed session, and the title prompt for a turn restarted by oauth retry.
+func firstUserPrompt(msgs []Message) string {
+	for _, msg := range msgs {
+		if msg.Role == RoleUser {
+			if t := strings.TrimSpace(msg.Text); t != "" {
+				return t
+			}
+		}
+	}
+	return ""
+}

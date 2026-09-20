@@ -24,10 +24,10 @@ func TestRunCommandUpdateRequestsRestart(t *testing.T) {
 			withVersion(t, v)
 			m := testModel()
 			cmd := m.runCommand("/update")
-			if !m.updateOnExit {
+			if !m.exit.updateOnExit {
 				t.Fatal("expected update request")
 			}
-			if !m.quitting {
+			if !m.exit.quitting {
 				t.Fatal("expected the TUI to quit")
 			}
 			if cmd == nil {
@@ -44,17 +44,17 @@ func TestHandleUpdateAvailable(t *testing.T) {
 	m := testModel()
 	m.handleUpdateAvailable(updateAvailableMsg{from: "0.10.0", to: "0.11.0"})
 	want := "zeta 0.11.0 available (you have 0.10.0) — run /update"
-	if n := len(m.messages); n == 0 || m.messages[n-1].Text != want {
-		t.Fatalf("messages=%+v", m.messages)
+	if n := len(m.transcript.messages); n == 0 || m.transcript.messages[n-1].Text != want {
+		t.Fatalf("messages=%+v", m.transcript.messages)
 	}
 }
 
 func TestHandleUpdateAvailableQuietOnQuit(t *testing.T) {
 	m := testModel()
-	m.quitting = true
+	m.exit.quitting = true
 	m.handleUpdateAvailable(updateAvailableMsg{from: "0.10.0", to: "0.11.0"})
-	if len(m.messages) != 0 {
-		t.Fatalf("messages=%+v", m.messages)
+	if len(m.transcript.messages) != 0 {
+		t.Fatalf("messages=%+v", m.transcript.messages)
 	}
 }
 
@@ -70,12 +70,12 @@ func TestExclusiveJob(t *testing.T) {
 	if m.exclusiveJob() {
 		t.Fatal("idle")
 	}
-	m.Compacting = true
+	m.session.Compacting = true
 	if !m.exclusiveJob() || !m.busy() {
 		t.Fatal("compacting")
 	}
-	m.Compacting = false
-	m.AuthRetrying = true
+	m.session.Compacting = false
+	m.session.AuthRetrying = true
 	if m.exclusiveJob() {
 		t.Fatal("auth is busy but not exclusive")
 	}

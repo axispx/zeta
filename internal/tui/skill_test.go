@@ -47,22 +47,22 @@ func TestSkillSlashDoesNotCollideWithBuiltins(t *testing.T) {
 func TestSubmitInputSkillWithArgs(t *testing.T) {
 	ta := textarea.New()
 	ta.SetValue("/review focus on stream.go")
-	m := Model{composerState: composerState{textarea: ta}, Session: core.Session{Cfg: testClientCfg()}}
-	m.ApplyClient()
+	m := Model{composer: composer{textarea: ta}, session: core.Session{Cfg: testClientCfg()}}
+	m.session.ApplyClient()
 	cmd := m.submitInput()
 	_ = cmd
-	if len(m.History) != 1 || m.History[0].Text != "/review focus on stream.go" {
-		t.Fatalf("history: %+v", m.History)
+	if len(m.session.History) != 1 || m.session.History[0].Text != "/review focus on stream.go" {
+		t.Fatalf("history: %+v", m.session.History)
 	}
-	if len(m.messages) == 0 || m.messages[0].Role != RoleUser {
-		t.Fatalf("messages: %+v", m.messages)
+	if len(m.transcript.messages) == 0 || m.transcript.messages[0].Role != RoleUser {
+		t.Fatalf("messages: %+v", m.transcript.messages)
 	}
 }
 
 func TestSubmitInputPaletteSkillFillsInput(t *testing.T) {
 	ta := textarea.New()
 	ta.SetValue("/rev")
-	m := Model{composerState: composerState{textarea: ta}}
+	m := Model{composer: composer{textarea: ta}}
 	_ = m.syncOverlay()
 	if !m.overlay.showing() {
 		t.Fatal("expected command overlay")
@@ -85,14 +85,14 @@ func TestSubmitInputPaletteSkillFillsInput(t *testing.T) {
 	if cmd != nil {
 		t.Fatal("palette skill select should not start a turn")
 	}
-	if got := m.textarea.Value(); got != "/review " {
+	if got := m.composer.textarea.Value(); got != "/review " {
 		t.Fatalf("input = %q, want %q", got, "/review ")
 	}
 	if m.overlay.showing() {
 		t.Fatal("overlay should dismiss after fill")
 	}
-	if len(m.History) != 0 {
-		t.Fatalf("should not submit: history=%+v", m.History)
+	if len(m.session.History) != 0 {
+		t.Fatalf("should not submit: history=%+v", m.session.History)
 	}
 }
 
@@ -100,8 +100,8 @@ func TestSubmitInputExactSkillTokenFills(t *testing.T) {
 	// Palette Enter always fills skills (never runs) so args can be added.
 	ta := textarea.New()
 	ta.SetValue("/review")
-	m := Model{composerState: composerState{textarea: ta}, Session: core.Session{Cfg: testClientCfg()}}
-	m.ApplyClient()
+	m := Model{composer: composer{textarea: ta}, session: core.Session{Cfg: testClientCfg()}}
+	m.session.ApplyClient()
 	_ = m.syncOverlay()
 	if !m.overlay.showing() {
 		t.Fatal("expected command overlay for exact token")
@@ -113,26 +113,26 @@ func TestSubmitInputExactSkillTokenFills(t *testing.T) {
 	if cmd != nil {
 		t.Fatal("palette skill select should not start a turn")
 	}
-	if got := m.textarea.Value(); got != "/review " {
+	if got := m.composer.textarea.Value(); got != "/review " {
 		t.Fatalf("input = %q, want %q", got, "/review ")
 	}
 	if m.overlay.showing() {
 		t.Fatal("overlay should dismiss after fill")
 	}
-	if len(m.History) != 0 {
-		t.Fatalf("should not submit: history=%+v", m.History)
+	if len(m.session.History) != 0 {
+		t.Fatalf("should not submit: history=%+v", m.session.History)
 	}
 	// Second Enter (no overlay; trailing space trimmed) runs the skill turn.
 	_ = m.submitInput()
-	if len(m.History) != 1 || m.History[0].Text != "/review" {
-		t.Fatalf("history after second enter: %+v", m.History)
+	if len(m.session.History) != 1 || m.session.History[0].Text != "/review" {
+		t.Fatalf("history after second enter: %+v", m.session.History)
 	}
 }
 
 func TestTabSkillFillsInput(t *testing.T) {
 	ta := textarea.New()
 	ta.SetValue("/rev")
-	m := Model{composerState: composerState{textarea: ta}}
+	m := Model{composer: composer{textarea: ta}}
 	_ = m.syncOverlay()
 	for i, c := range m.overlay.cmds {
 		if c.name == "/review" {
@@ -143,7 +143,7 @@ func TestTabSkillFillsInput(t *testing.T) {
 	if _, ok := m.handleOverlayKey(tea.KeyPressMsg{Code: tea.KeyTab}); !ok {
 		t.Fatal("tab should be consumed")
 	}
-	if got := m.textarea.Value(); got != "/review " {
+	if got := m.composer.textarea.Value(); got != "/review " {
 		t.Fatalf("input = %q, want %q", got, "/review ")
 	}
 	if m.overlay.showing() {

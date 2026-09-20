@@ -119,8 +119,8 @@ func (m *Model) insertDropPaths(paths []string) {
 		text = " " + text
 	}
 	text += " "
-	before := m.textarea.Value()
-	m.textarea.InsertString(text)
+	before := m.composer.textarea.Value()
+	m.composer.textarea.InsertString(text)
 	m.notePromptEdit(before)
 	m.afterComposerChange()
 }

@@ -24,7 +24,7 @@ const (
 	askOtherAnswer = "Other"
 )
 
-// askPrompt is the bottom panel for tools.AskUser.
+// askPrompt is the panel for tools.AskUser.
 // Replaces the input until the user answers or the turn is cancelled.
 type askPrompt struct {
 	questions []tools.AskQuestion
@@ -136,41 +136,41 @@ func (p *askPrompt) buildResponse() tools.AskUserResponse {
 }
 
 func (m *Model) abandonAsk() {
-	if m.bottom.ask == nil {
+	if m.panel.ask == nil {
 		return
 	}
 	m.sendReply(agent.DenyTool())
-	m.bottom.clear()
-	m.afterSetBottom()
+	m.panel.clear()
+	m.afterPanelChange()
 }
 
 func (m *Model) submitAsk() {
-	p := m.bottom.ask
+	p := m.panel.ask
 	if p == nil {
 		return
 	}
 	// If Other is selected with empty text on the current question, focus typing.
 	if p.isOther(p.qi) && strings.TrimSpace(p.other[p.qi]) == "" {
 		p.typing = true
-		m.afterSetBottom()
+		m.afterPanelChange()
 		return
 	}
 	// Multi-question: advance until last.
 	if p.qi < len(p.questions)-1 {
 		p.qi++
 		p.typing = p.isOther(p.qi)
-		m.afterSetBottom()
+		m.afterPanelChange()
 		return
 	}
 	m.sendReply(agent.InjectResult(tools.FormatAskUserResponse(p.buildResponse())))
-	m.bottom.clear()
-	m.afterSetBottom()
+	m.panel.clear()
+	m.afterPanelChange()
 }
 
 // handleAskKey consumes keys while the ask panel is open.
 // Esc returns handled=false so Update's interrupt path still runs.
 func (m *Model) handleAskKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
-	p := m.bottom.ask
+	p := m.panel.ask
 	if p == nil {
 		return nil, false
 	}
@@ -272,7 +272,7 @@ func isPrintable(s string) bool {
 }
 
 func (m *Model) handleAskType(msg tea.KeyPressMsg) bool {
-	p := m.bottom.ask
+	p := m.panel.ask
 	if p == nil {
 		return false
 	}
@@ -328,7 +328,7 @@ func trimLastWord(s string) string {
 
 // handleAskClick selects an option under the cursor.
 func (m *Model) handleAskClick(msg tea.MouseClickMsg) (tea.Cmd, bool) {
-	p := m.bottom.ask
+	p := m.panel.ask
 	if p == nil || msg.Button != tea.MouseLeft {
 		return nil, false
 	}
@@ -337,8 +337,8 @@ func (m *Model) handleAskClick(msg tea.MouseClickMsg) (tea.Cmd, bool) {
 		return nil, false
 	}
 	p.syncOther()
-	_, contentW := overlayWidths(m.width)
-	idx, chose := list.handleClick(msg.X, msg.Y, m.viewport.Height(), m.width, m.askTitleH(), contentW)
+	_, contentW := overlayWidths(m.term.width)
+	idx, chose := list.handleClick(msg.X, msg.Y, m.transcript.viewport.Height(), m.term.width, m.askTitleH(), contentW)
 	if !chose {
 		return nil, false
 	}
@@ -348,7 +348,7 @@ func (m *Model) handleAskClick(msg tea.MouseClickMsg) (tea.Cmd, bool) {
 }
 
 func (m *Model) handleAskMotion(msg tea.MouseMotionMsg) bool {
-	p := m.bottom.ask
+	p := m.panel.ask
 	if p == nil {
 		return false
 	}
@@ -357,18 +357,18 @@ func (m *Model) handleAskMotion(msg tea.MouseMotionMsg) bool {
 		return false
 	}
 	p.syncOther()
-	_, contentW := overlayWidths(m.width)
-	return list.handleMotion(msg.X, msg.Y, m.viewport.Height(), m.width, m.askTitleH(), contentW)
+	_, contentW := overlayWidths(m.term.width)
+	return list.handleMotion(msg.X, msg.Y, m.transcript.viewport.Height(), m.term.width, m.askTitleH(), contentW)
 }
 
 func (m Model) askTitleH() int {
-	_, contentW := overlayWidths(m.width)
-	ink := m.chrome.OverlayInk()
+	_, contentW := overlayWidths(m.term.width)
+	ink := m.term.chrome.OverlayInk()
 	return lipgloss.Height(m.renderAskHeader(contentW, ink))
 }
 
 func (m Model) renderAsk(width int) string {
-	p := m.bottom.ask
+	p := m.panel.ask
 	if p == nil {
 		return ""
 	}
@@ -381,7 +381,7 @@ func (m Model) renderAsk(width int) string {
 		return ""
 	}
 	_, contentW := overlayWidths(width)
-	ink := m.chrome.OverlayInk()
+	ink := m.term.chrome.OverlayInk()
 
 	var b strings.Builder
 	b.WriteString(m.renderAskHeader(contentW, ink))
@@ -393,16 +393,16 @@ func (m Model) renderAsk(width int) string {
 	b.WriteByte('\n')
 	b.WriteString(m.renderAskFooter(contentW, ink))
 
-	return renderBottomPanel(m.chrome, width, b.String())
+	return renderPanelFrame(m.term.chrome, width, b.String())
 }
 
-// panelInner is the row width inside a bottom panel, excluding the gutter.
+// panelInner is the row width inside a panel, excluding the gutter.
 func panelInner(contentW int) int {
 	return max(1, contentW-panelGutter)
 }
 
 func (m Model) renderAskHeader(contentW int, ink styles.OverlayInk) string {
-	p := m.bottom.ask
+	p := m.panel.ask
 	if p == nil {
 		return ""
 	}
@@ -430,7 +430,7 @@ func (m Model) renderAskHeader(contentW int, ink styles.OverlayInk) string {
 
 func (m Model) renderAskFooter(contentW int, ink styles.OverlayInk) string {
 	inner := panelInner(contentW)
-	p := m.bottom.ask
+	p := m.panel.ask
 	var parts []string
 	if p.typing {
 		parts = append(parts, "enter submit")
@@ -490,6 +490,6 @@ func (m *Model) openAskFromToolStart(argsJSON json.RawMessage) {
 		m.sendReply(agent.InjectResult("error: " + err.Error()))
 		return
 	}
-	m.bottom.setAsk(newAskPrompt(args))
-	m.afterSetBottom()
+	m.panel.setAsk(newAskPrompt(args))
+	m.afterPanelChange()
 }

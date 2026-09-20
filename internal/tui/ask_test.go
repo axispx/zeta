@@ -64,13 +64,13 @@ func TestAskPromptFreeformEmptyAnswersOther(t *testing.T) {
 func TestHandleAskSubmitSendsResult(t *testing.T) {
 	replies := make(chan agent.Reply, 1)
 	m := Model{
-		bottom:    bottomSlot{ask: newAskPrompt(sampleAskArgs())},
-		turnState: turnState{turn: &turnSession{reply: replies, activeTool: -1, cancel: func() {}}},
+		panel: panel{ask: newAskPrompt(sampleAskArgs())},
+		turn:  turn{current: &turnSession{reply: replies, activeTool: -1, cancel: func() {}}},
 	}
 	// select second option
-	m.bottom.ask.lists[0].selected = 1
+	m.panel.ask.lists[0].selected = 1
 	m.submitAsk()
-	if m.bottom.ask != nil {
+	if m.panel.ask != nil {
 		t.Fatal("ask should clear")
 	}
 	r := <-replies
@@ -89,14 +89,14 @@ func TestHandleAskSubmitSendsResult(t *testing.T) {
 func TestHandleAskKeyNavAndEnter(t *testing.T) {
 	replies := make(chan agent.Reply, 1)
 	m := Model{
-		bottom:    bottomSlot{ask: newAskPrompt(sampleAskArgs())},
-		turnState: turnState{turn: &turnSession{reply: replies, activeTool: -1, cancel: func() {}}},
+		panel: panel{ask: newAskPrompt(sampleAskArgs())},
+		turn:  turn{current: &turnSession{reply: replies, activeTool: -1, cancel: func() {}}},
 	}
 	if _, ok := m.handleAskKey(tea.KeyPressMsg{Code: tea.KeyDown}); !ok {
 		t.Fatal("expected handled")
 	}
-	if m.bottom.ask.lists[0].selected != 1 {
-		t.Fatalf("selected=%d", m.bottom.ask.lists[0].selected)
+	if m.panel.ask.lists[0].selected != 1 {
+		t.Fatalf("selected=%d", m.panel.ask.lists[0].selected)
 	}
 	if _, ok := m.handleAskKey(tea.KeyPressMsg{Code: tea.KeyEnter}); !ok {
 		t.Fatal("enter")
@@ -108,15 +108,15 @@ func TestHandleAskKeyNavAndEnter(t *testing.T) {
 }
 
 func TestHandleAskTypeJumpsToOther(t *testing.T) {
-	m := Model{bottom: bottomSlot{ask: newAskPrompt(sampleAskArgs())}}
-	m.bottom.ask.lists[0].selected = 2
-	m.bottom.ask.typing = true
-	m.bottom.ask.other[0] = "x"
+	m := Model{panel: panel{ask: newAskPrompt(sampleAskArgs())}}
+	m.panel.ask.lists[0].selected = 2
+	m.panel.ask.typing = true
+	m.panel.ask.other[0] = "x"
 	if !m.handleAskType(tea.KeyPressMsg{Code: tea.KeyBackspace}) {
 		t.Fatal("backspace")
 	}
-	if m.bottom.ask.other[0] != "" {
-		t.Fatalf("other=%q", m.bottom.ask.other[0])
+	if m.panel.ask.other[0] != "" {
+		t.Fatalf("other=%q", m.panel.ask.other[0])
 	}
 }
 
@@ -147,25 +147,25 @@ func TestAskTextKeySpace(t *testing.T) {
 }
 
 func TestHandleAskTypeInsertsSpace(t *testing.T) {
-	m := Model{bottom: bottomSlot{ask: newAskPrompt(sampleAskArgs())}}
-	m.bottom.ask.lists[0].selected = 2
-	m.bottom.ask.typing = true
-	m.bottom.ask.other[0] = "hybrid"
+	m := Model{panel: panel{ask: newAskPrompt(sampleAskArgs())}}
+	m.panel.ask.lists[0].selected = 2
+	m.panel.ask.typing = true
+	m.panel.ask.other[0] = "hybrid"
 	m.handleAskType(spaceKey())
 	m.handleAskType(tea.KeyPressMsg{Code: 'a', Text: "a"})
-	if got, want := m.bottom.ask.other[0], "hybrid a"; got != want {
+	if got, want := m.panel.ask.other[0], "hybrid a"; got != want {
 		t.Fatalf("other = %q, want %q", got, want)
 	}
 }
 
 // A space on an option row drops into Other, like any other printable key.
 func TestHandleAskKeySpaceJumpsToOther(t *testing.T) {
-	m := Model{bottom: bottomSlot{ask: newAskPrompt(sampleAskArgs())}}
-	m.bottom.ask.lists[0].selected = 0
+	m := Model{panel: panel{ask: newAskPrompt(sampleAskArgs())}}
+	m.panel.ask.lists[0].selected = 0
 	if _, ok := m.handleAskKey(spaceKey()); !ok {
 		t.Fatal("expected handled")
 	}
-	p := m.bottom.ask
+	p := m.panel.ask
 	if !p.typing || !p.isOther(p.qi) {
 		t.Fatalf("typing=%v other=%v", p.typing, p.isOther(p.qi))
 	}
@@ -176,17 +176,17 @@ func TestHandleAskKeySpaceJumpsToOther(t *testing.T) {
 
 // A multi-rune text (bracketed paste) lands whole rather than being dropped.
 func TestHandleAskTypePastesText(t *testing.T) {
-	m := Model{bottom: bottomSlot{ask: newAskPrompt(sampleAskArgs())}}
-	m.bottom.ask.lists[0].selected = 2
-	m.bottom.ask.typing = true
+	m := Model{panel: panel{ask: newAskPrompt(sampleAskArgs())}}
+	m.panel.ask.lists[0].selected = 2
+	m.panel.ask.typing = true
 	m.handleAskType(tea.KeyPressMsg{Code: tea.KeyExtended, Text: "two words"})
-	if got, want := m.bottom.ask.other[0], "two words"; got != want {
+	if got, want := m.panel.ask.other[0], "two words"; got != want {
 		t.Fatalf("other = %q, want %q", got, want)
 	}
 }
 
 func TestRenderAskShowsOptions(t *testing.T) {
-	m := Model{width: 80, bottom: bottomSlot{ask: newAskPrompt(sampleAskArgs())}}
+	m := Model{term: term{width: 80}, panel: panel{ask: newAskPrompt(sampleAskArgs())}}
 	out := stripANSI(m.renderAsk(80))
 	if !strings.Contains(out, "Simple (Recommended)") {
 		t.Fatalf("missing option: %q", out)
@@ -201,7 +201,7 @@ func TestRenderAskShowsOptions(t *testing.T) {
 
 // The question block ends with a blank row separating it from the options.
 func TestRenderAskBlankAfterQuestion(t *testing.T) {
-	m := Model{width: 80, bottom: bottomSlot{ask: newAskPrompt(sampleAskArgs())}}
+	m := Model{term: term{width: 80}, panel: panel{ask: newAskPrompt(sampleAskArgs())}}
 	lines := strings.Split(stripANSI(m.renderAsk(80)), "\n")
 	i := -1
 	for j, l := range lines {
@@ -223,7 +223,7 @@ func TestRenderAskBlankAfterQuestion(t *testing.T) {
 
 // The key hints sit one blank row below the last option.
 func TestRenderAskGapAboveFooter(t *testing.T) {
-	m := Model{width: 80, bottom: bottomSlot{ask: newAskPrompt(sampleAskArgs())}}
+	m := Model{term: term{width: 80}, panel: panel{ask: newAskPrompt(sampleAskArgs())}}
 	lines := strings.Split(stripANSI(m.renderAsk(80)), "\n")
 	i := -1
 	for j, l := range lines {
@@ -245,8 +245,8 @@ func TestRenderAskGapAboveFooter(t *testing.T) {
 
 // Typing in the freeform row replaces its option text: no description line, caret at the end.
 func TestRenderAskOtherReplacesLabel(t *testing.T) {
-	m := Model{width: 80, bottom: bottomSlot{ask: newAskPrompt(sampleAskArgs())}}
-	p := m.bottom.ask
+	m := Model{term: term{width: 80}, panel: panel{ask: newAskPrompt(sampleAskArgs())}}
+	p := m.panel.ask
 	p.lists[0].selected = 2
 
 	idle := stripANSI(m.renderAsk(80))
@@ -279,8 +279,8 @@ func TestRenderAskOtherReplacesLabel(t *testing.T) {
 
 // A long answer scrolls from the left so the caret and newest keys stay visible.
 func TestRenderAskOtherLabelScrolls(t *testing.T) {
-	m := Model{width: 60, bottom: bottomSlot{ask: newAskPrompt(sampleAskArgs())}}
-	p := m.bottom.ask
+	m := Model{term: term{width: 60}, panel: panel{ask: newAskPrompt(sampleAskArgs())}}
+	p := m.panel.ask
 	p.lists[0].selected = 2
 	p.typing = true
 	p.other[0] = strings.Repeat("word ", 20) + "end"
@@ -306,8 +306,8 @@ func TestRenderAskOtherLabelScrolls(t *testing.T) {
 
 // A saved answer survives leaving the field: no caret once keys move off it.
 func TestRenderAskOtherAnswerUnfocused(t *testing.T) {
-	m := Model{width: 80, bottom: bottomSlot{ask: newAskPrompt(sampleAskArgs())}}
-	p := m.bottom.ask
+	m := Model{term: term{width: 80}, panel: panel{ask: newAskPrompt(sampleAskArgs())}}
+	p := m.panel.ask
 	p.other[0] = "hybrid approach"
 	p.lists[0].selected = 2
 	p.typing = false
@@ -322,32 +322,32 @@ func TestRenderAskOtherAnswerUnfocused(t *testing.T) {
 
 // Descriptions render under their option, so a click on one selects that row.
 func TestHandleAskClickOnDescriptionLine(t *testing.T) {
-	m := Model{width: 100, bottom: bottomSlot{ask: newAskPrompt(sampleAskArgs())}}
-	m.bottom.ask.lists[0].selected = 0
+	m := Model{term: term{width: 100}, panel: panel{ask: newAskPrompt(sampleAskArgs())}}
+	m.panel.ask.lists[0].selected = 0
 	titleH := m.askTitleH()
 	// Rows are label · description, so row 1's description is line 3.
-	y := m.viewport.Height() + 2 + titleH + 3
+	y := m.transcript.viewport.Height() + 2 + titleH + 3
 	if _, ok := m.handleAskClick(tea.MouseClickMsg{X: styles.InputMarginH + 1, Y: y, Button: tea.MouseLeft}); !ok {
 		t.Fatal("expected click handled")
 	}
-	if m.bottom.ask.lists[0].selected != 1 {
-		t.Fatalf("selected=%d", m.bottom.ask.lists[0].selected)
+	if m.panel.ask.lists[0].selected != 1 {
+		t.Fatalf("selected=%d", m.panel.ask.lists[0].selected)
 	}
 }
 
 func TestOpenAskFromToolStart(t *testing.T) {
 	replies := make(chan agent.Reply, 1)
-	m := Model{turnState: turnState{turn: &turnSession{reply: replies, activeTool: -1, cancel: func() {}}}}
+	m := Model{turn: turn{current: &turnSession{reply: replies, activeTool: -1, cancel: func() {}}}}
 	raw, _ := json.Marshal(sampleAskArgs())
 	m.openAskFromToolStart(raw)
-	if m.bottom.ask == nil || len(m.bottom.ask.questions) != 1 {
-		t.Fatalf("%+v", m.bottom.ask)
+	if m.panel.ask == nil || len(m.panel.ask.questions) != 1 {
+		t.Fatalf("%+v", m.panel.ask)
 	}
 }
 
 func TestOpenAskInvalidArgsReturnsErrorResult(t *testing.T) {
 	replies := make(chan agent.Reply, 1)
-	m := Model{turnState: turnState{turn: &turnSession{reply: replies, activeTool: -1, cancel: func() {}}}}
+	m := Model{turn: turn{current: &turnSession{reply: replies, activeTool: -1, cancel: func() {}}}}
 	m.openAskFromToolStart(json.RawMessage(`{"questions":[]}`))
 	r := <-replies
 	if r.Kind != agent.ReplyInject || !strings.Contains(r.Result, "error:") {
@@ -358,11 +358,11 @@ func TestOpenAskInvalidArgsReturnsErrorResult(t *testing.T) {
 func TestAbandonAskDenies(t *testing.T) {
 	replies := make(chan agent.Reply, 1)
 	m := Model{
-		bottom:    bottomSlot{ask: newAskPrompt(sampleAskArgs())},
-		turnState: turnState{turn: &turnSession{reply: replies, activeTool: -1, cancel: func() {}}},
+		panel: panel{ask: newAskPrompt(sampleAskArgs())},
+		turn:  turn{current: &turnSession{reply: replies, activeTool: -1, cancel: func() {}}},
 	}
 	m.abandonAsk()
-	if m.bottom.ask != nil {
+	if m.panel.ask != nil {
 		t.Fatal("cleared")
 	}
 	r := <-replies
@@ -386,14 +386,14 @@ func TestMultiQuestionAdvance(t *testing.T) {
 	}
 	replies := make(chan agent.Reply, 1)
 	m := Model{
-		bottom:    bottomSlot{ask: newAskPrompt(args)},
-		turnState: turnState{turn: &turnSession{reply: replies, activeTool: -1, cancel: func() {}}},
+		panel: panel{ask: newAskPrompt(args)},
+		turn:  turn{current: &turnSession{reply: replies, activeTool: -1, cancel: func() {}}},
 	}
 	m.submitAsk() // advance to q2
-	if m.bottom.ask == nil || m.bottom.ask.qi != 1 {
-		t.Fatalf("qi=%v ask=%v", m.bottom.ask, m.bottom.ask)
+	if m.panel.ask == nil || m.panel.ask.qi != 1 {
+		t.Fatalf("qi=%v ask=%v", m.panel.ask, m.panel.ask)
 	}
-	m.bottom.ask.lists[1].selected = 1
+	m.panel.ask.lists[1].selected = 1
 	m.submitAsk()
 	r := <-replies
 	var resp tools.AskUserResponse

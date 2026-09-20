@@ -185,8 +185,8 @@ func isSlashToken(s string) bool {
 }
 
 func (m *Model) resetInput() {
-	m.textarea.Reset()
-	m.textarea.SetHeight(inputMinHeight)
+	m.composer.textarea.Reset()
+	m.composer.textarea.SetHeight(inputMinHeight)
 	m.syncTextareaStyles()
 	m.resetPromptHistory()
 	m.clearPendingImages()
@@ -199,10 +199,10 @@ func (m *Model) syncOverlay() tea.Cmd {
 		return nil
 	}
 	if m.overlay.mode == overlayModels {
-		m.overlay.clamp(len(m.overlay.visibleModels(m.textarea.Value())))
+		m.overlay.clamp(len(m.overlay.visibleModels(m.composer.textarea.Value())))
 		return nil
 	}
-	val := m.textarea.Value()
+	val := m.composer.textarea.Value()
 	// Whole-input slash palette wins over @ mentions.
 	if strings.HasPrefix(val, "/") && !strings.ContainsAny(val, " \t\n") {
 		items := matchCommands(val)
@@ -219,7 +219,7 @@ func (m *Model) syncOverlay() tea.Cmd {
 		m.overlay.clamp(len(items))
 		return nil
 	}
-	if tok, ok := atTokenAtCursor(val, m.textarea.Line(), m.textarea.Column()); ok {
+	if tok, ok := atTokenAtCursor(val, m.composer.textarea.Line(), m.composer.textarea.Column()); ok {
 		return m.syncFileOverlay(tok.query)
 	}
 	m.closeOverlay()
@@ -259,7 +259,7 @@ func (m *Model) cancelOverlay() {
 	m.closeOverlay()
 	if owns {
 		m.resetInput()
-		if m.ready {
+		if m.term.ready {
 			m.layoutPreservingBottom()
 		}
 	}
@@ -293,9 +293,9 @@ func (m *Model) runCommand(name string) tea.Cmd {
 // dismisses the command overlay without submitting.
 func (m *Model) fillSkillSlash(name string) {
 	m.closeOverlay()
-	m.textarea.SetValue(name + " ")
-	m.textarea.MoveToEnd()
-	if m.ready {
+	m.composer.textarea.SetValue(name + " ")
+	m.composer.textarea.MoveToEnd()
+	if m.term.ready {
 		m.layoutPreservingBottom()
 	}
 }
@@ -303,7 +303,7 @@ func (m *Model) fillSkillSlash(name string) {
 func (m *Model) openConfigDialog() tea.Cmd {
 	m.closeOverlay()
 	m.picker.clear()
-	return m.config.Open(m.Cfg)
+	return m.config.Open(m.session.Cfg)
 }
 
 // updateConfigDialog forwards a msg to the dialog and collects anything it
@@ -311,53 +311,53 @@ func (m *Model) openConfigDialog() tea.Cmd {
 func (m *Model) updateConfigDialog(msg tea.Msg) (tea.Cmd, bool) {
 	cmd, handled := m.config.Update(msg)
 	if c := m.config.takeSaved(); c != nil {
-		m.Cfg = *c
-		m.ApplyClient()
+		m.session.Cfg = *c
+		m.session.ApplyClient()
 		// A saved model change switches the prefix (and the provider cache).
-		m.ResetContext()
+		m.session.ResetContext()
 	}
 	return cmd, handled
 }
 
 func (m *Model) applySession(sess *session.Session, recs []session.Record, err error) {
 	if err != nil {
-		m.messages = []Message{{Role: RoleError, Text: "session: " + err.Error()}}
-		m.Log = nil
-		m.History = nil
-		m.SeedTodos(nil)
+		m.transcript.messages = []Message{{Role: RoleError, Text: "session: " + err.Error()}}
+		m.session.Log = nil
+		m.session.History = nil
+		m.session.SeedTodos(nil)
 	} else {
-		m.Log = sess
-		m.messages, m.History = loadSession(recs)
-		m.SeedTodos(core.TodosFromRecords(recs))
+		m.session.Log = sess
+		m.transcript.messages, m.session.History = loadSession(recs)
+		m.session.SeedTodos(core.TodosFromRecords(recs))
 	}
 	// A session boundary is when project instructions are read: /clear and
 	// /resume pick up an edited AGENTS.md, turns in between do not.
-	m.ReloadAgents()
+	m.session.ReloadAgents()
 	m.refreshSessionDiff()
-	m.ResetContext()
+	m.session.ResetContext()
 	// /resume replays the persisted per-turn accounting; /clear starts at zero.
-	m.Usage = core.UsageFromRecords(recs)
-	m.TitlePending = false
+	m.session.Usage = core.UsageFromRecords(recs)
+	m.session.TitlePending = false
 	m.clearCompactState()
 	m.resetPromptHistory()
-	m.clearBottom()
+	m.clearPanel()
 	m.pendingPlan = ""
 	m.clearQueue()
 	m.closeOverlay()
-	m.Grants = &permission.Session{}
-	m.invalidate()
+	m.session.Grants = &permission.Session{}
+	m.transcript.invalidate()
 	m.refreshTranscript()
 }
 
 func (m *Model) startNewSession() {
-	sess, err := session.New(m.WS.Abs)
+	sess, err := session.New(m.session.WS.Abs)
 	m.applySession(sess, nil, err)
 }
 
 func (m *Model) openModelOverlay() {
-	entries := m.Cfg.ModelChoices()
+	entries := m.session.Cfg.ModelChoices()
 	if len(entries) == 0 {
-		m.messages = append(m.messages, Message{Role: RoleSystem, Text: "no models configured"})
+		m.transcript.messages = append(m.transcript.messages, Message{Role: RoleSystem, Text: "no models configured"})
 		m.refreshTranscript()
 		return
 	}
@@ -365,14 +365,14 @@ func (m *Model) openModelOverlay() {
 	m.overlay.mode = overlayModels
 	m.overlay.models = entries
 	m.resetInput()
-	active := m.Cfg.Active
+	active := m.session.Cfg.Active
 	for i, e := range entries {
 		if e.ID() == active {
 			m.overlay.selected = i
 			break
 		}
 	}
-	if m.ready {
+	if m.term.ready {
 		m.layoutPreservingBottom()
 	}
 }
@@ -381,26 +381,26 @@ func (m *Model) selectModel() {
 	if m.overlay.mode != overlayModels {
 		return
 	}
-	visible := m.overlay.visibleModels(m.textarea.Value())
+	visible := m.overlay.visibleModels(m.composer.textarea.Value())
 	if len(visible) == 0 {
 		return
 	}
 	choice := visible[m.overlay.selected]
 
-	prevCfg := m.Cfg
-	prevClient := m.Client
+	prevCfg := m.session.Cfg
+	prevClient := m.session.Client
 
-	m.Cfg.SetActive(choice.ID())
-	if err := m.Cfg.Save(); err != nil {
-		m.Cfg = prevCfg
-		m.Client = prevClient
+	m.session.Cfg.SetActive(choice.ID())
+	if err := m.session.Cfg.Save(); err != nil {
+		m.session.Cfg = prevCfg
+		m.session.Client = prevClient
 		m.cancelOverlay()
-		m.messages = append(m.messages, Message{Role: RoleError, Text: "config save: " + err.Error()})
+		m.transcript.messages = append(m.transcript.messages, Message{Role: RoleError, Text: "config save: " + err.Error()})
 		m.refreshTranscript()
 		return
 	}
-	m.ResetContext()
-	m.ApplyClient()
+	m.session.ResetContext()
+	m.session.ApplyClient()
 	m.cancelOverlay()
 	m.refreshTranscript()
 }
@@ -411,21 +411,21 @@ func (m *Model) cycleModelReasoning() {
 	if m.overlay.mode != overlayModels {
 		return
 	}
-	visible := m.overlay.visibleModels(m.textarea.Value())
+	visible := m.overlay.visibleModels(m.composer.textarea.Value())
 	if len(visible) == 0 {
 		return
 	}
 	choice := visible[m.overlay.selected]
 	next := config.CycleReasoningEffort(choice.Effort)
 	prev := choice.Effort
-	if err := m.Cfg.SetReasoningEffort(choice.ProviderID, choice.ModelID, next); err != nil {
-		m.messages = append(m.messages, Message{Role: RoleError, Text: err.Error()})
+	if err := m.session.Cfg.SetReasoningEffort(choice.ProviderID, choice.ModelID, next); err != nil {
+		m.transcript.messages = append(m.transcript.messages, Message{Role: RoleError, Text: err.Error()})
 		m.refreshTranscript()
 		return
 	}
-	if err := m.Cfg.Save(); err != nil {
-		_ = m.Cfg.SetReasoningEffort(choice.ProviderID, choice.ModelID, prev)
-		m.messages = append(m.messages, Message{Role: RoleError, Text: "config save: " + err.Error()})
+	if err := m.session.Cfg.Save(); err != nil {
+		_ = m.session.Cfg.SetReasoningEffort(choice.ProviderID, choice.ModelID, prev)
+		m.transcript.messages = append(m.transcript.messages, Message{Role: RoleError, Text: "config save: " + err.Error()})
 		m.refreshTranscript()
 		return
 	}
@@ -435,8 +435,8 @@ func (m *Model) cycleModelReasoning() {
 			break
 		}
 	}
-	if m.Cfg.Active == choice.ID() {
-		m.ApplyClient()
+	if m.session.Cfg.Active == choice.ID() {
+		m.session.ApplyClient()
 	}
 }
 
@@ -450,7 +450,7 @@ func (m *Model) handleOverlayKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 	key := msg.String()
 	switch m.overlay.mode {
 	case overlayModels:
-		n := len(m.overlay.visibleModels(m.textarea.Value()))
+		n := len(m.overlay.visibleModels(m.composer.textarea.Value()))
 		if m.overlay.move(n, key) {
 			return nil, true
 		}
@@ -476,12 +476,12 @@ func (m *Model) handleOverlayKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 			if cmd.skill {
 				m.fillSkillSlash(cmd.name)
 			} else {
-				m.textarea.SetValue(cmd.name)
+				m.composer.textarea.SetValue(cmd.name)
 			}
 			return nil, true
 		case "enter":
 			// Busy turn: consume Enter so the slash is not queued as chat.
-			if m.turn != nil {
+			if m.turn.current != nil {
 				return nil, true
 			}
 			cmd := m.overlay.cmds[m.overlay.selected]
@@ -520,21 +520,21 @@ func (m *Model) submitInput() tea.Cmd {
 	text, imgs := m.parseComposer()
 	if text == "" && len(imgs) == 0 {
 		// Empty Enter while editing: keep the item; user must save or Esc.
-		if m.editID != 0 {
+		if m.queue.editID != 0 {
 			return nil
 		}
 		// Do not interrupt/replace an in-flight OAuth recover.
-		if m.AuthRetrying {
+		if m.session.AuthRetrying {
 			return nil
 		}
 		return m.drainNextQueuedPrompt()
 	}
 	// Saving an open follow-up beats slash / turn routing.
-	if m.editID != 0 {
+	if m.queue.editID != 0 {
 		m.saveEdit(text, imgs)
 		return nil
 	}
-	if m.turn == nil && !m.AuthRetrying && text == ":q" { // vim
+	if m.turn.current == nil && !m.session.AuthRetrying && text == ":q" { // vim
 		return m.requestQuit()
 	}
 
@@ -546,7 +546,7 @@ func (m *Model) submitInput() tea.Cmd {
 	}
 	// Mid-turn / OAuth recover: queue for later. Send-now is empty Enter /
 	// queue-focus Enter (blocked while authRetrying).
-	if m.turn != nil || m.AuthRetrying {
+	if m.turn.current != nil || m.session.AuthRetrying {
 		return m.enqueuePrompt(text, imgs)
 	}
 	return m.submit(text, imgs)
@@ -559,7 +559,7 @@ func (m *Model) submitHarnessSlash(text string, imgs []image.Ref) tea.Cmd {
 		m.noteSystem("slash commands cannot include images")
 		return nil
 	}
-	if m.turn != nil || m.AuthRetrying {
+	if m.turn.current != nil || m.session.AuthRetrying {
 		return nil
 	}
 	if c, ok := lookupCommand(text); ok && !c.skill {
@@ -630,7 +630,7 @@ func (m Model) renderCommandOverlay(width int) string {
 		return ""
 	}
 	innerW, contentW := overlayWidths(width)
-	ink := m.chrome.OverlayInk()
+	ink := m.term.chrome.OverlayInk()
 	nameW := paletteNameWidth(m.overlay.cmds)
 	var b strings.Builder
 	for i, c := range m.overlay.cmds {
@@ -717,16 +717,16 @@ func formatAccentRowTagged(label, tag, hint string, innerW int, selected, curren
 }
 
 func (m Model) renderModelOverlay(width int) string {
-	visible := m.overlay.visibleModels(m.textarea.Value())
+	visible := m.overlay.visibleModels(m.composer.textarea.Value())
 	if m.overlay.mode != overlayModels || len(visible) == 0 {
 		return ""
 	}
 
 	innerW, contentW := overlayWidths(width)
-	ink := m.chrome.OverlayInk()
+	ink := m.term.chrome.OverlayInk()
 	// Drop leading newline from shared list helper (overlay has no header above).
 	body := strings.TrimPrefix(
-		renderModelChoiceList(visible, m.overlay.selected, m.Cfg.Active, "active", contentW, modelOverlayMaxRows, ink),
+		renderModelChoiceList(visible, m.overlay.selected, m.session.Cfg.Active, "active", contentW, modelOverlayMaxRows, ink),
 		"\n",
 	)
 	return m.paintOverlay(body, innerW)
@@ -749,5 +749,5 @@ func overlayWidths(termW int) (innerW, contentW int) {
 func (m Model) paintOverlay(body string, innerW int) string {
 	return lipgloss.NewStyle().
 		Margin(0, styles.InputMarginH).
-		Render(m.chrome.OverlayPanel().Width(innerW).Render(body))
+		Render(m.term.chrome.OverlayPanel().Width(innerW).Render(body))
 }

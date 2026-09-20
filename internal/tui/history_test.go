@@ -21,17 +21,19 @@ import (
 
 func testModel() Model {
 	m := Model{
-		composerState:   composerState{textarea: textarea.New()},
-		transcriptState: transcriptState{viewport: viewport.New()},
-		width:           80,
-		height:          24,
-		ready:           true,
-		Session: core.Session{
+		composer:   composer{textarea: textarea.New()},
+		transcript: transcript{viewport: viewport.New()},
+		term: term{
+			width:  80,
+			height: 24,
+			ready:  true,
+		},
+		session: core.Session{
 			Grants: &permission.Session{},
 			Rules:  permission.NewRules(policy.Policy{}),
 		},
 	}
-	m.promptHist.reset() // at=-1 (live draft); zero value is not live
+	m.composer.promptHist.reset() // at=-1 (live draft); zero value is not live
 	return m
 }
 
@@ -128,11 +130,11 @@ func TestLoadSessionDeniedTool(t *testing.T) {
 
 func TestHandleCompactDone(t *testing.T) {
 	m := testModel()
-	m.History = []ai.Message{
+	m.session.History = []ai.Message{
 		{Role: ai.RoleUser, Text: strings.Repeat("old ", 100)},
 		{Role: ai.RoleUser, Text: "new"},
 	}
-	m.Compacting = true
+	m.session.Compacting = true
 	sum := "## Task\n- done"
 	cp := compact.CheckpointMessage(sum)
 	cmd := m.handleCompactDone(compactDoneMsg{
@@ -147,44 +149,44 @@ func TestHandleCompactDone(t *testing.T) {
 	if cmd != nil {
 		t.Fatal("manual compact should not start a turn")
 	}
-	if m.Compacting {
+	if m.session.Compacting {
 		t.Fatal("compacting still set")
 	}
-	if len(m.History) != 2 || !compact.IsCheckpoint(m.History[0]) {
-		t.Fatalf("history=%+v", m.History)
+	if len(m.session.History) != 2 || !compact.IsCheckpoint(m.session.History[0]) {
+		t.Fatalf("history=%+v", m.session.History)
 	}
-	if len(m.messages) == 0 || m.messages[len(m.messages)-1].Text != compactDividerText {
-		t.Fatalf("messages=%+v", m.messages)
+	if len(m.transcript.messages) == 0 || m.transcript.messages[len(m.transcript.messages)-1].Text != compactDividerText {
+		t.Fatalf("messages=%+v", m.transcript.messages)
 	}
-	if m.ContextTokens <= 0 {
+	if m.session.ContextTokens <= 0 {
 		t.Fatal("contextTokens should be estimated after compact")
 	}
 }
 
 func TestHandleCompactDoneNothing(t *testing.T) {
 	m := testModel()
-	m.Compacting = true
-	m.History = []ai.Message{{Role: ai.RoleUser, Text: "x"}}
+	m.session.Compacting = true
+	m.session.History = []ai.Message{{Role: ai.RoleUser, Text: "x"}}
 	cmd := m.handleCompactDone(compactDoneMsg{
-		result: compact.Result{History: m.History},
+		result: compact.Result{History: m.session.History},
 		kind:   compactManual,
 	})
 	if cmd != nil {
 		t.Fatal("manual noop should not start a turn")
 	}
-	if m.Compacting {
+	if m.session.Compacting {
 		t.Fatal("compacting still set")
 	}
-	if len(m.messages) == 0 || m.messages[0].Text != compactNothingText {
-		t.Fatalf("messages=%+v", m.messages)
+	if len(m.transcript.messages) == 0 || m.transcript.messages[0].Text != compactNothingText {
+		t.Fatalf("messages=%+v", m.transcript.messages)
 	}
 }
 
 func TestHandleCompactDoneAutoContinuesTurn(t *testing.T) {
 	m := testModel()
-	m.Client = &ai.Client{}
-	m.Compacting = true
-	m.History = []ai.Message{{Role: ai.RoleUser, Text: "hi"}}
+	m.session.Client = &ai.Client{}
+	m.session.Compacting = true
+	m.session.History = []ai.Message{{Role: ai.RoleUser, Text: "hi"}}
 	sum := "## Task\n- go"
 	cp := compact.CheckpointMessage(sum)
 	cmd := m.handleCompactDone(compactDoneMsg{
@@ -200,21 +202,21 @@ func TestHandleCompactDoneAutoContinuesTurn(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("auto compact should begin turn")
 	}
-	if m.turn == nil {
+	if m.turn.current == nil {
 		t.Fatal("turn not started")
 	}
 	// Cancel so the background agent exits cleanly.
 	m.finishTurn()
-	if !compact.IsCheckpoint(m.History[0]) {
-		t.Fatalf("history not applied: %+v", m.History)
+	if !compact.IsCheckpoint(m.session.History[0]) {
+		t.Fatalf("history not applied: %+v", m.session.History)
 	}
 }
 
 func TestHandleCompactDoneAutoFailureContinues(t *testing.T) {
 	m := testModel()
-	m.Client = &ai.Client{}
-	m.Compacting = true
-	m.History = []ai.Message{{Role: ai.RoleUser, Text: "hi"}}
+	m.session.Client = &ai.Client{}
+	m.session.Compacting = true
+	m.session.History = []ai.Message{{Role: ai.RoleUser, Text: "hi"}}
 	cmd := m.handleCompactDone(compactDoneMsg{
 		err:         errAutoCompact,
 		kind:        compactAuto,
@@ -223,21 +225,21 @@ func TestHandleCompactDoneAutoFailureContinues(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("auto failure should still begin turn")
 	}
-	if m.turn == nil {
+	if m.turn.current == nil {
 		t.Fatal("turn not started")
 	}
 	m.finishTurn()
-	if len(m.messages) == 0 || m.messages[0].Text != compactAutoFailText {
-		t.Fatalf("messages=%+v", m.messages)
+	if len(m.transcript.messages) == 0 || m.transcript.messages[0].Text != compactAutoFailText {
+		t.Fatalf("messages=%+v", m.transcript.messages)
 	}
-	if m.History[0].Text != "hi" {
-		t.Fatalf("history should be unchanged: %+v", m.History)
+	if m.session.History[0].Text != "hi" {
+		t.Fatalf("history should be unchanged: %+v", m.session.History)
 	}
 }
 
 func TestHandleCompactDoneCancelledManual(t *testing.T) {
 	m := testModel()
-	m.Compacting = true
+	m.session.Compacting = true
 	// Run wraps errors as "compact: %w"; errors.Is still matches Canceled.
 	cmd := m.handleCompactDone(compactDoneMsg{
 		err:  fmt.Errorf("compact: %w", context.Canceled),
@@ -246,16 +248,16 @@ func TestHandleCompactDoneCancelledManual(t *testing.T) {
 	if cmd != nil {
 		t.Fatal("manual cancel should not start turn")
 	}
-	if len(m.messages) == 0 || m.messages[0].Text != compactCancelledText {
-		t.Fatalf("messages=%+v", m.messages)
+	if len(m.transcript.messages) == 0 || m.transcript.messages[0].Text != compactCancelledText {
+		t.Fatalf("messages=%+v", m.transcript.messages)
 	}
 }
 
 func TestShouldAutoCompact(t *testing.T) {
 	m := testModel()
-	m.Client = &ai.Client{}
+	m.session.Client = &ai.Client{}
 	setWindow := func(n int) {
-		m.Cfg = config.Config{
+		m.session.Cfg = config.Config{
 			Active: "p/m",
 			Providers: map[string]config.Provider{
 				"p": {BaseURL: "http://example", APIKey: "k", Models: map[string]config.ModelDef{
@@ -265,36 +267,36 @@ func TestShouldAutoCompact(t *testing.T) {
 		}
 	}
 	setWindow(200_000)
-	if m.ShouldAutoCompact(m.Client, m.Cfg) {
+	if m.session.ShouldAutoCompact(m.session.Client, m.session.Cfg) {
 		t.Fatal("empty history")
 	}
 	// Small history under budget.
-	m.History = []ai.Message{{Role: ai.RoleUser, Text: "hi"}}
-	if m.ShouldAutoCompact(m.Client, m.Cfg) {
+	m.session.History = []ai.Message{{Role: ai.RoleUser, Text: "hi"}}
+	if m.session.ShouldAutoCompact(m.session.Client, m.session.Cfg) {
 		t.Fatal("small history should not auto-compact")
 	}
 	// Oversized multi-turn history on a tight window (freeable head).
 	setWindow(8_000)
-	m.History = []ai.Message{
+	m.session.History = []ai.Message{
 		{Role: ai.RoleUser, Text: strings.Repeat("word ", 50_000)},
 		{Role: ai.RoleAssistant, Text: "ok"},
 		{Role: ai.RoleUser, Text: "recent"},
 	}
-	if !m.ShouldAutoCompact(m.Client, m.Cfg) {
+	if !m.session.ShouldAutoCompact(m.session.Client, m.session.Cfg) {
 		t.Fatal("large multi-turn history should auto-compact")
 	}
 	// Single oversized turn: over budget but nothing freeable.
-	m.History = []ai.Message{{Role: ai.RoleUser, Text: strings.Repeat("word ", 50_000)}}
-	if m.ShouldAutoCompact(m.Client, m.Cfg) {
+	m.session.History = []ai.Message{{Role: ai.RoleUser, Text: strings.Repeat("word ", 50_000)}}
+	if m.session.ShouldAutoCompact(m.session.Client, m.session.Cfg) {
 		t.Fatal("single oversized turn should not auto-compact")
 	}
 	// No window → never.
 	setWindow(0)
-	m.History = []ai.Message{
+	m.session.History = []ai.Message{
 		{Role: ai.RoleUser, Text: strings.Repeat("word ", 50_000)},
 		{Role: ai.RoleUser, Text: "recent"},
 	}
-	if m.ShouldAutoCompact(m.Client, m.Cfg) {
+	if m.session.ShouldAutoCompact(m.session.Client, m.session.Cfg) {
 		t.Fatal("zero window should not auto-compact")
 	}
 }
@@ -311,27 +313,27 @@ func TestStartCompactGuards(t *testing.T) {
 	if cmd := m.startCompact(); cmd != nil {
 		t.Fatal("nil client should not start cmd")
 	}
-	if len(m.messages) == 0 || m.messages[0].Text != compactNoClientText {
-		t.Fatalf("messages=%+v", m.messages)
+	if len(m.transcript.messages) == 0 || m.transcript.messages[0].Text != compactNoClientText {
+		t.Fatalf("messages=%+v", m.transcript.messages)
 	}
 
 	m = testModel()
-	m.Client = &ai.Client{}
+	m.session.Client = &ai.Client{}
 	// Manual compact does not require a context window.
 	if cmd := m.startCompact(); cmd != nil {
 		t.Fatal("empty history should not start cmd")
 	}
-	if m.messages[0].Text != compactNothingText {
-		t.Fatalf("messages=%+v", m.messages)
+	if m.transcript.messages[0].Text != compactNothingText {
+		t.Fatalf("messages=%+v", m.transcript.messages)
 	}
 
 	m = testModel()
-	m.Client = &ai.Client{}
-	m.History = []ai.Message{{Role: ai.RoleUser, Text: "x"}, {Role: ai.RoleUser, Text: "y"}}
+	m.session.Client = &ai.Client{}
+	m.session.History = []ai.Message{{Role: ai.RoleUser, Text: "x"}, {Role: ai.RoleUser, Text: "y"}}
 	if cmd := m.startCompact(); cmd == nil {
 		t.Fatal("manual compact with history should start (window optional)")
 	}
-	if !m.busy() || !m.Compacting {
+	if !m.busy() || !m.session.Compacting {
 		t.Fatal("should be busy/compacting")
 	}
 	m.cancelCompact()
@@ -344,12 +346,12 @@ func TestBusy(t *testing.T) {
 	if m.busy() {
 		t.Fatal("idle")
 	}
-	m.Compacting = true
+	m.session.Compacting = true
 	if !m.busy() {
 		t.Fatal("compacting")
 	}
-	m.Compacting = false
-	m.turn = &turnSession{}
+	m.session.Compacting = false
+	m.turn.current = &turnSession{}
 	if !m.busy() {
 		t.Fatal("turn")
 	}

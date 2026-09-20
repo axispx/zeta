@@ -77,17 +77,17 @@ func TestSessionUsageRenderCacheWrite(t *testing.T) {
 func TestReportUsageNotesTranscript(t *testing.T) {
 	m := testModel()
 	m.reportUsage()
-	if last := m.messages[len(m.messages)-1]; last.Role != RoleSystem || last.Text != usageNoneText {
+	if last := m.transcript.messages[len(m.transcript.messages)-1]; last.Role != RoleSystem || last.Text != usageNoneText {
 		t.Fatalf("empty session should say so: %+v", last)
 	}
 
-	m.Usage.Add("M", ai.Usage{PromptTokens: 100, CompletionTokens: 10})
-	n := len(m.messages)
+	m.session.Usage.Add("M", ai.Usage{PromptTokens: 100, CompletionTokens: 10})
+	n := len(m.transcript.messages)
 	m.reportUsage()
-	if len(m.messages) != n+1 {
-		t.Fatalf("messages = %d, want %d", len(m.messages), n+1)
+	if len(m.transcript.messages) != n+1 {
+		t.Fatalf("messages = %d, want %d", len(m.transcript.messages), n+1)
 	}
-	if got := m.messages[len(m.messages)-1].Text; !strings.Contains(got, "Usage · 1 response") {
+	if got := m.transcript.messages[len(m.transcript.messages)-1].Text; !strings.Contains(got, "Usage · 1 response") {
 		t.Fatalf("report = %q", got)
 	}
 }
@@ -102,9 +102,9 @@ func TestHandleTurnAssistantPersistsUsage(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := testModel()
-	m.Log = sess
-	m.Cfg = testFooterCfg()
-	m.turn = &turnSession{activeTool: -1}
+	m.session.Log = sess
+	m.session.Cfg = testFooterCfg()
+	m.turn.current = &turnSession{activeTool: -1}
 
 	usage := ai.Usage{
 		PromptTokens:     1000,
@@ -120,11 +120,11 @@ func TestHandleTurnAssistantPersistsUsage(t *testing.T) {
 	if cmd := m.handleTurnAssistant(msg); cmd == nil {
 		t.Fatal("expected a wait command")
 	}
-	if m.Usage.Responses != 1 || m.Usage.Total != 1200 {
-		t.Fatalf("live usage = %+v", m.Usage)
+	if m.session.Usage.Responses != 1 || m.session.Usage.Total != 1200 {
+		t.Fatalf("live usage = %+v", m.session.Usage)
 	}
-	if m.ContextTokens != 1200 {
-		t.Fatalf("contextTokens = %d", m.ContextTokens)
+	if m.session.ContextTokens != 1200 {
+		t.Fatalf("contextTokens = %d", m.session.ContextTokens)
 	}
 
 	_, recs, err := session.OpenID(proj, sess.ID)
@@ -137,11 +137,11 @@ func TestHandleTurnAssistantPersistsUsage(t *testing.T) {
 	if *recs[0].Usage != usage {
 		t.Fatalf("persisted usage = %+v, want %+v", *recs[0].Usage, usage)
 	}
-	if recs[0].Model != m.Cfg.ModelName() {
-		t.Fatalf("persisted model = %q, want %q", recs[0].Model, m.Cfg.ModelName())
+	if recs[0].Model != m.session.Cfg.ModelName() {
+		t.Fatalf("persisted model = %q, want %q", recs[0].Model, m.session.Cfg.ModelName())
 	}
-	if got := core.UsageFromRecords(recs); got.Total != m.Usage.Total || got.Input != m.Usage.Input {
-		t.Fatalf("resumed totals = %+v, want %+v", got, m.Usage)
+	if got := core.UsageFromRecords(recs); got.Total != m.session.Usage.Total || got.Input != m.session.Usage.Input {
+		t.Fatalf("resumed totals = %+v, want %+v", got, m.session.Usage)
 	}
 }
 
@@ -152,13 +152,13 @@ func TestApplySessionSeedsAndClearsUsage(t *testing.T) {
 	recs := []session.Record{
 		{Role: session.RoleAgent, Text: "a", Model: "M1", Usage: &ai.Usage{PromptTokens: 100, CompletionTokens: 10}},
 	}
-	m.Usage.Add("M0", ai.Usage{PromptTokens: 9, CompletionTokens: 1})
+	m.session.Usage.Add("M0", ai.Usage{PromptTokens: 9, CompletionTokens: 1})
 	m.applySession(nil, recs, nil)
-	if m.Usage.Responses != 1 || m.Usage.Total != 110 {
-		t.Fatalf("resume totals = %+v", m.Usage)
+	if m.session.Usage.Responses != 1 || m.session.Usage.Total != 110 {
+		t.Fatalf("resume totals = %+v", m.session.Usage)
 	}
 	m.applySession(nil, nil, nil)
-	if !m.Usage.Empty() {
-		t.Fatalf("new session must zero usage: %+v", m.Usage)
+	if !m.session.Usage.Empty() {
+		t.Fatalf("new session must zero usage: %+v", m.session.Usage)
 	}
 }

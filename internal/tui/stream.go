@@ -12,6 +12,18 @@ import (
 	"github.com/axispx/zeta/internal/core"
 )
 
+// This file owns the streaming turn: the active turn (turn / turnSession), the
+// events it sends back as turn*Msgs, and the paint throttle that keeps live
+// redraws cheap.
+
+// turn is the in-flight work: the agent turn, the compact job's cancel,
+// and the id allocator that lets late turn events be dropped.
+type turn struct {
+	current       *turnSession
+	nextID        int // last allocated turnSession.id
+	compactCancel context.CancelFunc
+}
+
 // streamPaintEvery caps how often live answer/thinking/tool-out redraw the transcript.
 const streamPaintEvery = 30 * time.Millisecond
 
@@ -45,7 +57,7 @@ type turnSession struct {
 	streaming  bool               // true while receiving assistant deltas
 	pending    *agent.Event       // set when coalesce peeks a non-matching event
 	thinking   string             // live reasoning tail; only while thinkingPhase
-	activeTool int                // index of open tool row in Model.messages; -1 if none
+	activeTool int                // index of open tool row in Model.transcript.messages; -1 if none
 }
 
 // thinkingPhase is true before answer deltas or an open tool (pre-answer reasoning).
@@ -131,11 +143,11 @@ type streamPaintMsg struct{ gen int }
 // requestStreamPaint schedules a throttled transcript redraw.
 // Safe on every delta/tool-out; only one tick is outstanding at a time.
 func (m *Model) requestStreamPaint() tea.Cmd {
-	if m.paint.scheduled {
+	if m.transcript.paint.scheduled {
 		return nil
 	}
-	m.paint.scheduled = true
-	gen := m.paint.gen
+	m.transcript.paint.scheduled = true
+	gen := m.transcript.paint.gen
 	return tea.Tick(streamPaintEvery, func(time.Time) tea.Msg {
 		return streamPaintMsg{gen: gen}
 	})
@@ -143,16 +155,16 @@ func (m *Model) requestStreamPaint() tea.Cmd {
 
 // cancelStreamPaint drops any pending throttled paint (gen bump invalidates in-flight ticks).
 func (m *Model) cancelStreamPaint() {
-	m.paint.gen++
-	m.paint.scheduled = false
+	m.transcript.paint.gen++
+	m.transcript.paint.scheduled = false
 }
 
 // handleStreamPaint applies a due throttled redraw.
 func (m *Model) handleStreamPaint(msg streamPaintMsg) {
-	if msg.gen != m.paint.gen {
+	if msg.gen != m.transcript.paint.gen {
 		return // stale after cancel/finish/refresh
 	}
-	m.paint.scheduled = false
+	m.transcript.paint.scheduled = false
 	m.repaintTranscript()
 }
 
@@ -252,4 +264,35 @@ func startTurn(id int, client *ai.Client, sess *core.Session) (*turnSession, tea
 		activeTool: -1,
 	}
 	return t, waitTurn(t)
+}
+
+// live reports whether a turn*Msg still belongs to the active turn. Late events
+// from a cancelled/replaced turn must not mutate state.
+func (t turn) live(id int) bool { return t.current != nil && t.current.id == id }
+
+// start installs a freshly started agent loop as the active turn, allocating
+// the id that turn*Msgs are tagged with.
+func (t *turn) start(client *ai.Client, sess *core.Session) tea.Cmd {
+	t.nextID++
+	cur, cmd := startTurn(t.nextID, client, sess)
+	t.current = cur
+	return cmd
+}
+
+// cancel tears down the active turn. Late events are dropped by turn id.
+func (t *turn) cancel() {
+	if t.current == nil {
+		return
+	}
+	t.current.cancel()
+	t.current = nil
+}
+
+// abortCompact cancels an in-flight compact job, if any.
+func (t *turn) abortCompact() {
+	if t.compactCancel == nil {
+		return
+	}
+	t.compactCancel()
+	t.compactCancel = nil
 }

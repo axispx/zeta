@@ -21,14 +21,14 @@ func TestUpdatePasteMsgInsertsImage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m.ready = true
-	m.width, m.height = 80, 24
+	m.term.ready = true
+	m.term.width, m.term.height = 80, 24
 	m.layout()
 
 	model, _ := m.Update(tea.PasteMsg{Content: png})
 	mm := model.(Model)
-	if !strings.Contains(mm.textarea.Value(), "[Image 1]") {
-		t.Fatalf("after paste input=%q pending=%d", mm.textarea.Value(), len(mm.pendingImages))
+	if !strings.Contains(mm.composer.textarea.Value(), "[Image 1]") {
+		t.Fatalf("after paste input=%q pending=%d", mm.composer.textarea.Value(), len(mm.composer.pendingImages))
 	}
 }
 
@@ -51,7 +51,7 @@ func TestUpdateSuperVClipboard(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m.ready = true
-	m.width, m.height = 80, 24
+	m.term.ready = true
+	m.term.width, m.term.height = 80, 24
 	_, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: 'v', Mod: tea.ModSuper}))
 }

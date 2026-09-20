@@ -99,9 +99,9 @@ func TestMatchCommands(t *testing.T) {
 func TestSubmitInputQuit(t *testing.T) {
 	ta := textarea.New()
 	ta.SetValue(":q")
-	m := Model{composerState: composerState{textarea: ta}}
+	m := Model{composer: composer{textarea: ta}}
 	cmd := m.submitInput()
-	if !m.quitting {
+	if !m.exit.quitting {
 		t.Fatal("quitting = false")
 	}
 	if cmd == nil {
@@ -111,9 +111,9 @@ func TestSubmitInputQuit(t *testing.T) {
 	for _, other := range []string{":quit", "/quit", ":Q"} {
 		ta := textarea.New()
 		ta.SetValue(other)
-		m := Model{composerState: composerState{textarea: ta}}
+		m := Model{composer: composer{textarea: ta}}
 		_ = m.submitInput()
-		if m.quitting {
+		if m.exit.quitting {
 			t.Fatalf("%q should not quit", other)
 		}
 	}
@@ -184,7 +184,7 @@ func TestFormatAccentRow(t *testing.T) {
 func TestSyncOverlaySelectsPartial(t *testing.T) {
 	ta := textarea.New()
 	ta.SetValue("/cle")
-	m := Model{composerState: composerState{textarea: ta}}
+	m := Model{composer: composer{textarea: ta}}
 	_ = m.syncOverlay()
 	if !m.overlay.showing() || m.overlay.mode != overlayCommands {
 		t.Fatal("command overlay inactive")
@@ -254,8 +254,8 @@ func TestCycleModelReasoning(t *testing.T) {
 		},
 	}
 	m := Model{
-		Session:       core.Session{Cfg: cfg},
-		composerState: composerState{textarea: textarea.New()},
+		session:  core.Session{Cfg: cfg},
+		composer: composer{textarea: textarea.New()},
 		overlay: filterOverlay{
 			mode:   overlayModels,
 			models: cfg.ModelChoices(),
@@ -268,7 +268,7 @@ func TestCycleModelReasoning(t *testing.T) {
 	if m.overlay.selected != 0 {
 		t.Fatalf("tab must not move selection: %d", m.overlay.selected)
 	}
-	if got := m.Cfg.Providers["a"].Models["1"].ReasoningEffort; got != "low" {
+	if got := m.session.Cfg.Providers["a"].Models["1"].ReasoningEffort; got != "low" {
 		t.Fatalf("effort = %q, want low", got)
 	}
 	if m.overlay.models[0].Effort != "low" {
@@ -279,7 +279,7 @@ func TestCycleModelReasoning(t *testing.T) {
 		if _, ok := m.handleOverlayKey(tea.KeyPressMsg{Code: tea.KeyTab}); !ok {
 			t.Fatal("tab should be consumed")
 		}
-		if got := m.Cfg.Providers["a"].Models["1"].ReasoningEffort; got != want {
+		if got := m.session.Cfg.Providers["a"].Models["1"].ReasoningEffort; got != want {
 			t.Fatalf("effort = %q, want %q", got, want)
 		}
 	}
@@ -295,7 +295,7 @@ func TestCycleModelReasoning(t *testing.T) {
 
 func TestRenderModelOverlayShowsEffort(t *testing.T) {
 	m := Model{
-		Session: core.Session{Cfg: config.Config{Active: "p/a"}},
+		session: core.Session{Cfg: config.Config{Active: "p/a"}},
 		overlay: filterOverlay{
 			mode: overlayModels,
 			models: []config.ModelChoice{
@@ -351,7 +351,7 @@ func TestRenderModelOverlayMaxRows(t *testing.T) {
 		}
 	}
 	m := Model{
-		Session: core.Session{Cfg: config.Config{Active: "p/a"}},
+		session: core.Session{Cfg: config.Config{Active: "p/a"}},
 		overlay: filterOverlay{
 			mode:   overlayModels,
 			models: entries,

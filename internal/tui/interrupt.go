@@ -6,7 +6,7 @@ import tea "charm.land/bubbletea/v2"
 const turnCancelledText = "Cancelled"
 
 // tryInterrupt cancels the topmost interruptible UI/work state.
-// Order: config → picker → bottom panel → overlays → compact → turn.
+// Order: config → picker → panel → overlays → compact → turn.
 // Returns true when something was interrupted (Ctrl+C should not quit yet).
 func (m *Model) tryInterrupt() bool {
 	switch {
@@ -16,7 +16,7 @@ func (m *Model) tryInterrupt() bool {
 	case m.picker.active:
 		m.picker.clear()
 		return true
-	case m.interruptBottom():
+	case m.interruptPanel():
 		return true
 	case m.overlay.mode != overlayOff:
 		// Mode can stay overlayFiles while the list is hidden (no matches);
@@ -24,10 +24,10 @@ func (m *Model) tryInterrupt() bool {
 		// Slash/model wipe their query; @ keeps the draft (see cancelOverlay).
 		m.cancelOverlay()
 		return true
-	case m.Compacting:
+	case m.session.Compacting:
 		m.cancelCompact()
 		return true
-	case m.AuthRetrying:
+	case m.session.AuthRetrying:
 		// Recover cmd still completes; result handler installs creds, no restart.
 		// No model/tool work happened — put the prompt back if the composer is free.
 		m.cancelAuthRetry()
@@ -35,9 +35,9 @@ func (m *Model) tryInterrupt() bool {
 			m.noteSystem(turnCancelledText)
 		}
 		return true
-	case m.turn != nil:
+	case m.turn.current != nil:
 		// Late KindDone must not drain the queue.
-		unstarted := m.CanReplay()
+		unstarted := m.session.CanReplay()
 		m.finishTurn()
 		if unstarted && m.restoreUnstartedPrompt() {
 			return true
@@ -57,7 +57,7 @@ func (m *Model) handleCtrlC() tea.Cmd {
 	if m.tryInterrupt() {
 		return nil
 	}
-	if m.hasQueueState() {
+	if m.queue.hasState() {
 		m.clearQueue()
 		m.afterQueueChange()
 		return nil

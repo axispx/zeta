@@ -135,5 +135,5 @@ func sessionDiff(msgs []Message) lineStats {
 // refreshSessionDiff memoizes sessionDiff(messages). Call after messages change
 // (applySession, successful tool finish) — never mutate sessionDiff otherwise.
 func (m *Model) refreshSessionDiff() {
-	m.sessionDiff = sessionDiff(m.messages)
+	m.transcript.sessionDiff = sessionDiff(m.transcript.messages)
 }

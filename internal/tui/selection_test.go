@@ -72,18 +72,20 @@ func TestHighlightSelection(t *testing.T) {
 
 func TestTranscriptPosRejectsScrollbar(t *testing.T) {
 	m := Model{
-		ready: true,
-		width: 40,
-		transcriptState: transcriptState{
+		term: term{
+			ready: true,
+			width: 40,
+		},
+		transcript: transcript{
 			contentW:      37,
 			showScrollbar: true,
 			messages:      []Message{{Role: RoleUser, Text: "hi"}},
 			viewport:      viewport.New(),
 		},
 	}
-	m.viewport.SetWidth(m.contentW)
-	m.viewport.SetHeight(10)
-	m.viewport.SetContent(strings.Repeat("x", 50) + "\n" + strings.Repeat("y\n", 20))
+	m.transcript.viewport.SetWidth(m.transcript.contentW)
+	m.transcript.viewport.SetHeight(10)
+	m.transcript.viewport.SetContent(strings.Repeat("x", 50) + "\n" + strings.Repeat("y\n", 20))
 
 	if _, ok := m.transcriptPos(39, 0, false); ok {
 		t.Fatal("scrollbar column should miss")
@@ -99,18 +101,20 @@ func TestTranscriptPosRejectsScrollbar(t *testing.T) {
 
 func TestTranscriptPosAppliesYOffset(t *testing.T) {
 	m := Model{
-		ready: true,
-		width: 40,
-		transcriptState: transcriptState{
+		term: term{
+			ready: true,
+			width: 40,
+		},
+		transcript: transcript{
 			contentW: 38,
 			messages: []Message{{Role: RoleUser, Text: "hi"}},
 			viewport: viewport.New(),
 		},
 	}
-	m.viewport.SetWidth(m.contentW)
-	m.viewport.SetHeight(5)
-	m.viewport.SetContent(strings.Repeat("line\n", 30))
-	m.viewport.SetYOffset(10)
+	m.transcript.viewport.SetWidth(m.transcript.contentW)
+	m.transcript.viewport.SetHeight(5)
+	m.transcript.viewport.SetContent(strings.Repeat("line\n", 30))
+	m.transcript.viewport.SetYOffset(10)
 
 	p, ok := m.transcriptPos(styles.ContentInset, 2, false)
 	if !ok {
@@ -123,18 +127,20 @@ func TestTranscriptPosAppliesYOffset(t *testing.T) {
 
 func TestTranscriptPosClamp(t *testing.T) {
 	m := Model{
-		ready: true,
-		width: 40,
-		transcriptState: transcriptState{
+		term: term{
+			ready: true,
+			width: 40,
+		},
+		transcript: transcript{
 			contentW:      37,
 			showScrollbar: true,
 			messages:      []Message{{Role: RoleUser, Text: "hi"}},
 			viewport:      viewport.New(),
 		},
 	}
-	m.viewport.SetWidth(m.contentW)
-	m.viewport.SetHeight(10)
-	m.viewport.SetContent("hello")
+	m.transcript.viewport.SetWidth(m.transcript.contentW)
+	m.transcript.viewport.SetHeight(10)
+	m.transcript.viewport.SetContent("hello")
 
 	p, ok := m.transcriptPos(39, 0, true) // scrollbar col → clamp to last content cell
 	if !ok {
@@ -147,34 +153,36 @@ func TestTranscriptPosClamp(t *testing.T) {
 
 func TestSelectionDragThreshold(t *testing.T) {
 	m := Model{
-		ready:  true,
-		width:  42,
-		height: 20,
-		transcriptState: transcriptState{
+		term: term{
+			ready:  true,
+			width:  42,
+			height: 20,
+		},
+		transcript: transcript{
 			contentW: 40,
 			messages: []Message{{Role: RoleUser, Text: "hi"}},
 			viewport: viewport.New(),
 		},
 	}
-	m.viewport.SetWidth(40)
-	m.viewport.SetHeight(10)
-	m.viewport.SetContent("abcdef")
+	m.transcript.viewport.SetWidth(40)
+	m.transcript.viewport.SetHeight(10)
+	m.transcript.viewport.SetContent("abcdef")
 
-	m.sel.start(selPos{0, 0})
-	m.sel.dragTo(selPos{0, 1}) // distance 1 — at threshold, not past
+	m.selection.sel.start(selPos{0, 0})
+	m.selection.sel.dragTo(selPos{0, 1}) // distance 1 — at threshold, not past
 	if m.finishSelectionDrag() != nil {
 		t.Fatal("distance <= threshold should not copy")
 	}
-	if m.sel.has() {
+	if m.selection.sel.has() {
 		t.Fatal("should clear after tiny drag")
 	}
 
-	m.sel.start(selPos{0, 0})
-	m.sel.dragTo(selPos{0, 2}) // distance 2
+	m.selection.sel.start(selPos{0, 0})
+	m.selection.sel.dragTo(selPos{0, 2}) // distance 2
 	if m.finishSelectionDrag() == nil {
 		t.Fatal("distance > threshold should copy")
 	}
-	if m.sel.has() {
+	if m.selection.sel.has() {
 		t.Fatal("should clear after copy")
 	}
 }
@@ -191,25 +199,27 @@ func TestSelectionNormalized(t *testing.T) {
 
 func TestSelectionReleaseExtendsWithoutMotion(t *testing.T) {
 	m := Model{
-		ready:  true,
-		width:  42,
-		height: 20,
-		transcriptState: transcriptState{
+		term: term{
+			ready:  true,
+			width:  42,
+			height: 20,
+		},
+		transcript: transcript{
 			contentW: 40,
 			messages: []Message{{Role: RoleUser, Text: "hi"}},
 			viewport: viewport.New(),
 		},
 	}
-	m.viewport.SoftWrap = true
-	m.viewport.SetWidth(40)
-	m.viewport.SetHeight(10)
-	m.viewport.SetContent("l0\nl1\nl2\nl3\nl4")
+	m.transcript.viewport.SoftWrap = true
+	m.transcript.viewport.SetWidth(40)
+	m.transcript.viewport.SetHeight(10)
+	m.transcript.viewport.SetContent("l0\nl1\nl2\nl3\nl4")
 
 	if _, ok := m.handleSelectionMouse(tea.MouseClickMsg{X: 1, Y: 0, Button: tea.MouseLeft}); !ok {
 		t.Fatal("expected click handled")
 	}
 	if p, ok := m.transcriptPos(5, 3, true); ok {
-		m.sel.dragTo(p)
+		m.selection.sel.dragTo(p)
 	}
 	got := m.selectedText()
 	cmd, ok := m.handleSelectionMouse(tea.MouseReleaseMsg{X: 5, Y: 3, Button: tea.MouseLeft})
@@ -220,47 +230,49 @@ func TestSelectionReleaseExtendsWithoutMotion(t *testing.T) {
 	if !ok || cmd == nil {
 		t.Fatal("expected copy cmd on release")
 	}
-	if m.sel.has() {
+	if m.selection.sel.has() {
 		t.Fatal("selection should clear after copy-on-up")
 	}
 }
 
 func TestSelectionBlurFinishesDrag(t *testing.T) {
 	m := Model{
-		ready:  true,
-		width:  42,
-		height: 20,
-		transcriptState: transcriptState{
+		term: term{
+			ready:  true,
+			width:  42,
+			height: 20,
+		},
+		transcript: transcript{
 			contentW: 40,
 			messages: []Message{{Role: RoleUser, Text: "hi"}},
 			viewport: viewport.New(),
 		},
 	}
-	m.viewport.SetWidth(40)
-	m.viewport.SetHeight(10)
-	m.viewport.SetContent("a\nb\nc\nd")
+	m.transcript.viewport.SetWidth(40)
+	m.transcript.viewport.SetHeight(10)
+	m.transcript.viewport.SetContent("a\nb\nc\nd")
 
 	if _, ok := m.handleSelectionMouse(tea.MouseClickMsg{X: 1, Y: 0, Button: tea.MouseLeft}); !ok {
 		t.Fatal("expected click handled")
 	}
-	m.sel.dragTo(selPos{2, 0})
-	if !m.sel.dragging {
+	m.selection.sel.dragTo(selPos{2, 0})
+	if !m.selection.sel.dragging {
 		t.Fatal("expected dragging")
 	}
 	cmd := m.finishSelectionDrag()
-	if m.sel.dragging {
+	if m.selection.sel.dragging {
 		t.Fatal("finish should end drag")
 	}
 	if cmd == nil {
 		t.Fatal("blur mid-drag should copy")
 	}
-	if m.sel.has() {
+	if m.selection.sel.has() {
 		t.Fatal("selection should clear after copy")
 	}
 }
 
 func TestOutsideTerminal(t *testing.T) {
-	m := Model{width: 80, height: 24}
+	m := Model{term: term{width: 80, height: 24}}
 	if m.outsideTerminal(0, 0) || m.outsideTerminal(79, 23) {
 		t.Fatal("in-bounds should be inside")
 	}
@@ -271,19 +283,21 @@ func TestOutsideTerminal(t *testing.T) {
 
 func TestModelSelectedTextMultiLine(t *testing.T) {
 	m := Model{
-		ready: true,
-		width: 42,
-		transcriptState: transcriptState{
+		term: term{
+			ready: true,
+			width: 42,
+		},
+		transcript: transcript{
 			contentW: 40,
 			messages: []Message{{Role: RoleUser, Text: "hi"}},
 			viewport: viewport.New(),
 		},
 	}
-	m.viewport.SetWidth(40)
-	m.viewport.SetHeight(10)
-	m.viewport.SetContent("alpha\nbeta\ngamma")
-	m.sel.start(selPos{0, 0})
-	m.sel.dragTo(selPos{2, 4})
+	m.transcript.viewport.SetWidth(40)
+	m.transcript.viewport.SetHeight(10)
+	m.transcript.viewport.SetContent("alpha\nbeta\ngamma")
+	m.selection.sel.start(selPos{0, 0})
+	m.selection.sel.dragTo(selPos{2, 4})
 	got := m.selectedText()
 	if got != "alpha\nbeta\ngamma" {
 		t.Fatalf("got %q", got)

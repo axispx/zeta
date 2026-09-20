@@ -427,7 +427,7 @@ func TestPinOverlayBottomStableMainHeight(t *testing.T) {
 		t.Fatalf("height=%d want 5", lipgloss.Height(got))
 	}
 	if !strings.HasSuffix(strings.TrimRight(got, "\n"), "A\nB") {
-		t.Fatalf("overlay not at bottom:\n%s", got)
+		t.Fatalf("overlay not at panel:\n%s", got)
 	}
 }
 

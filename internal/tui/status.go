@@ -35,18 +35,18 @@ func (m Model) turnStatusLine() string {
 	return lipgloss.JoinVertical(lipgloss.Left, "", status, "")
 }
 
-// gapContent is the in-flow slot between transcript and input: bottom panel
+// gapContent is the in-flow slot between transcript and input: panel
 // (permission / ask / plan), busy status, follow-ups, copy flash, or empty.
 // Filter overlays are not in-flow — they float over the transcript bottom
 // (pinOverlayBottom) so opening a picker does not resize the viewport.
 //
-// Priority: bottom panel → busy + follow-ups → copy flash → empty (idle blank).
+// Priority: panel → busy + follow-ups → copy flash → empty (idle blank).
 func (m Model) gapContent() string {
-	if p := m.renderBottom(m.width); p != "" {
+	if p := m.renderPanel(m.term.width); p != "" {
 		return p
 	}
 	busy := m.turnStatusLine()
-	q := m.renderQueueFollowups(m.width)
+	q := m.renderQueueFollowups(m.term.width)
 	switch {
 	case busy != "" && q != "":
 		return lipgloss.JoinVertical(lipgloss.Left, busy, q)
@@ -54,7 +54,7 @@ func (m Model) gapContent() string {
 		return busy
 	case q != "":
 		return q
-	case m.copyFlash:
+	case m.selection.copyFlash:
 		return copiedFlashLine()
 	default:
 		return ""
@@ -69,7 +69,7 @@ func copiedFlashLine() string {
 }
 
 // filterOverlayOpen reports a slash/model/@ picker above the input.
-// Bottom panels own the composer; no floating overlay while input is blocked.
+// Panels own the composer; no floating overlay while input is blocked.
 func (m Model) filterOverlayOpen() bool {
 	return !m.inputBlocked() && m.overlay.showing()
 }
@@ -88,22 +88,22 @@ func (m Model) gapHeight() int {
 
 // busyLabel derives the chrome status from turn phase (no stored status field).
 func (m Model) busyLabel() string {
-	if m.Compacting {
+	if m.session.Compacting {
 		return statusCompacting
 	}
-	if m.AuthRetrying {
+	if m.session.AuthRetrying {
 		return statusWorking
 	}
-	if m.turn == nil {
+	if m.turn.current == nil {
 		return ""
 	}
-	if i := m.turn.activeTool; i >= 0 && i < len(m.messages) {
-		return toolStatus(m.messages[i].Tool)
+	if i := m.turn.current.activeTool; i >= 0 && i < len(m.transcript.messages) {
+		return toolStatus(m.transcript.messages[i].Tool)
 	}
-	if m.turn.streaming {
+	if m.turn.current.streaming {
 		return statusWorking
 	}
-	if m.turn.thinking != "" {
+	if m.turn.current.thinking != "" {
 		return statusThinking
 	}
 	return statusWaiting

@@ -39,25 +39,25 @@ func TestRefreshWorkspaceKeepsAgentsSnapshot(t *testing.T) {
 	}
 
 	m := testModel()
-	m.WS = workspace.Context{Abs: dir, Cwd: dir, AgentsMD: "Use tabs."}
+	m.session.WS = workspace.Context{Abs: dir, Cwd: dir, AgentsMD: "Use tabs."}
 	hist := []ai.Message{{Role: ai.RoleUser, Text: "go"}}
-	before := textOf(core.RequestMsgs(m.WS, prompt.ModeBuild, hist, nil))
+	before := textOf(core.RequestMsgs(m.session.WS, prompt.ModeBuild, hist, nil))
 
 	if err := os.WriteFile(filepath.Join(dir, "AGENTS.md"), []byte("Use spaces."), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	m.RefreshWorkspace()
-	if m.WS.AgentsMD != "Use tabs." {
-		t.Fatalf("turn boundary reloaded AGENTS.md: %q", m.WS.AgentsMD)
+	m.session.RefreshWorkspace()
+	if m.session.WS.AgentsMD != "Use tabs." {
+		t.Fatalf("turn boundary reloaded AGENTS.md: %q", m.session.WS.AgentsMD)
 	}
-	if after := textOf(core.RequestMsgs(m.WS, prompt.ModeBuild, hist, nil)); !slices.Equal(before, after) {
+	if after := textOf(core.RequestMsgs(m.session.WS, prompt.ModeBuild, hist, nil)); !slices.Equal(before, after) {
 		t.Fatalf("prefix changed mid-session:\n%q\n%q", before, after)
 	}
 
 	// A new session picks the edit up.
 	m.startNewSession()
-	if m.WS.AgentsMD != "Use spaces." {
-		t.Fatalf("session boundary kept the old AGENTS.md: %q", m.WS.AgentsMD)
+	if m.session.WS.AgentsMD != "Use spaces." {
+		t.Fatalf("session boundary kept the old AGENTS.md: %q", m.session.WS.AgentsMD)
 	}
 }
 
@@ -77,8 +77,8 @@ func TestCompactReloadsAgents(t *testing.T) {
 	}
 
 	m := testModel()
-	m.WS = workspace.Context{Abs: dir, Cwd: dir, AgentsMD: "Use tabs."}
-	m.History = []ai.Message{
+	m.session.WS = workspace.Context{Abs: dir, Cwd: dir, AgentsMD: "Use tabs."}
+	m.session.History = []ai.Message{
 		{Role: ai.RoleUser, Text: strings.Repeat("old ", 500)},
 		{Role: ai.RoleAssistant, Text: "working"},
 		{Role: ai.RoleUser, Text: "latest"},
@@ -94,9 +94,9 @@ func TestCompactReloadsAgents(t *testing.T) {
 	}
 
 	// A no-op compaction leaves the snapshot (and so the prefix) alone.
-	m.handleCompactDone(compactDoneMsg{kind: compactManual, result: compact.Result{History: m.History}})
-	if m.WS.AgentsMD != "Use tabs." {
-		t.Fatalf("no-op compaction reloaded AGENTS.md: %q", m.WS.AgentsMD)
+	m.handleCompactDone(compactDoneMsg{kind: compactManual, result: compact.Result{History: m.session.History}})
+	if m.session.WS.AgentsMD != "Use tabs." {
+		t.Fatalf("no-op compaction reloaded AGENTS.md: %q", m.session.WS.AgentsMD)
 	}
 
 	if err := os.WriteFile(filepath.Join(dir, "AGENTS.md"), []byte("Use spaces."), 0o644); err != nil {
@@ -104,15 +104,15 @@ func TestCompactReloadsAgents(t *testing.T) {
 	}
 	m.applyCompactResult(compacted)
 
-	if m.WS.AgentsMD != "Use spaces." {
-		t.Fatalf("compaction kept the stale AGENTS.md: %q", m.WS.AgentsMD)
+	if m.session.WS.AgentsMD != "Use spaces." {
+		t.Fatalf("compaction kept the stale AGENTS.md: %q", m.session.WS.AgentsMD)
 	}
-	msgs := core.RequestMsgs(m.WS, prompt.ModeBuild, m.History, m.Todos)
+	msgs := core.RequestMsgs(m.session.WS, prompt.ModeBuild, m.session.History, m.session.Todos)
 	if !strings.Contains(msgs[0].Text, "Use spaces.") {
 		t.Fatalf("compacted request missing the new AGENTS.md: %q", msgs[0].Text)
 	}
-	if !compact.IsCheckpoint(m.History[0]) {
-		t.Fatalf("expected a checkpoint head, got %q", m.History[0].Text)
+	if !compact.IsCheckpoint(m.session.History[0]) {
+		t.Fatalf("expected a checkpoint head, got %q", m.session.History[0].Text)
 	}
 }
 
@@ -131,8 +131,8 @@ func TestAutoCompactKeepsReloadedAgents(t *testing.T) {
 	}
 
 	m := testModel()
-	m.WS = workspace.Context{Abs: dir, Cwd: dir, AgentsMD: "Use tabs."}
-	m.History = []ai.Message{{Role: ai.RoleUser, Text: "latest"}}
+	m.session.WS = workspace.Context{Abs: dir, Cwd: dir, AgentsMD: "Use tabs."}
+	m.session.History = []ai.Message{{Role: ai.RoleUser, Text: "latest"}}
 
 	// The file changes while the compact request is in flight.
 	if err := os.WriteFile(filepath.Join(dir, "AGENTS.md"), []byte("Use spaces."), 0o644); err != nil {
@@ -151,10 +151,10 @@ func TestAutoCompactKeepsReloadedAgents(t *testing.T) {
 		},
 	})
 
-	if m.WS.AgentsMD != "Use spaces." {
-		t.Fatalf("auto-compact kept the stale AGENTS.md: %q", m.WS.AgentsMD)
+	if m.session.WS.AgentsMD != "Use spaces." {
+		t.Fatalf("auto-compact kept the stale AGENTS.md: %q", m.session.WS.AgentsMD)
 	}
-	if got := core.RequestMsgs(m.WS, prompt.ModeBuild, m.History, m.Todos)[0].Text; !strings.Contains(got, "Use spaces.") {
+	if got := core.RequestMsgs(m.session.WS, prompt.ModeBuild, m.session.History, m.session.Todos)[0].Text; !strings.Contains(got, "Use spaces.") {
 		t.Fatalf("auto-compacted request missing the new AGENTS.md: %q", got)
 	}
 }

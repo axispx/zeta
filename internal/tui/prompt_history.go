@@ -15,7 +15,7 @@ type composerDraft struct {
 }
 
 // promptHistory recalls prior user turns into the input.
-// Walks the UI transcript (m.messages), not the API history — compaction
+// Walks the UI transcript (m.transcript.messages), not the API history — compaction
 // rewrites API history with checkpoints and drops old turns, which must not
 // pollute up/down recall.
 // at == -1 is the live draft; otherwise at indexes messages at a RoleUser row.
@@ -42,21 +42,21 @@ func stepUserMessage(msgs []Message, from, dir int) int {
 	return -1
 }
 
-func (m *Model) resetPromptHistory() { m.promptHist.reset() }
+func (m *Model) resetPromptHistory() { m.composer.promptHist.reset() }
 
 func (m *Model) setPromptValue(s string) {
-	prevH := m.textarea.Height()
-	m.textarea.SetValue(s)
+	prevH := m.composer.textarea.Height()
+	m.composer.textarea.SetValue(s)
 	m.syncTextareaStyles()
-	if m.textarea.Height() != prevH {
+	if m.composer.textarea.Height() != prevH {
 		m.refreshTranscript()
 	}
 }
 
 // notePromptEdit exits browse mode when the input diverges from the recalled turn.
 func (m *Model) notePromptEdit(before string) {
-	if !m.promptHist.live() && m.textarea.Value() != before {
-		m.promptHist.reset()
+	if !m.composer.promptHist.live() && m.composer.textarea.Value() != before {
+		m.composer.promptHist.reset()
 	}
 }
 
@@ -74,20 +74,20 @@ func (m *Model) handlePromptHistoryKey(msg tea.KeyPressMsg) bool {
 		return false
 	}
 
-	h := &m.promptHist
-	if h.at >= 0 && (h.at >= len(m.messages) || m.messages[h.at].Role != RoleUser) {
+	h := &m.composer.promptHist
+	if h.at >= 0 && (h.at >= len(m.transcript.messages) || m.transcript.messages[h.at].Role != RoleUser) {
 		h.reset()
 	}
 
 	if older {
-		if m.textarea.Line() > 0 {
+		if m.composer.textarea.Line() > 0 {
 			return false
 		}
 		from := h.at
 		if h.live() {
-			from = len(m.messages)
+			from = len(m.transcript.messages)
 		}
-		next := stepUserMessage(m.messages, from, -1)
+		next := stepUserMessage(m.transcript.messages, from, -1)
 		if next < 0 {
 			// Empty history while live: pass through. At oldest: consume.
 			return !h.live()
@@ -97,18 +97,18 @@ func (m *Model) handlePromptHistoryKey(msg tea.KeyPressMsg) bool {
 		}
 		h.at = next
 		m.clearPendingImages()
-		m.setPromptValue(m.messages[next].Text)
+		m.setPromptValue(m.transcript.messages[next].Text)
 		return true
 	}
 
 	// newer
-	if m.textarea.Line() < m.textarea.LineCount()-1 {
+	if m.composer.textarea.Line() < m.composer.textarea.LineCount()-1 {
 		return false
 	}
 	if h.live() {
 		return false
 	}
-	next := stepUserMessage(m.messages, h.at, +1)
+	next := stepUserMessage(m.transcript.messages, h.at, +1)
 	if next < 0 {
 		m.applyComposer(h.draft)
 		h.reset()
@@ -116,6 +116,6 @@ func (m *Model) handlePromptHistoryKey(msg tea.KeyPressMsg) bool {
 	}
 	h.at = next
 	m.clearPendingImages()
-	m.setPromptValue(m.messages[next].Text)
+	m.setPromptValue(m.transcript.messages[next].Text)
 	return true
 }

@@ -90,8 +90,8 @@ func TestSyncFileOverlayListOnceAndInsert(t *testing.T) {
 	ta.SetValue("fix @mo")
 	ta.MoveToEnd()
 	m := Model{
-		composerState: composerState{textarea: ta},
-		Session:       core.Session{WS: workspace.Context{Abs: t.TempDir()}},
+		composer: composer{textarea: ta},
+		session:  core.Session{WS: workspace.Context{Abs: t.TempDir()}},
 	}
 	cmd := m.syncOverlay()
 	if m.overlay.mode != overlayFiles {
@@ -111,7 +111,7 @@ func TestSyncFileOverlayListOnceAndInsert(t *testing.T) {
 	// Inventory arrives once; filter is sync.
 	m.applyFileListMsg(fileListMsg{
 		seq:   m.overlay.files.seq,
-		paths: []string{"internal/tui/model.go", "internal/tui/mainview.go", "README.md"},
+		paths: []string{"internal/tui/model.go", "internal/tui/transcript.go", "README.md"},
 	})
 	if m.overlay.files.loading || m.overlay.files.all == nil {
 		t.Fatalf("loading=%v all=%v", m.overlay.files.loading, m.overlay.files.all)
@@ -126,15 +126,15 @@ func TestSyncFileOverlayListOnceAndInsert(t *testing.T) {
 	}
 
 	// Query refine: sync refilter, no new list cmd.
-	m.textarea.SetValue("fix @main")
-	m.textarea.MoveToEnd()
+	m.composer.textarea.SetValue("fix @trans")
+	m.composer.textarea.MoveToEnd()
 	if cmd3 := m.syncOverlay(); cmd3 != nil {
 		t.Fatal("refilter should not re-list")
 	}
-	if m.overlay.files.query != "main" {
+	if m.overlay.files.query != "trans" {
 		t.Fatalf("query=%q", m.overlay.files.query)
 	}
-	if len(m.overlay.files.matches) != 1 || m.overlay.files.matches[0] != "internal/tui/mainview.go" {
+	if len(m.overlay.files.matches) != 1 || m.overlay.files.matches[0] != "internal/tui/transcript.go" {
 		t.Fatalf("refilter=%v", m.overlay.files.matches)
 	}
 
@@ -143,7 +143,7 @@ func TestSyncFileOverlayListOnceAndInsert(t *testing.T) {
 	if m.overlay.mode != overlayOff {
 		t.Fatal("overlay should close")
 	}
-	if got := m.textarea.Value(); got != "fix @internal/tui/mainview.go " {
+	if got := m.composer.textarea.Value(); got != "fix @internal/tui/transcript.go " {
 		t.Fatalf("value=%q", got)
 	}
 }
@@ -152,8 +152,8 @@ func TestSubmitInputInsertsFileNotSend(t *testing.T) {
 	ta := textarea.New()
 	ta.SetValue("@x")
 	ta.MoveToEnd()
-	m := Model{composerState: composerState{textarea: ta}, Session: core.Session{Cfg: testClientCfg()}}
-	m.ApplyClient()
+	m := Model{composer: composer{textarea: ta}, session: core.Session{Cfg: testClientCfg()}}
+	m.session.ApplyClient()
 	m.overlay.mode = overlayFiles
 	m.overlay.files.matches = []string{"a.go"}
 	m.overlay.files.query = "x"
@@ -161,10 +161,10 @@ func TestSubmitInputInsertsFileNotSend(t *testing.T) {
 	if _, ok := m.handleOverlayKey(teaKeyEnter()); !ok {
 		t.Fatal("enter should insert")
 	}
-	if m.turn != nil {
+	if m.turn.current != nil {
 		t.Fatal("started turn")
 	}
-	if got := m.textarea.Value(); got != "@a.go " {
+	if got := m.composer.textarea.Value(); got != "@a.go " {
 		t.Fatalf("value=%q", got)
 	}
 }
@@ -174,8 +174,8 @@ func TestEnterEmptyFileOverlaySubmits(t *testing.T) {
 	ta := textarea.New()
 	ta.SetValue("hello @zzzz")
 	ta.MoveToEnd()
-	m := Model{composerState: composerState{textarea: ta}, Session: core.Session{Cfg: testClientCfg()}}
-	m.ApplyClient()
+	m := Model{composer: composer{textarea: ta}, session: core.Session{Cfg: testClientCfg()}}
+	m.session.ApplyClient()
 	m.overlay.mode = overlayFiles
 	m.overlay.files.matches = nil
 	m.overlay.files.all = []string{"a.go"}
@@ -195,10 +195,10 @@ func TestEnterEmptyFileOverlaySubmits(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("expected submit cmd")
 	}
-	if m.textarea.Value() != "" {
-		t.Fatalf("input not cleared: %q", m.textarea.Value())
+	if m.composer.textarea.Value() != "" {
+		t.Fatalf("input not cleared: %q", m.composer.textarea.Value())
 	}
-	if m.turn == nil {
+	if m.turn.current == nil {
 		t.Fatal("expected turn started")
 	}
 }
@@ -208,8 +208,8 @@ func TestEmptyFileMatchesRefilterShowsAgain(t *testing.T) {
 	ta.SetValue("@zzzz")
 	ta.MoveToEnd()
 	m := Model{
-		composerState: composerState{textarea: ta},
-		Session:       core.Session{WS: workspace.Context{Abs: t.TempDir()}},
+		composer: composer{textarea: ta},
+		session:  core.Session{WS: workspace.Context{Abs: t.TempDir()}},
 	}
 	m.overlay.mode = overlayFiles
 	m.overlay.files.all = []string{"a.go", "b.md"}
@@ -219,8 +219,8 @@ func TestEmptyFileMatchesRefilterShowsAgain(t *testing.T) {
 		t.Fatalf("want hidden empty, got showing=%v matches=%v", m.overlay.showing(), m.overlay.files.matches)
 	}
 
-	m.textarea.SetValue("@a")
-	m.textarea.MoveToEnd()
+	m.composer.textarea.SetValue("@a")
+	m.composer.textarea.MoveToEnd()
 	if cmd := m.syncOverlay(); cmd != nil {
 		t.Fatal("should not re-list; inventory present")
 	}
@@ -235,7 +235,7 @@ func TestEmptyFileMatchesRefilterShowsAgain(t *testing.T) {
 func TestSlashWinsOverAt(t *testing.T) {
 	ta := textarea.New()
 	ta.SetValue("/cle")
-	m := Model{composerState: composerState{textarea: ta}}
+	m := Model{composer: composer{textarea: ta}}
 	_ = m.syncOverlay()
 	if m.overlay.mode != overlayCommands {
 		t.Fatalf("mode=%v", m.overlay.mode)
@@ -244,23 +244,23 @@ func TestSlashWinsOverAt(t *testing.T) {
 
 func TestFileOverlayFloatsWithoutReplacingStatus(t *testing.T) {
 	m := testModel()
-	m.width = 60
+	m.term.width = 60
 	m.spinner = spinner.New(spinner.WithSpinner(spinner.MiniDot))
 	if idle := m.gapHeight(); idle != 1 {
 		t.Fatalf("idle gapHeight=%d want 1", idle)
 	}
 	// Turn running: status gap stays busy; overlay is floating (not in gapHeight).
-	m.turn = &turnSession{streaming: true, activeTool: -1}
+	m.turn.current = &turnSession{streaming: true, activeTool: -1}
 	m.overlay.mode = overlayFiles
 	m.overlay.files.matches = []string{"a.go", "b.go", "c.go"}
 	if got := m.gapHeight(); got != busyStatusRows {
 		t.Fatalf("gapHeight=%d want busy %d", got, busyStatusRows)
 	}
-	if ov := m.renderOverlay(m.width); ov == "" {
+	if ov := m.renderOverlay(m.term.width); ov == "" {
 		t.Fatal("expected file overlay body")
 	}
 	// Idle + overlay: blank gap stays reserved (no transcript jump).
-	m.turn = nil
+	m.turn.current = nil
 	if got := m.gapHeight(); got != 1 {
 		t.Fatalf("idle+overlay gapHeight=%d want 1", got)
 	}
@@ -269,15 +269,15 @@ func TestFileOverlayFloatsWithoutReplacingStatus(t *testing.T) {
 func TestCloseFileOverlayKeepsDraft(t *testing.T) {
 	ta := textarea.New()
 	ta.SetValue("keep @x")
-	m := Model{composerState: composerState{textarea: ta}}
+	m := Model{composer: composer{textarea: ta}}
 	m.overlay.mode = overlayFiles
 	m.overlay.files.matches = []string{"a.go"}
 	m.closeOverlay()
 	if m.overlay.mode != overlayOff {
 		t.Fatal("not cleared")
 	}
-	if m.textarea.Value() != "keep @x" {
-		t.Fatalf("draft wiped: %q", m.textarea.Value())
+	if m.composer.textarea.Value() != "keep @x" {
+		t.Fatalf("draft wiped: %q", m.composer.textarea.Value())
 	}
 }
 
@@ -285,35 +285,35 @@ func TestCancelOverlayKeepsFileDraftWipesSlash(t *testing.T) {
 	// @ mention: cancel keeps composer.
 	ta := textarea.New()
 	ta.SetValue("draft @f")
-	m := Model{composerState: composerState{textarea: ta}}
+	m := Model{composer: composer{textarea: ta}}
 	m.overlay.mode = overlayFiles
 	m.overlay.files.matches = []string{"a.go"}
 	m.cancelOverlay()
 	if m.overlay.mode != overlayOff {
 		t.Fatal("file overlay still up")
 	}
-	if m.textarea.Value() != "draft @f" {
-		t.Fatalf("file draft wiped: %q", m.textarea.Value())
+	if m.composer.textarea.Value() != "draft @f" {
+		t.Fatalf("file draft wiped: %q", m.composer.textarea.Value())
 	}
 
 	// Slash owns input: cancel wipes composer.
 	ta2 := textarea.New()
 	ta2.SetValue("/cle")
-	m2 := Model{composerState: composerState{textarea: ta2}}
+	m2 := Model{composer: composer{textarea: ta2}}
 	m2.overlay.mode = overlayCommands
 	m2.overlay.cmds = []command{{name: "/clear", desc: "start a new session"}}
 	m2.cancelOverlay()
 	if m2.overlay.mode != overlayOff {
 		t.Fatal("command overlay still up")
 	}
-	if m2.textarea.Value() != "" {
-		t.Fatalf("slash query not wiped: %q", m2.textarea.Value())
+	if m2.composer.textarea.Value() != "" {
+		t.Fatalf("slash query not wiped: %q", m2.composer.textarea.Value())
 	}
 }
 
 func TestTryInterruptFileOverlayKeepsDraft(t *testing.T) {
 	m := testModel()
-	m.textarea.SetValue("draft @f")
+	m.composer.textarea.SetValue("draft @f")
 	m.overlay.mode = overlayFiles
 	m.overlay.files.matches = []string{"a.go"}
 	if !m.tryInterrupt() {
@@ -322,16 +322,16 @@ func TestTryInterruptFileOverlayKeepsDraft(t *testing.T) {
 	if m.overlay.mode != overlayOff {
 		t.Fatal("overlay still up")
 	}
-	if m.textarea.Value() != "draft @f" {
-		t.Fatalf("draft=%q", m.textarea.Value())
+	if m.composer.textarea.Value() != "draft @f" {
+		t.Fatalf("draft=%q", m.composer.textarea.Value())
 	}
 }
 
 func TestTryInterruptHiddenFileOverlayKeepsDraft(t *testing.T) {
 	// Empty matches → not showing, but mode is still armed; Esc must not cancel a turn.
 	m := testModel()
-	m.textarea.SetValue("draft @zzz")
-	m.turn = &turnSession{streaming: true, activeTool: -1}
+	m.composer.textarea.SetValue("draft @zzz")
+	m.turn.current = &turnSession{streaming: true, activeTool: -1}
 	m.overlay.mode = overlayFiles
 	m.overlay.files.all = []string{"a.go"}
 	m.overlay.files.matches = nil
@@ -344,11 +344,11 @@ func TestTryInterruptHiddenFileOverlayKeepsDraft(t *testing.T) {
 	if m.overlay.mode != overlayOff {
 		t.Fatal("mode should clear")
 	}
-	if m.turn == nil {
+	if m.turn.current == nil {
 		t.Fatal("turn should still be running")
 	}
-	if m.textarea.Value() != "draft @zzz" {
-		t.Fatalf("draft=%q", m.textarea.Value())
+	if m.composer.textarea.Value() != "draft @zzz" {
+		t.Fatalf("draft=%q", m.composer.textarea.Value())
 	}
 }
 
@@ -356,7 +356,7 @@ func TestCommandOverlayEnterViaHandleOverlayKey(t *testing.T) {
 	// Enter on a skill fills; does not submit through submitInput.
 	ta := textarea.New()
 	ta.SetValue("/rev")
-	m := Model{composerState: composerState{textarea: ta}}
+	m := Model{composer: composer{textarea: ta}}
 	_ = m.syncOverlay()
 	for i, c := range m.overlay.cmds {
 		if c.name == "/review" {
@@ -371,7 +371,7 @@ func TestCommandOverlayEnterViaHandleOverlayKey(t *testing.T) {
 	if cmd != nil {
 		t.Fatal("skill fill should not return a cmd")
 	}
-	if got := m.textarea.Value(); got != "/review " {
+	if got := m.composer.textarea.Value(); got != "/review " {
 		t.Fatalf("value=%q", got)
 	}
 }

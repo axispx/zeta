@@ -41,7 +41,7 @@ func checkUpdateCmd() tea.Cmd {
 
 // handleUpdateAvailable notes a one-line nudge when a newer release exists.
 func (m *Model) handleUpdateAvailable(msg updateAvailableMsg) {
-	if m.quitting || msg.to == "" {
+	if m.exit.quitting || msg.to == "" {
 		return
 	}
 	m.noteSystem(fmt.Sprintf("zeta %s available (you have %s) — run /update", msg.to, msg.from))
@@ -53,6 +53,6 @@ func (m *Model) handleUpdateAvailable(msg updateAvailableMsg) {
 // Dev builds have no release to fetch; they take the same path and main applies
 // a synthetic update, which keeps the handoff testable without a release.
 func (m *Model) requestUpdate() tea.Cmd {
-	m.updateOnExit = true
+	m.exit.updateOnExit = true
 	return m.requestQuit()
 }

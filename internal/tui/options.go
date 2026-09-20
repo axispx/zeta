@@ -10,7 +10,7 @@ import (
 	"github.com/axispx/zeta/internal/styles"
 )
 
-// optionRow is one selectable row in a bottom-panel or overlay list.
+// optionRow is one selectable row in a panel or overlay list.
 type optionRow struct {
 	key   string // optional hotkey (e.g. "a"); empty → numbered
 	label string
@@ -23,7 +23,7 @@ type optionRow struct {
 	labelCursor bool
 }
 
-// optionList is the shared list controller for bottom-panel choice UIs
+// optionList is the shared list controller for panel choice UIs
 // (permission, plan approval, ask options). Owns selection + key/mouse.
 type optionList struct {
 	selected int

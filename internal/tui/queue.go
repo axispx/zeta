@@ -32,21 +32,30 @@ import (
 //
 // Auto-drain on turn complete when canDrain() (not editing head, composer empty).
 
+// queue is the follow-up queue and its list navigation. editID is the item
+// open in the composer, or 0; focus+sel drive the panel.
+type queue struct {
+	prompts []queuedPrompt // waiting follow-ups (FIFO; oldest at [0])
+	editID  int            // queue item id open in composer, or 0
+	nextID  int            // last allocated follow-up id
+	focus   bool           // nav over the follow-ups panel
+	sel     listSel        // selection while focused
+}
+
 // finishTurn tears down in-flight agent state. Does not touch the follow-up queue.
 func (m *Model) finishTurn() {
-	if m.turn == nil {
+	if m.turn.current == nil {
 		return
 	}
 	m.cancelStreamPaint() // invalidate pending ticks (gen is on Model)
 	// Deny any open permission/ask so the agent unblocks on the same path as user deny.
-	m.abandonBottom()
+	m.abandonPanel()
 	// Cancel mid-tool: close out the open row — late KindTool is dropped.
-	if i := m.turn.activeTool; i >= 0 && i < len(m.messages) && m.messages[i].Status == ToolRunning {
-		m.messages[i].Status = ToolDenied
+	if i := m.turn.current.activeTool; i >= 0 && i < len(m.transcript.messages) && m.transcript.messages[i].Status == ToolRunning {
+		m.transcript.messages[i].Status = ToolDenied
 	}
 	m.turn.cancel()
-	m.turn = nil
-	m.History = compact.TrimIncomplete(m.History)
+	m.session.History = compact.TrimIncomplete(m.session.History)
 }
 
 const (
@@ -72,29 +81,29 @@ func newQueuedPrompt(id int, text string, imgs []image.Ref) queuedPrompt {
 	}
 }
 
-func (q *queueState) allocQueueID() int {
-	q.nextQueueID++
-	return q.nextQueueID
+func (q *queue) allocID() int {
+	q.nextID++
+	return q.nextID
 }
 
 func (m *Model) clearQueue() {
-	if m.editID != 0 {
-		m.editID = 0
+	if m.queue.editID != 0 {
+		m.queue.editID = 0
 		m.resetInput()
 	}
 	m.unfocusQueue()
-	m.queue = nil
+	m.queue.prompts = nil
 }
 
-// hasQueueState reports whether anything is queued or open for edit.
-func (q queueState) hasQueueState() bool {
-	return len(q.queue) > 0 || q.editID != 0
+// hasState reports whether anything is queued or open for edit.
+func (q queue) hasState() bool {
+	return len(q.prompts) > 0 || q.editID != 0
 }
 
 // toggleQueueFocus enters/leaves follow-up navigation.
 // Returns false when there is nothing to focus.
 func (m *Model) toggleQueueFocus() bool {
-	if m.queueFocus {
+	if m.queue.focus {
 		m.unfocusQueue()
 		return true
 	}
@@ -102,82 +111,82 @@ func (m *Model) toggleQueueFocus() bool {
 }
 
 func (m *Model) focusQueue() bool {
-	if len(m.queue) == 0 || m.editID != 0 {
+	if len(m.queue.prompts) == 0 || m.queue.editID != 0 {
 		return false
 	}
-	m.queueFocus = true
+	m.queue.focus = true
 	// Land on the most recently queued item (last = newest).
-	m.queueSel.selected = len(m.queue) - 1
+	m.queue.sel.selected = len(m.queue.prompts) - 1
 	m.afterQueueChange()
 	return true
 }
 
 func (m *Model) unfocusQueue() {
-	if !m.queueFocus {
+	if !m.queue.focus {
 		return
 	}
-	m.queueFocus = false
-	m.queueSel.clear()
+	m.queue.focus = false
+	m.queue.sel.clear()
 	m.afterQueueChange()
 }
 
-// clampQueueSel keeps the selection inside the list, dropping focus when the
+// clampSel keeps the selection inside the list, dropping focus when the
 // list emptied. It touches queue state only: row height depends on the item
 // count, not the selected index, so every mutation site already relayouts via
 // afterQueueChange.
-func (q *queueState) clampQueueSel() {
-	q.queueSel.clamp(len(q.queue))
-	if len(q.queue) == 0 {
-		q.queueFocus = false
-		q.queueSel.clear()
+func (q *queue) clampSel() {
+	q.sel.clamp(len(q.prompts))
+	if len(q.prompts) == 0 {
+		q.focus = false
+		q.sel.clear()
 	}
 }
 
-// selectedQueueID is the focused row's id, or 0.
-func (q queueState) selectedQueueID() int {
-	if !q.queueFocus || len(q.queue) == 0 {
+// selectedID is the focused row's id, or 0.
+func (q queue) selectedID() int {
+	if !q.focus || len(q.prompts) == 0 {
 		return 0
 	}
-	i := q.queueSel.selected
-	if i < 0 || i >= len(q.queue) {
+	i := q.sel.selected
+	if i < 0 || i >= len(q.prompts) {
 		return 0
 	}
-	return q.queue[i].id
+	return q.prompts[i].id
 }
 
 // handleQueueNavKey handles keys while the follow-ups panel is focused.
 // Returns (cmd, true) when the key was consumed.
 func (m *Model) handleQueueNavKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
-	if !m.queueFocus {
+	if !m.queue.focus {
 		return nil, false
 	}
-	if len(m.queue) == 0 {
+	if len(m.queue.prompts) == 0 {
 		m.unfocusQueue()
 		return nil, true
 	}
-	m.clampQueueSel()
+	m.queue.clampSel()
 	key := msg.String()
-	n := len(m.queue)
+	n := len(m.queue.prompts)
 
-	if m.queueSel.move(n, key) {
+	if m.queue.sel.move(n, key) {
 		m.afterQueueChange()
 		return nil, true
 	}
 	switch key {
 	case "enter":
-		return m.deliverQueued(m.selectedQueueID()), true
+		return m.deliverQueued(m.queue.selectedID()), true
 	case "e":
-		id := m.selectedQueueID()
+		id := m.queue.selectedID()
 		m.unfocusQueue()
 		if id != 0 {
 			m.beginEdit(id)
 		}
 		return nil, true
 	case "d", "x", "delete", "backspace":
-		id := m.selectedQueueID()
+		id := m.queue.selectedID()
 		if id != 0 {
 			m.removeQueued(id)
-			m.clampQueueSel()
+			m.queue.clampSel()
 		}
 		return nil, true
 	case "ctrl+q":
@@ -197,57 +206,57 @@ func (m *Model) handleQueueNavKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 // at its original index if submit refuses before committing.
 func (m *Model) deliverQueued(id int) tea.Cmd {
 	m.unfocusQueue()
-	if id == 0 || m.editID == id {
+	if id == 0 || m.queue.editID == id {
 		return nil
 	}
 	// OAuth recover owns the busy slot — do not start a competing turn.
-	if m.AuthRetrying {
+	if m.session.AuthRetrying {
 		return nil
 	}
-	i := m.queueIndex(id)
+	i := m.queue.index(id)
 	if i < 0 {
 		return nil
 	}
-	p := m.queue[i]
-	m.queue = append(m.queue[:i], m.queue[i+1:]...)
+	p := m.queue.prompts[i]
+	m.queue.prompts = append(m.queue.prompts[:i], m.queue.prompts[i+1:]...)
 	m.afterQueueChange()
 
-	if m.turn != nil {
+	if m.turn.current != nil {
 		m.finishTurn()
 	}
 
-	nHist := len(m.History)
+	nHist := len(m.session.History)
 	cmd := m.submit(p.text, p.imgs)
-	if len(m.History) == nHist {
-		if i > len(m.queue) {
-			i = len(m.queue)
+	if len(m.session.History) == nHist {
+		if i > len(m.queue.prompts) {
+			i = len(m.queue.prompts)
 		}
-		m.queue = append(m.queue[:i:i], append([]queuedPrompt{p}, m.queue[i:]...)...)
+		m.queue.prompts = append(m.queue.prompts[:i:i], append([]queuedPrompt{p}, m.queue.prompts[i:]...)...)
 		m.afterQueueChange()
 	}
 	return cmd
 }
 
-// queueHeadID is the id of the next waiting item, or 0.
-func (q queueState) queueHeadID() int {
-	if len(q.queue) == 0 {
+// headID is the id of the next waiting item, or 0.
+func (q queue) headID() int {
+	if len(q.prompts) == 0 {
 		return 0
 	}
-	return q.queue[0].id
+	return q.prompts[0].id
 }
 
 // editingHead is true when the composer holds the next item that would drain.
-func (q queueState) editingHead() bool {
-	return q.editID != 0 && q.editID == q.queueHeadID()
+func (q queue) editingHead() bool {
+	return q.editID != 0 && q.editID == q.headID()
 }
 
 // canDrain reports whether auto-start / empty-Enter may take the next follow-up.
 // Editing a non-head item does not block; a non-empty composer draft does.
 func (m Model) canDrain() bool {
-	if len(m.queue) == 0 || m.editingHead() {
+	if len(m.queue.prompts) == 0 || m.queue.editingHead() {
 		return false
 	}
-	if m.editID == 0 && !m.composerIsEmpty() {
+	if m.queue.editID == 0 && !m.composerIsEmpty() {
 		return false
 	}
 	return true
@@ -258,9 +267,9 @@ func (m Model) composerIsEmpty() bool {
 	return text == "" && len(imgs) == 0
 }
 
-func (q *queueState) queueIndex(id int) int {
-	for i := range q.queue {
-		if q.queue[i].id == id {
+func (q *queue) index(id int) int {
+	for i := range q.prompts {
+		if q.prompts[i].id == id {
 			return i
 		}
 	}
@@ -269,9 +278,9 @@ func (q *queueState) queueIndex(id int) int {
 
 // commitUserPrompt appends one user turn to transcript, API history, and JSONL.
 func (m *Model) commitUserPrompt(text string, imgs []image.Ref) {
-	m.messages = append(m.messages, Message{Role: RoleUser, Text: userDisplayText(text, imgs)})
-	if err := m.Session.CommitUserPrompt(text, imgs); err != nil {
-		m.messages = append(m.messages, Message{Role: RoleError, Text: "session save failed: " + err.Error()})
+	m.transcript.messages = append(m.transcript.messages, Message{Role: RoleUser, Text: userDisplayText(text, imgs)})
+	if err := m.session.CommitUserPrompt(text, imgs); err != nil {
+		m.transcript.messages = append(m.transcript.messages, Message{Role: RoleError, Text: "session save failed: " + err.Error()})
 	}
 }
 
@@ -281,47 +290,47 @@ func (m *Model) commitUserPrompt(text string, imgs []image.Ref) {
 // and the user row must still be the transcript tail (a later compact divider,
 // agent/tool row, or persist error means the send already landed).
 func (m *Model) restoreUnstartedPrompt() bool {
-	if !m.composerIsEmpty() || m.editID != 0 {
+	if !m.composerIsEmpty() || m.queue.editID != 0 {
 		return false
 	}
-	n := len(m.messages)
-	if n == 0 || m.messages[n-1].Role != RoleUser {
+	n := len(m.transcript.messages)
+	if n == 0 || m.transcript.messages[n-1].Role != RoleUser {
 		return false
 	}
-	nh := len(m.History)
-	if nh == 0 || m.History[nh-1].Role != ai.RoleUser {
+	nh := len(m.session.History)
+	if nh == 0 || m.session.History[nh-1].Role != ai.RoleUser {
 		return false
 	}
-	if m.Log != nil && m.Log.Persisted() {
-		dropped, err := m.Log.DropLastUser()
+	if m.session.Log != nil && m.session.Log.Persisted() {
+		dropped, err := m.session.Log.DropLastUser()
 		if err != nil || !dropped {
 			return false
 		}
 	}
-	h := m.History[nh-1]
+	h := m.session.History[nh-1]
 	text := h.Text
 	imgs := append([]image.Ref(nil), h.Images...)
-	m.messages = m.messages[:n-1]
-	m.History = m.History[:nh-1]
+	m.transcript.messages = m.transcript.messages[:n-1]
+	m.session.History = m.session.History[:nh-1]
 	m.loadQueuedIntoComposer(newQueuedPrompt(0, text, imgs))
-	m.textarea.MoveToEnd()
+	m.composer.textarea.MoveToEnd()
 	m.refreshTranscript()
 	return true
 }
 
 // enqueuePrompt appends a waiting follow-up. No-op while editing.
 func (m *Model) enqueuePrompt(text string, imgs []image.Ref) tea.Cmd {
-	if m.editID != 0 {
+	if m.queue.editID != 0 {
 		return nil
 	}
-	m.queue = append(m.queue, newQueuedPrompt(m.allocQueueID(), text, imgs))
+	m.queue.prompts = append(m.queue.prompts, newQueuedPrompt(m.queue.allocID(), text, imgs))
 	m.resetInput()
 	m.afterQueueChange()
 	return nil
 }
 
 func (m *Model) afterQueueChange() {
-	if m.ready {
+	if m.term.ready {
 		m.layoutPreservingBottom()
 	}
 }
@@ -332,21 +341,21 @@ func (m *Model) drainNextQueuedPrompt() tea.Cmd {
 	if !m.canDrain() {
 		return nil
 	}
-	return m.deliverQueued(m.queueHeadID())
+	return m.deliverQueued(m.queue.headID())
 }
 
 // beginEdit opens a waiting item in the composer. Item stays in queue[].
 func (m *Model) beginEdit(id int) bool {
-	if id == 0 || m.editID != 0 {
+	if id == 0 || m.queue.editID != 0 {
 		return false
 	}
-	i := m.queueIndex(id)
+	i := m.queue.index(id)
 	if i < 0 {
 		return false
 	}
-	p := m.queue[i]
+	p := m.queue.prompts[i]
 	m.unfocusQueue()
-	m.editID = id
+	m.queue.editID = id
 	m.loadQueuedIntoComposer(p)
 	m.afterQueueChange()
 	return true
@@ -354,17 +363,17 @@ func (m *Model) beginEdit(id int) bool {
 
 // saveEdit writes the composer back onto the item being edited.
 func (m *Model) saveEdit(text string, imgs []image.Ref) bool {
-	if m.editID == 0 {
+	if m.queue.editID == 0 {
 		return false
 	}
-	i := m.queueIndex(m.editID)
+	i := m.queue.index(m.queue.editID)
 	if i < 0 {
-		m.editID = 0
+		m.queue.editID = 0
 		m.resetInput()
 		return false
 	}
-	m.queue[i] = newQueuedPrompt(m.editID, text, imgs)
-	m.editID = 0
+	m.queue.prompts[i] = newQueuedPrompt(m.queue.editID, text, imgs)
+	m.queue.editID = 0
 	m.resetInput()
 	m.afterQueueChange()
 	return true
@@ -372,10 +381,10 @@ func (m *Model) saveEdit(text string, imgs []image.Ref) bool {
 
 // cancelEdit clears the composer and leaves the queue item unchanged.
 func (m *Model) cancelEdit() bool {
-	if m.editID == 0 {
+	if m.queue.editID == 0 {
 		return false
 	}
-	m.editID = 0
+	m.queue.editID = 0
 	m.resetInput()
 	m.afterQueueChange()
 	return true
@@ -386,19 +395,19 @@ func (m *Model) removeQueued(id int) bool {
 	if id == 0 {
 		return false
 	}
-	i := m.queueIndex(id)
+	i := m.queue.index(id)
 	if i < 0 {
 		return false
 	}
-	m.queue = append(m.queue[:i], m.queue[i+1:]...)
-	if m.editID == id {
-		m.editID = 0
+	m.queue.prompts = append(m.queue.prompts[:i], m.queue.prompts[i+1:]...)
+	if m.queue.editID == id {
+		m.queue.editID = 0
 		m.resetInput()
 	}
-	if len(m.queue) == 0 {
+	if len(m.queue.prompts) == 0 {
 		m.unfocusQueue()
-	} else if m.queueFocus {
-		m.clampQueueSel()
+	} else if m.queue.focus {
+		m.queue.clampSel()
 	}
 	m.afterQueueChange()
 	return true
@@ -413,13 +422,13 @@ func (m *Model) loadQueuedIntoComposer(p queuedPrompt) {
 		return
 	}
 	// Rebuild [Image N] tokens so parseComposer round-trips attachments.
-	m.pendingImages = make(map[int]image.Ref, len(p.imgs))
+	m.composer.pendingImages = make(map[int]image.Ref, len(p.imgs))
 	var b strings.Builder
 	b.WriteString(p.text)
 	for _, img := range p.imgs {
-		m.nextImageN++
-		n := m.nextImageN
-		m.pendingImages[n] = img
+		m.composer.nextImageN++
+		n := m.composer.nextImageN
+		m.composer.pendingImages[n] = img
 		if b.Len() > 0 {
 			b.WriteByte(' ')
 		}
@@ -434,7 +443,7 @@ func (m *Model) handleQueueEsc() bool {
 	if m.cancelEdit() {
 		return true
 	}
-	if m.queueFocus {
+	if m.queue.focus {
 		m.unfocusQueue()
 		return true
 	}
@@ -443,7 +452,7 @@ func (m *Model) handleQueueEsc() bool {
 
 func (m *Model) handleTurnDone() tea.Cmd {
 	// Late/spurious Done after cancel/error: do not drain remaining queue.
-	if m.turn == nil {
+	if m.turn.current == nil {
 		return nil
 	}
 	m.finishTurn()
@@ -465,7 +474,7 @@ func queueItemLabel(p queuedPrompt) string {
 
 // renderQueueFollowups lists waiting follow-ups in the gap slot.
 func (m Model) renderQueueFollowups(width int) string {
-	waiting := m.queue
+	waiting := m.queue.prompts
 	if len(waiting) == 0 {
 		return ""
 	}
@@ -482,8 +491,8 @@ func (m Model) renderQueueFollowups(width int) string {
 	var lines []string
 	rowsLeft := queueListMaxRows
 
-	sel := m.queueSel.selected
-	if !m.queueFocus || sel < 0 {
+	sel := m.queue.sel.selected
+	if !m.queue.focus || sel < 0 {
 		sel = 0
 	}
 	if n := len(waiting); n > 0 && sel >= n {
@@ -505,8 +514,8 @@ func (m Model) renderQueueFollowups(width int) string {
 		idx := start + i
 		p := waiting[idx]
 		label := queueItemLabel(p)
-		focused := m.queueFocus && idx == sel
-		editing := m.editID != 0 && p.id == m.editID
+		focused := m.queue.focus && idx == sel
+		editing := m.queue.editID != 0 && p.id == m.queue.editID
 		prefix := followUpsBullet
 		switch {
 		case editing:
@@ -531,15 +540,15 @@ func (m Model) renderQueueFollowups(width int) string {
 		return ""
 	}
 	lines = append(lines, row.Width(fillW).Render(""))
-	lines = append(lines, renderFollowUpsFooter(hint, m.editID != 0, m.queueFocus))
+	lines = append(lines, renderFollowUpsFooter(hint, m.queue.editID != 0, m.queue.focus))
 
 	boxStyle := styles.FollowUpsBoxBare(innerW)
 	body := boxStyle.Render(strings.Join(lines, "\n"))
 	topTitle := followUpsTitle
 	switch {
-	case m.editID != 0:
+	case m.queue.editID != 0:
 		topTitle = "follow-ups · editing"
-	case m.queueFocus:
+	case m.queue.focus:
 		topTitle = "follow-ups · ↑/↓"
 	}
 	top := renderFollowUpsTopLine(innerW, styles.FollowUpsHeader.Render(topTitle), border)

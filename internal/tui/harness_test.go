@@ -34,11 +34,11 @@ func TestGateAndHarnessShareLiveRules(t *testing.T) {
 	rules := permission.NewRules(policy.Policy{})
 
 	m := testModel()
-	m.WS = workspace.Context{Abs: root}
-	m.Grants = &grants
-	m.Rules = rules
+	m.session.WS = workspace.Context{Abs: root}
+	m.session.Grants = &grants
+	m.session.Rules = rules
 	replies := make(chan agent.Reply, 1)
-	m.turn = &turnSession{activeTool: -1, ch: make(chan agent.Event), reply: replies, cancel: func() {}}
+	m.turn.current = &turnSession{activeTool: -1, ch: make(chan agent.Event), reply: replies, cancel: func() {}}
 
 	// The exact Gate the agent loop runs with.
 	gate := core.Gate(rules, &grants, root)
@@ -48,7 +48,7 @@ func TestGateAndHarnessShareLiveRules(t *testing.T) {
 
 	// Mid-turn: the user presses [p] on the prompt.
 	m.handleTurnToolStart(turnToolStartMsg{name: tools.Bash, label: "bash go test", args: bashArgs("go test")})
-	if m.bottom.perm == nil {
+	if m.panel.perm == nil {
 		t.Fatal("expected the first prompt")
 	}
 	m.decidePermission(permission.AllowAlways)
@@ -61,7 +61,7 @@ func TestGateAndHarnessShareLiveRules(t *testing.T) {
 		t.Fatal("gate should see the persisted rule")
 	}
 	_ = m.handleTurnToolStart(turnToolStartMsg{name: tools.Bash, label: "bash go test -v", args: bashArgs("go test -v")})
-	if m.bottom.perm != nil {
+	if m.panel.perm != nil {
 		t.Fatal("harness must not open a panel for an allowed call")
 	}
 	select {
@@ -71,22 +71,22 @@ func TestGateAndHarnessShareLiveRules(t *testing.T) {
 	}
 }
 
-func TestBottomSlotExclusive(t *testing.T) {
-	var b bottomSlot
-	b.setPerm(&permissionPrompt{name: tools.Bash})
-	if b.perm == nil || b.ask != nil || b.plan != nil {
-		t.Fatalf("setPerm: %+v", b)
+func TestPanelExclusive(t *testing.T) {
+	var p panel
+	p.setPerm(&permissionPrompt{name: tools.Bash})
+	if p.perm == nil || p.ask != nil || p.plan != nil {
+		t.Fatalf("setPerm: %+v", p)
 	}
-	b.setAsk(newAskPrompt(sampleAskArgs()))
-	if b.ask == nil || b.perm != nil || b.plan != nil {
-		t.Fatalf("setAsk clears perm: %+v", b)
+	p.setAsk(newAskPrompt(sampleAskArgs()))
+	if p.ask == nil || p.perm != nil || p.plan != nil {
+		t.Fatalf("setAsk clears perm: %+v", p)
 	}
-	b.setPlan(&planPrompt{body: "x", title: "T"})
-	if b.plan == nil || b.ask != nil || b.perm != nil {
-		t.Fatalf("setPlan clears ask: %+v", b)
+	p.setPlan(&planPrompt{body: "x", title: "T"})
+	if p.plan == nil || p.ask != nil || p.perm != nil {
+		t.Fatalf("setPlan clears ask: %+v", p)
 	}
-	b.clear()
-	if b.blocked() {
+	p.clear()
+	if p.blocked() {
 		t.Fatal("clear")
 	}
 }

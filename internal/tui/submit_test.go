@@ -29,24 +29,24 @@ func testClientCfg() config.Config {
 // is configured.
 func TestSubmitWithoutClientLeavesTurnUncommitted(t *testing.T) {
 	m := testModel()
-	m.textarea.SetValue("hey")
+	m.composer.textarea.SetValue("hey")
 
 	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter, Text: "enter"})
 	m = next.(Model)
 
-	if len(m.History) != 0 {
-		t.Fatalf("history = %#v", m.History)
+	if len(m.session.History) != 0 {
+		t.Fatalf("history = %#v", m.session.History)
 	}
-	if m.textarea.Value() != "hey" {
-		t.Fatalf("input = %q", m.textarea.Value())
+	if m.composer.textarea.Value() != "hey" {
+		t.Fatalf("input = %q", m.composer.textarea.Value())
 	}
-	if len(m.messages) != 1 {
-		t.Fatalf("messages = %#v", m.messages)
+	if len(m.transcript.messages) != 1 {
+		t.Fatalf("messages = %#v", m.transcript.messages)
 	}
-	if m.messages[0].Role != RoleError {
-		t.Fatalf("role = %v", m.messages[0].Role)
+	if m.transcript.messages[0].Role != RoleError {
+		t.Fatalf("role = %v", m.transcript.messages[0].Role)
 	}
-	if !strings.Contains(m.messages[0].Text, "/config") {
-		t.Fatalf("text = %q", m.messages[0].Text)
+	if !strings.Contains(m.transcript.messages[0].Text, "/config") {
+		t.Fatalf("text = %q", m.transcript.messages[0].Text)
 	}
 }

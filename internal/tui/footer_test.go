@@ -151,35 +151,35 @@ func TestSessionDiff(t *testing.T) {
 	}
 
 	m := testModel()
-	m.messages = msgs
+	m.transcript.messages = msgs
 	m.refreshSessionDiff()
-	if m.sessionDiff.added != 3 || m.sessionDiff.deleted != 1 {
-		t.Fatalf("refreshSessionDiff = %+v, want +3 -1", m.sessionDiff)
+	if m.transcript.sessionDiff.added != 3 || m.transcript.sessionDiff.deleted != 1 {
+		t.Fatalf("refreshSessionDiff = %+v, want +3 -1", m.transcript.sessionDiff)
 	}
 
 	// Live tool finish path: Out set then refresh (same as handleTurnTool).
-	m.messages = []Message{
+	m.transcript.messages = []Message{
 		{Role: RoleTool, Tool: tools.Edit, Status: ToolOK, Out: diff},
 	}
 	m.refreshSessionDiff()
-	if m.sessionDiff.added != 2 || m.sessionDiff.deleted != 1 {
-		t.Fatalf("after edit: %+v, want +2 -1", m.sessionDiff)
+	if m.transcript.sessionDiff.added != 2 || m.transcript.sessionDiff.deleted != 1 {
+		t.Fatalf("after edit: %+v, want +2 -1", m.transcript.sessionDiff)
 	}
-	m.messages = append(m.messages, Message{Role: RoleTool, Tool: tools.Write, Status: ToolOK, Out: writeOut})
+	m.transcript.messages = append(m.transcript.messages, Message{Role: RoleTool, Tool: tools.Write, Status: ToolOK, Out: writeOut})
 	m.refreshSessionDiff()
-	if m.sessionDiff.added != 3 || m.sessionDiff.deleted != 1 {
-		t.Fatalf("after write: %+v, want +3 -1", m.sessionDiff)
+	if m.transcript.sessionDiff.added != 3 || m.transcript.sessionDiff.deleted != 1 {
+		t.Fatalf("after write: %+v, want +3 -1", m.transcript.sessionDiff)
 	}
 	// Non-edit tool does not change totals when rescanned.
-	m.messages = append(m.messages, Message{Role: RoleTool, Tool: tools.Bash, Status: ToolOK, Out: "hi"})
+	m.transcript.messages = append(m.transcript.messages, Message{Role: RoleTool, Tool: tools.Bash, Status: ToolOK, Out: "hi"})
 	m.refreshSessionDiff()
-	if m.sessionDiff.added != 3 || m.sessionDiff.deleted != 1 {
-		t.Fatalf("after bash: %+v, want +3 -1", m.sessionDiff)
+	if m.transcript.sessionDiff.added != 3 || m.transcript.sessionDiff.deleted != 1 {
+		t.Fatalf("after bash: %+v, want +3 -1", m.transcript.sessionDiff)
 	}
 
 	m.applySession(nil, nil, nil)
-	if !m.sessionDiff.empty() {
-		t.Fatalf("new session should zero diff: %+v", m.sessionDiff)
+	if !m.transcript.sessionDiff.empty() {
+		t.Fatalf("new session should zero diff: %+v", m.transcript.sessionDiff)
 	}
 }
 

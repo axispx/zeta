@@ -70,7 +70,7 @@ func TestAppendThinkingBounds(t *testing.T) {
 
 func TestThinkingLifecycleClearsOnDelta(t *testing.T) {
 	m := testModel()
-	m.turn = &turnSession{
+	m.turn.current = &turnSession{
 		cancel:     func() {},
 		ch:         closedAgentEvents(),
 		activeTool: -1,
@@ -81,32 +81,32 @@ func TestThinkingLifecycleClearsOnDelta(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("expected wait cmd")
 	}
-	if m.turn.thinking != "step1\n" {
-		t.Fatalf("thinking=%q", m.turn.thinking)
+	if m.turn.current.thinking != "step1\n" {
+		t.Fatalf("thinking=%q", m.turn.current.thinking)
 	}
 	next, _ = m.Update(turnReasoningMsg{text: "step2"})
 	m = next.(Model)
-	if m.turn.thinking != "step1\nstep2" {
-		t.Fatalf("thinking=%q", m.turn.thinking)
+	if m.turn.current.thinking != "step1\nstep2" {
+		t.Fatalf("thinking=%q", m.turn.current.thinking)
 	}
 
 	next, _ = m.Update(turnDeltaMsg{text: "Hello"})
 	m = next.(Model)
-	if m.turn.thinking != "" {
-		t.Fatalf("thinking not cleared: %q", m.turn.thinking)
+	if m.turn.current.thinking != "" {
+		t.Fatalf("thinking not cleared: %q", m.turn.current.thinking)
 	}
-	if !m.turn.streaming {
+	if !m.turn.current.streaming {
 		t.Fatal("expected streaming")
 	}
-	n := len(m.messages)
-	if n == 0 || m.messages[n-1].Role != RoleAgent || m.messages[n-1].Text != "Hello" {
-		t.Fatalf("messages=%+v", m.messages)
+	n := len(m.transcript.messages)
+	if n == 0 || m.transcript.messages[n-1].Role != RoleAgent || m.transcript.messages[n-1].Text != "Hello" {
+		t.Fatalf("messages=%+v", m.transcript.messages)
 	}
 }
 
 func TestThinkingIgnoredWhileStreaming(t *testing.T) {
 	m := testModel()
-	m.turn = &turnSession{
+	m.turn.current = &turnSession{
 		cancel:     func() {},
 		ch:         closedAgentEvents(),
 		streaming:  true,
@@ -115,14 +115,14 @@ func TestThinkingIgnoredWhileStreaming(t *testing.T) {
 	}
 	next, _ := m.Update(turnReasoningMsg{text: "nope"})
 	m = next.(Model)
-	if m.turn.thinking != "" {
-		t.Fatalf("thinking=%q", m.turn.thinking)
+	if m.turn.current.thinking != "" {
+		t.Fatalf("thinking=%q", m.turn.current.thinking)
 	}
 }
 
 func TestThinkingClearsOnToolStart(t *testing.T) {
 	m := testModel()
-	m.turn = &turnSession{
+	m.turn.current = &turnSession{
 		cancel:     func() {},
 		ch:         closedAgentEvents(),
 		thinking:   "ponder",
@@ -130,17 +130,17 @@ func TestThinkingClearsOnToolStart(t *testing.T) {
 	}
 	next, _ := m.Update(turnToolStartMsg{label: "read a.go", name: tools.Read})
 	m = next.(Model)
-	if m.turn.thinking != "" {
-		t.Fatalf("thinking=%q", m.turn.thinking)
+	if m.turn.current.thinking != "" {
+		t.Fatalf("thinking=%q", m.turn.current.thinking)
 	}
-	if m.turn.activeTool < 0 {
+	if m.turn.current.activeTool < 0 {
 		t.Fatal("expected active tool")
 	}
 }
 
 func TestThinkingClearsOnAssistant(t *testing.T) {
 	m := testModel()
-	m.turn = &turnSession{
+	m.turn.current = &turnSession{
 		cancel:     func() {},
 		ch:         closedAgentEvents(),
 		thinking:   "ponder",
@@ -150,8 +150,8 @@ func TestThinkingClearsOnAssistant(t *testing.T) {
 		message: ai.Message{Role: ai.RoleAssistant, Text: ""},
 	})
 	m = next.(Model)
-	if m.turn.thinking != "" {
-		t.Fatalf("thinking=%q", m.turn.thinking)
+	if m.turn.current.thinking != "" {
+		t.Fatalf("thinking=%q", m.turn.current.thinking)
 	}
 }
 

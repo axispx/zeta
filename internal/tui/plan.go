@@ -45,7 +45,7 @@ const planBuildListMaxRows = 5
 
 // planPrompt is the modal after Plan mode emits <proposed_plan>.
 // Replaces the input until the user decides. Build-model pick is a separate
-// bottom panel (buildPickPrompt) — not a mode bit on this struct.
+// panel (buildPickPrompt) — not a mode bit on this struct.
 type planPrompt struct {
 	body  string
 	title string
@@ -58,7 +58,7 @@ func newPlanPrompt(body, title string) *planPrompt {
 	return p
 }
 
-// buildPickPrompt is the post-approve model list (exclusive bottom panel).
+// buildPickPrompt is the post-approve model list (exclusive panel).
 // Holds plan body/title so cancel can restore approval, and confirm can hand off.
 type buildPickPrompt struct {
 	body     string
@@ -71,7 +71,7 @@ type buildPickPrompt struct {
 // segment. Offered once on turnDone via maybeOfferPlan (not re-scanned from
 // history, so discard/revise do not re-open a stale plan).
 func (m *Model) noteProducedPlan(asstText string) {
-	if body, ok := m.ProducedPlan(asstText); ok {
+	if body, ok := m.session.ProducedPlan(asstText); ok {
 		m.pendingPlan = body
 	}
 }
@@ -80,25 +80,25 @@ func (m *Model) noteProducedPlan(asstText string) {
 func (m *Model) maybeOfferPlan() {
 	body := strings.TrimSpace(m.pendingPlan)
 	m.pendingPlan = ""
-	if body == "" || m.Mode != prompt.ModePlan || m.bottom.plan != nil || m.bottom.build != nil || m.turn != nil {
+	if body == "" || m.session.Mode != prompt.ModePlan || m.panel.plan != nil || m.panel.build != nil || m.turn.current != nil {
 		return
 	}
-	m.bottom.setPlan(newPlanPrompt(body, plan.Title(body)))
+	m.panel.setPlan(newPlanPrompt(body, plan.Title(body)))
 	m.closeOverlay()
 	m.resetInput()
-	m.afterSetBottom()
+	m.afterPanelChange()
 }
 
 func (m *Model) dismissPlan() {
-	m.bottom.clear()
+	m.panel.clear()
 	m.pendingPlan = ""
-	m.afterSetBottom()
+	m.afterPanelChange()
 }
 
 // handlePlanKey consumes nav / a/r/d / enter while the plan approval panel is open.
 // Esc returns false so Update's interrupt path runs.
 func (m *Model) handlePlanKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
-	p := m.bottom.plan
+	p := m.panel.plan
 	if p == nil {
 		return nil, false
 	}
@@ -113,7 +113,7 @@ func (m *Model) handlePlanKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 }
 
 func (m *Model) decidePlan(action planAction) tea.Cmd {
-	if m.bottom.plan == nil {
+	if m.panel.plan == nil {
 		return nil
 	}
 	switch action {
@@ -133,51 +133,51 @@ func (m *Model) decidePlan(action planAction) tea.Cmd {
 	}
 }
 
-// beginPlanBuildPick opens the build-model list as its own bottom panel.
+// beginPlanBuildPick opens the build-model list as its own panel.
 func (m *Model) beginPlanBuildPick() tea.Cmd {
-	p := m.bottom.plan
+	p := m.panel.plan
 	if p == nil {
 		return nil
 	}
-	entries := m.Cfg.ModelChoices()
+	entries := m.session.Cfg.ModelChoices()
 	if len(entries) == 0 {
 		m.dismissPlan()
 		m.noteError("no models configured")
 		return nil
 	}
 	sel := 0
-	prefer := m.Cfg.PreferredBuildModel()
+	prefer := m.session.Cfg.PreferredBuildModel()
 	for i, e := range entries {
 		if e.ID() == prefer {
 			sel = i
 			break
 		}
 	}
-	m.bottom.setBuild(&buildPickPrompt{
+	m.panel.setBuild(&buildPickPrompt{
 		body:     p.body,
 		title:    p.title,
 		models:   entries,
 		selected: sel,
 	})
 	m.resetInput()
-	m.afterSetBottom()
+	m.afterPanelChange()
 	return nil
 }
 
 // cancelPlanBuildPick returns from build-model pick to approval options.
 func (m *Model) cancelPlanBuildPick() {
-	b := m.bottom.build
+	b := m.panel.build
 	if b == nil {
 		return
 	}
-	m.bottom.setPlan(newPlanPrompt(b.body, b.title))
+	m.panel.setPlan(newPlanPrompt(b.body, b.title))
 	m.resetInput()
-	m.afterSetBottom()
+	m.afterPanelChange()
 }
 
 // confirmPlanBuild switches to Build with modelID and starts implementing.
 func (m *Model) confirmPlanBuild(modelID string) tea.Cmd {
-	b := m.bottom.build
+	b := m.panel.build
 	if b == nil {
 		return nil
 	}
@@ -187,39 +187,39 @@ func (m *Model) confirmPlanBuild(modelID string) tea.Cmd {
 // beginBuildFromPlan is the atomic plan→build handoff: persist preferred model,
 // clear plan UI, new Build session, seed implement prompt.
 func (m *Model) beginBuildFromPlan(body, title, modelID string) tea.Cmd {
-	prevCfg := m.Cfg
-	prevClient := m.Client
-	m.Cfg.SetActive(modelID)
-	m.Cfg.SetBuildDefault(modelID)
-	if err := m.Cfg.Save(); err != nil {
-		m.Cfg = prevCfg
-		m.Client = prevClient
+	prevCfg := m.session.Cfg
+	prevClient := m.session.Client
+	m.session.Cfg.SetActive(modelID)
+	m.session.Cfg.SetBuildDefault(modelID)
+	if err := m.session.Cfg.Save(); err != nil {
+		m.session.Cfg = prevCfg
+		m.session.Client = prevClient
 		m.dismissPlan()
 		m.noteError("config save: " + err.Error())
 		return nil
 	}
-	m.ResetContext()
-	m.ApplyClient()
+	m.session.ResetContext()
+	m.session.ApplyClient()
 
-	m.bottom.clear()
+	m.panel.clear()
 	m.pendingPlan = ""
 	m.closeOverlay()
 	m.resetInput()
-	m.Mode = prompt.ModeBuild
+	m.session.Mode = prompt.ModeBuild
 	m.startNewSession()
 
-	m.noteSystem("Building with " + m.Cfg.ModelName() + " · " + title)
+	m.noteSystem("Building with " + m.session.Cfg.ModelName() + " · " + title)
 	return m.submit(plan.BuildPrompt(body), nil)
 }
 
 // handlePlanClick selects an approval option under the cursor.
 func (m *Model) handlePlanClick(msg tea.MouseClickMsg) (tea.Cmd, bool) {
-	p := m.bottom.plan
+	p := m.panel.plan
 	if p == nil || msg.Button != tea.MouseLeft {
 		return nil, false
 	}
-	_, contentW := overlayWidths(m.width)
-	idx, chose := p.list.handleClick(msg.X, msg.Y, m.viewport.Height(), m.width, m.planTitleH(), contentW)
+	_, contentW := overlayWidths(m.term.width)
+	idx, chose := p.list.handleClick(msg.X, msg.Y, m.transcript.viewport.Height(), m.term.width, m.planTitleH(), contentW)
 	if !chose || idx < 0 || idx >= len(planOptions) {
 		return nil, false
 	}
@@ -227,30 +227,30 @@ func (m *Model) handlePlanClick(msg tea.MouseClickMsg) (tea.Cmd, bool) {
 }
 
 func (m *Model) handlePlanMotion(msg tea.MouseMotionMsg) bool {
-	p := m.bottom.plan
+	p := m.panel.plan
 	if p == nil {
 		return false
 	}
-	_, contentW := overlayWidths(m.width)
-	return p.list.handleMotion(msg.X, msg.Y, m.viewport.Height(), m.width, m.planTitleH(), contentW)
+	_, contentW := overlayWidths(m.term.width)
+	return p.list.handleMotion(msg.X, msg.Y, m.transcript.viewport.Height(), m.term.width, m.planTitleH(), contentW)
 }
 
 func (m Model) planTitleH() int {
-	_, contentW := overlayWidths(m.width)
-	ink := m.chrome.OverlayInk()
+	_, contentW := overlayWidths(m.term.width)
+	ink := m.term.chrome.OverlayInk()
 	return lipgloss.Height(m.renderPlanTitle(contentW, ink))
 }
 
 func (m Model) renderPlanApproval(width int) string {
-	p := m.bottom.plan
+	p := m.panel.plan
 	if p == nil {
 		return ""
 	}
 	_, contentW := overlayWidths(width)
-	ink := m.chrome.OverlayInk()
+	ink := m.term.chrome.OverlayInk()
 
 	body := m.renderPlanTitle(contentW, ink) + p.list.render(contentW, ink)
-	return renderBottomPanel(m.chrome, width, body)
+	return renderPanelFrame(m.term.chrome, width, body)
 }
 
 func (m Model) renderPlanTitle(contentW int, ink styles.OverlayInk) string {
@@ -258,7 +258,7 @@ func (m Model) renderPlanTitle(contentW int, ink styles.OverlayInk) string {
 	if inner < 1 {
 		inner = 1
 	}
-	title := m.bottom.plan.title
+	title := m.panel.plan.title
 	if title == "" {
 		title = "Untitled plan"
 	}
@@ -266,10 +266,10 @@ func (m Model) renderPlanTitle(contentW int, ink styles.OverlayInk) string {
 	return padPanel(ink.Gap.Width(inner).Render(line), panelGutter)
 }
 
-// --- build model pick (own bottom panel) ---
+// --- build model pick (own panel) ---
 
 func (m *Model) handleBuildPickKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
-	b := m.bottom.build
+	b := m.panel.build
 	if b == nil {
 		return nil, false
 	}
@@ -295,7 +295,7 @@ func (m *Model) handleBuildPickKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 }
 
 func (m *Model) handleBuildPickClick(msg tea.MouseClickMsg) (tea.Cmd, bool) {
-	b := m.bottom.build
+	b := m.panel.build
 	if b == nil || msg.Button != tea.MouseLeft {
 		return nil, false
 	}
@@ -307,7 +307,7 @@ func (m *Model) handleBuildPickClick(msg tea.MouseClickMsg) (tea.Cmd, bool) {
 }
 
 func (m *Model) handleBuildPickMotion(msg tea.MouseMotionMsg) bool {
-	b := m.bottom.build
+	b := m.panel.build
 	if b == nil {
 		return false
 	}
@@ -319,16 +319,16 @@ func (m *Model) handleBuildPickMotion(msg tea.MouseMotionMsg) bool {
 }
 
 func (m Model) buildPickOptionAt(x, y int) int {
-	b := m.bottom.build
+	b := m.panel.build
 	if b == nil || len(b.models) == 0 {
 		return -1
 	}
-	_, contentW := overlayWidths(m.width)
-	ink := m.chrome.OverlayInk()
+	_, contentW := overlayWidths(m.term.width)
+	ink := m.term.chrome.OverlayInk()
 	header := m.renderBuildPickHeader(contentW, ink)
 	listH := min(planBuildListMaxRows, len(b.models))
 	start, end := windowAround(b.selected, len(b.models), listH)
-	idx := optionIndexAt(x, y, m.viewport.Height(), m.width, lipgloss.Height(header), end-start)
+	idx := optionIndexAt(x, y, m.transcript.viewport.Height(), m.term.width, lipgloss.Height(header), end-start)
 	if idx < 0 {
 		return -1
 	}
@@ -336,7 +336,7 @@ func (m Model) buildPickOptionAt(x, y int) int {
 }
 
 func (m Model) renderBuildPickHeader(contentW int, ink styles.OverlayInk) string {
-	b := m.bottom.build
+	b := m.panel.build
 	title := "Build with"
 	if b != nil {
 		if t := strings.TrimSpace(b.title); t != "" {
@@ -349,23 +349,23 @@ func (m Model) renderBuildPickHeader(contentW int, ink styles.OverlayInk) string
 
 // renderPlanBuildPick is the model list shown with input hidden after approve.
 func (m Model) renderPlanBuildPick(width int) string {
-	b := m.bottom.build
+	b := m.panel.build
 	if b == nil || len(b.models) == 0 {
 		return ""
 	}
 	_, contentW := overlayWidths(width)
-	ink := m.chrome.OverlayInk()
+	ink := m.term.chrome.OverlayInk()
 
-	markID := m.Cfg.PreferredBuildModel()
+	markID := m.session.Cfg.PreferredBuildModel()
 	if markID == "" {
-		markID = m.Cfg.Active
+		markID = m.session.Cfg.Active
 	}
 
 	var sb strings.Builder
 	sb.WriteString(m.renderBuildPickHeader(contentW, ink))
 	sb.WriteString(renderModelChoiceList(b.models, b.selected, markID, "build", contentW, planBuildListMaxRows, ink))
 
-	return renderBottomPanel(m.chrome, width, sb.String())
+	return renderPanelFrame(m.term.chrome, width, sb.String())
 }
 
 // renderModelChoiceList paints a scrollable model list (shared by plan build pick).

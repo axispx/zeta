@@ -16,8 +16,8 @@ func newDropModel(t *testing.T) Model {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m.ready = true
-	m.width, m.height = 80, 24
+	m.term.ready = true
+	m.term.width, m.term.height = 80, 24
 	m.layout()
 	return m
 }
@@ -83,47 +83,47 @@ func TestDropInsertSpacing(t *testing.T) {
 		if !m.handleBracketPaste(file) {
 			t.Fatal("expected drop to be consumed")
 		}
-		if got, want := m.textarea.Value(), file+" "; got != want {
+		if got, want := m.composer.textarea.Value(), file+" "; got != want {
 			t.Fatalf("value=%q want %q", got, want)
 		}
 	})
 
 	t.Run("text before cursor", func(t *testing.T) {
 		m := newDropModel(t)
-		m.textarea.SetValue("review this")
-		m.textarea.MoveToEnd()
+		m.composer.textarea.SetValue("review this")
+		m.composer.textarea.MoveToEnd()
 		if !m.handleBracketPaste(file) {
 			t.Fatal("expected drop to be consumed")
 		}
-		if got, want := m.textarea.Value(), "review this "+file+" "; got != want {
+		if got, want := m.composer.textarea.Value(), "review this "+file+" "; got != want {
 			t.Fatalf("value=%q want %q", got, want)
 		}
 	})
 
 	t.Run("existing trailing space is kept single", func(t *testing.T) {
 		m := newDropModel(t)
-		m.textarea.SetValue("look at ")
-		m.textarea.MoveToEnd()
+		m.composer.textarea.SetValue("look at ")
+		m.composer.textarea.MoveToEnd()
 		m.handleBracketPaste(file)
-		if got, want := m.textarea.Value(), "look at "+file+" "; got != want {
+		if got, want := m.composer.textarea.Value(), "look at "+file+" "; got != want {
 			t.Fatalf("value=%q want %q", got, want)
 		}
 	})
 
 	t.Run("drop at start of text needs no leading space", func(t *testing.T) {
 		m := newDropModel(t)
-		m.textarea.SetValue("tail")
-		m.textarea.MoveToBegin()
+		m.composer.textarea.SetValue("tail")
+		m.composer.textarea.MoveToBegin()
 		m.handleBracketPaste(file)
-		if got, want := m.textarea.Value(), file+" tail"; got != want {
+		if got, want := m.composer.textarea.Value(), file+" tail"; got != want {
 			t.Fatalf("value=%q want %q", got, want)
 		}
 	})
 
 	t.Run("plain text falls through", func(t *testing.T) {
 		m := newDropModel(t)
-		m.textarea.SetValue("keep")
-		m.textarea.MoveToEnd()
+		m.composer.textarea.SetValue("keep")
+		m.composer.textarea.MoveToEnd()
 		if m.handleBracketPaste("just some words") {
 			t.Fatal("plain text must not be consumed")
 		}
@@ -137,10 +137,10 @@ func TestClipboardTextDropInsertsPath(t *testing.T) {
 	if err := os.WriteFile(two, []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	m.textarea.SetValue("see")
-	m.textarea.MoveToEnd()
+	m.composer.textarea.SetValue("see")
+	m.composer.textarea.MoveToEnd()
 	m.insertDropPaths([]string{two})
-	if got, want := m.textarea.Value(), "see "+two+" "; got != want {
+	if got, want := m.composer.textarea.Value(), "see "+two+" "; got != want {
 		t.Fatalf("value=%q want %q", got, want)
 	}
 }

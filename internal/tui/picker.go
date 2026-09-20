@@ -26,14 +26,14 @@ func (p *pickerState) clear() {
 }
 
 func (m *Model) openPicker() {
-	entries, err := session.List(m.WS.Abs)
+	entries, err := session.List(m.session.WS.Abs)
 	if err != nil {
-		m.messages = append(m.messages, Message{Role: RoleError, Text: "session list: " + err.Error()})
+		m.transcript.messages = append(m.transcript.messages, Message{Role: RoleError, Text: "session list: " + err.Error()})
 		m.refreshTranscript()
 		return
 	}
 	if len(entries) == 0 {
-		m.messages = append(m.messages, Message{Role: RoleSystem, Text: "no sessions to resume"})
+		m.transcript.messages = append(m.transcript.messages, Message{Role: RoleSystem, Text: "no sessions to resume"})
 		m.refreshTranscript()
 		return
 	}
@@ -49,9 +49,9 @@ func (m *Model) resumeSelected() tea.Cmd {
 	id := m.picker.entries[m.picker.selected].ID
 	m.picker.clear()
 
-	sess, recs, err := session.OpenID(m.WS.Abs, id)
+	sess, recs, err := session.OpenID(m.session.WS.Abs, id)
 	m.applySession(sess, recs, err)
-	return m.ensureTitle(firstUserPrompt(m.messages))
+	return m.ensureTitle(firstUserPrompt(m.transcript.messages))
 }
 
 func (m *Model) handlePickerKey(msg tea.KeyPressMsg) tea.Cmd {
@@ -98,8 +98,8 @@ func (m Model) renderPicker(width, height int) string {
 	}
 
 	currentID := ""
-	if m.Log != nil {
-		currentID = m.Log.ID
+	if m.session.Log != nil {
+		currentID = m.session.Log.ID
 	}
 
 	start, end := windowAround(m.picker.selected, len(m.picker.entries), listH)

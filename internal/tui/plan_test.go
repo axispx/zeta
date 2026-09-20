@@ -14,17 +14,17 @@ import (
 
 func TestMaybeOfferPlan(t *testing.T) {
 	m := testModel()
-	m.Mode = prompt.ModePlan
+	m.session.Mode = prompt.ModePlan
 	m.pendingPlan = "## Auth fix\nDo the thing."
 	m.maybeOfferPlan()
-	if m.bottom.plan == nil {
+	if m.panel.plan == nil {
 		t.Fatal("expected plan prompt")
 	}
-	if m.bottom.plan.title != "Auth fix" {
-		t.Fatalf("title = %q", m.bottom.plan.title)
+	if m.panel.plan.title != "Auth fix" {
+		t.Fatalf("title = %q", m.panel.plan.title)
 	}
-	if !strings.Contains(m.bottom.plan.body, "Do the thing") {
-		t.Fatalf("body = %q", m.bottom.plan.body)
+	if !strings.Contains(m.panel.plan.body, "Do the thing") {
+		t.Fatalf("body = %q", m.panel.plan.body)
 	}
 	if m.pendingPlan != "" {
 		t.Fatal("pending should clear after offer")
@@ -33,19 +33,19 @@ func TestMaybeOfferPlan(t *testing.T) {
 
 func TestMaybeOfferPlanSkipsWithoutPending(t *testing.T) {
 	m := testModel()
-	m.Mode = prompt.ModePlan
+	m.session.Mode = prompt.ModePlan
 	m.maybeOfferPlan()
-	if m.bottom.plan != nil {
+	if m.panel.plan != nil {
 		t.Fatal("unexpected plan prompt")
 	}
 }
 
 func TestMaybeOfferPlanSkipsBuildMode(t *testing.T) {
 	m := testModel()
-	m.Mode = prompt.ModeBuild
+	m.session.Mode = prompt.ModeBuild
 	m.pendingPlan = "## X\nbody"
 	m.maybeOfferPlan()
-	if m.bottom.plan != nil {
+	if m.panel.plan != nil {
 		t.Fatal("build mode must not offer plan")
 	}
 	// pending is consumed even when skipped by mode
@@ -57,20 +57,20 @@ func TestMaybeOfferPlanSkipsBuildMode(t *testing.T) {
 func TestMaybeOfferPlanDoesNotRescanHistory(t *testing.T) {
 	// After discard, history may still contain a plan; without pending, no re-offer.
 	m := testModel()
-	m.Mode = prompt.ModePlan
-	m.messages = []Message{{
+	m.session.Mode = prompt.ModePlan
+	m.transcript.messages = []Message{{
 		Role: RoleAgent,
 		Text: "Intro.\n\n<proposed_plan>\n## Old\nstale\n</proposed_plan>",
 	}}
 	m.maybeOfferPlan()
-	if m.bottom.plan != nil {
+	if m.panel.plan != nil {
 		t.Fatal("must not re-offer from history")
 	}
 }
 
 func TestNoteProducedPlan(t *testing.T) {
 	m := testModel()
-	m.Mode = prompt.ModePlan
+	m.session.Mode = prompt.ModePlan
 	m.noteProducedPlan("Intro.\n\n<proposed_plan>\n## Ship\nDo it.\n</proposed_plan>\n")
 	if m.pendingPlan == "" || !strings.Contains(m.pendingPlan, "Do it.") {
 		t.Fatalf("pending=%q", m.pendingPlan)
@@ -81,7 +81,7 @@ func TestNoteProducedPlan(t *testing.T) {
 	if m.pendingPlan == "" || !strings.Contains(m.pendingPlan, "body here") {
 		t.Fatalf("fence pending=%q", m.pendingPlan)
 	}
-	m.Mode = prompt.ModeBuild
+	m.session.Mode = prompt.ModeBuild
 	m.pendingPlan = ""
 	m.noteProducedPlan("<proposed_plan>\n## X\ny\n</proposed_plan>")
 	if m.pendingPlan != "" {
@@ -116,9 +116,9 @@ func TestLoadSessionFramePlanDefaultFalse(t *testing.T) {
 
 func TestHandlePlanKeyApproveOpensBuildPick(t *testing.T) {
 	m := testModel()
-	m.Cfg = sampleTUIConfig()
-	m.Mode = prompt.ModePlan
-	m.bottom.plan = newPlanPrompt("## T\nbody", "T")
+	m.session.Cfg = sampleTUIConfig()
+	m.session.Mode = prompt.ModePlan
+	m.panel.plan = newPlanPrompt("## T\nbody", "T")
 
 	cmd, ok := m.handlePlanKey(tea.KeyPressMsg{Code: 'a', Text: "a"})
 	if !ok {
@@ -127,11 +127,11 @@ func TestHandlePlanKeyApproveOpensBuildPick(t *testing.T) {
 	if cmd != nil {
 		t.Fatal("approve should only open picker")
 	}
-	if m.bottom.plan != nil {
-		t.Fatalf("plan approval should clear, plan=%+v", m.bottom.plan)
+	if m.panel.plan != nil {
+		t.Fatalf("plan approval should clear, plan=%+v", m.panel.plan)
 	}
-	if m.bottom.build == nil || len(m.bottom.build.models) == 0 {
-		t.Fatalf("expected build pick panel, build=%+v", m.bottom.build)
+	if m.panel.build == nil || len(m.panel.build.models) == 0 {
+		t.Fatalf("expected build pick panel, build=%+v", m.panel.build)
 	}
 	if m.overlay.mode != overlayOff {
 		t.Fatalf("must not use shared overlay, mode=%v", m.overlay.mode)
@@ -143,7 +143,7 @@ func TestHandlePlanKeyApproveOpensBuildPick(t *testing.T) {
 
 func TestHandlePlanKeyRevise(t *testing.T) {
 	m := testModel()
-	m.bottom.plan = newPlanPrompt("x", "T")
+	m.panel.plan = newPlanPrompt("x", "T")
 	m.pendingPlan = "should clear"
 	cmd, ok := m.handlePlanKey(tea.KeyPressMsg{Code: 'r', Text: "r"})
 	if !ok {
@@ -152,43 +152,43 @@ func TestHandlePlanKeyRevise(t *testing.T) {
 	if cmd != nil {
 		t.Fatal("revise should not auto-start a turn")
 	}
-	if m.bottom.plan != nil {
+	if m.panel.plan != nil {
 		t.Fatal("plan panel should clear")
 	}
 	if m.pendingPlan != "" {
 		t.Fatal("pending should clear on dismiss")
 	}
-	if n := len(m.messages); n == 0 || !strings.Contains(m.messages[n-1].Text, "Revise") {
-		t.Fatalf("expected revise note, messages=%+v", m.messages)
+	if n := len(m.transcript.messages); n == 0 || !strings.Contains(m.transcript.messages[n-1].Text, "Revise") {
+		t.Fatalf("expected revise note, messages=%+v", m.transcript.messages)
 	}
 }
 
 func TestHandlePlanKeyDiscard(t *testing.T) {
 	m := testModel()
-	m.bottom.plan = newPlanPrompt("x", "T")
+	m.panel.plan = newPlanPrompt("x", "T")
 	_, ok := m.handlePlanKey(tea.KeyPressMsg{Code: 'd', Text: "d"})
 	if !ok {
 		t.Fatal("expected handled")
 	}
-	if m.bottom.plan != nil {
+	if m.panel.plan != nil {
 		t.Fatal("plan should clear")
 	}
 }
 
 func TestTryInterruptDismissesPlan(t *testing.T) {
 	m := testModel()
-	m.bottom.plan = newPlanPrompt("x", "T")
+	m.panel.plan = newPlanPrompt("x", "T")
 	if !m.tryInterrupt() {
 		t.Fatal("expected interrupt")
 	}
-	if m.bottom.plan != nil {
+	if m.panel.plan != nil {
 		t.Fatal("plan still open")
 	}
 }
 
 func TestTryInterruptBuildPickBackToPlan(t *testing.T) {
 	m := testModel()
-	m.bottom.build = &buildPickPrompt{
+	m.panel.build = &buildPickPrompt{
 		body:   "x",
 		title:  "T",
 		models: []config.ModelChoice{{ProviderID: "p", ModelID: "m", Name: "M"}},
@@ -196,11 +196,11 @@ func TestTryInterruptBuildPickBackToPlan(t *testing.T) {
 	if !m.tryInterrupt() {
 		t.Fatal("expected interrupt")
 	}
-	if m.bottom.build != nil {
+	if m.panel.build != nil {
 		t.Fatal("build pick should clear")
 	}
-	if m.bottom.plan == nil || m.bottom.plan.body != "x" {
-		t.Fatalf("should return to approval, plan=%+v", m.bottom.plan)
+	if m.panel.plan == nil || m.panel.plan.body != "x" {
+		t.Fatalf("should return to approval, plan=%+v", m.panel.plan)
 	}
 }
 
@@ -209,38 +209,38 @@ func TestConfirmPlanBuild(t *testing.T) {
 	t.Setenv("ZETA_HOME", home)
 
 	m := testModel()
-	m.Cfg = sampleTUIConfig()
-	m.WS = workspace.Context{Abs: home, Cwd: home}
-	m.Mode = prompt.ModePlan
-	m.bottom.build = &buildPickPrompt{
+	m.session.Cfg = sampleTUIConfig()
+	m.session.WS = workspace.Context{Abs: home, Cwd: home}
+	m.session.Mode = prompt.ModePlan
+	m.panel.build = &buildPickPrompt{
 		body:  "## Ship it\n\n1. Do work",
 		title: "Ship it",
 	}
-	m.Client = nil
+	m.session.Client = nil
 
 	_ = m.confirmPlanBuild("deepseek/deepseek-v4-flash")
-	if m.Mode != prompt.ModeBuild {
-		t.Fatalf("mode = %v", m.Mode)
+	if m.session.Mode != prompt.ModeBuild {
+		t.Fatalf("mode = %v", m.session.Mode)
 	}
-	if m.bottom.plan != nil || m.bottom.build != nil {
+	if m.panel.plan != nil || m.panel.build != nil {
 		t.Fatal("plan/build should clear")
 	}
-	if m.Cfg.Active != "deepseek/deepseek-v4-flash" {
-		t.Fatalf("active = %q", m.Cfg.Active)
+	if m.session.Cfg.Active != "deepseek/deepseek-v4-flash" {
+		t.Fatalf("active = %q", m.session.Cfg.Active)
 	}
-	if m.Cfg.Defaults.Build != "deepseek/deepseek-v4-flash" {
-		t.Fatalf("build default = %q", m.Cfg.Defaults.Build)
+	if m.session.Cfg.Defaults.Build != "deepseek/deepseek-v4-flash" {
+		t.Fatalf("build default = %q", m.session.Cfg.Defaults.Build)
 	}
 
 	found := false
-	for _, msg := range m.History {
+	for _, msg := range m.session.History {
 		if strings.Contains(msg.Text, "Ship it") {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Fatalf("history missing plan: %+v", m.History)
+		t.Fatalf("history missing plan: %+v", m.session.History)
 	}
 }
 

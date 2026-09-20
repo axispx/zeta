@@ -198,7 +198,7 @@ func (m *Model) ensureFileList() tea.Cmd {
 	if f.loading || f.all != nil {
 		return nil
 	}
-	root := m.WS.Abs
+	root := m.session.WS.Abs
 	// Cancel any leftover list (should already be gone after clear).
 	if f.cancel != nil {
 		f.cancel()
@@ -278,8 +278,8 @@ func (m *Model) insertFileMention() {
 	if path == "" {
 		return
 	}
-	val := m.textarea.Value()
-	tok, ok := atTokenAtCursor(val, m.textarea.Line(), m.textarea.Column())
+	val := m.composer.textarea.Value()
+	tok, ok := atTokenAtCursor(val, m.composer.textarea.Line(), m.composer.textarea.Column())
 	if !ok {
 		m.closeOverlay()
 		return
@@ -289,17 +289,17 @@ func (m *Model) insertFileMention() {
 	cursorAt := tok.start + len(insert)
 	line, col := lineColAtByte(newVal, cursorAt)
 
-	prevH := m.textarea.Height()
-	m.textarea.SetValue(newVal)
+	prevH := m.composer.textarea.Height()
+	m.composer.textarea.SetValue(newVal)
 	// SetValue leaves cursor at end; walk to the insert point (no byte-offset API).
-	m.textarea.MoveToBegin()
+	m.composer.textarea.MoveToBegin()
 	for i := 0; i < line; i++ {
-		m.textarea.CursorDown()
+		m.composer.textarea.CursorDown()
 	}
-	m.textarea.SetCursorColumn(col)
+	m.composer.textarea.SetCursorColumn(col)
 	m.syncTextareaStyles()
 	m.closeOverlay()
-	if m.ready && m.textarea.Height() != prevH {
+	if m.term.ready && m.composer.textarea.Height() != prevH {
 		m.layoutPreservingBottom()
 	}
 }
@@ -310,7 +310,7 @@ func (m Model) renderFileOverlay(width int) string {
 	}
 	f := m.overlay.files
 	innerW, contentW := overlayWidths(width)
-	ink := m.chrome.OverlayInk()
+	ink := m.term.chrome.OverlayInk()
 
 	var body string
 	switch {

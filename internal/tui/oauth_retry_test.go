@@ -101,24 +101,24 @@ func TestTurnErrAuthRetriesOnce(t *testing.T) {
 	})
 
 	m := testModel()
-	m.Cfg = oauthTestCfg()
-	m.ApplyClient()
-	m.History = []ai.Message{{Role: ai.RoleUser, Text: "hello"}}
-	m.nextTurnID = 5
-	m.turn = fakeTurn(5)
+	m.session.Cfg = oauthTestCfg()
+	m.session.ApplyClient()
+	m.session.History = []ai.Message{{Role: ai.RoleUser, Text: "hello"}}
+	m.turn.nextID = 5
+	m.turn.current = fakeTurn(5)
 
 	cmd := m.handleTurnErr(ai.ErrAuth)
 	if cmd == nil {
 		t.Fatal("expected retry cmd")
 	}
-	if !m.AuthRetried {
+	if !m.session.AuthRetried {
 		t.Fatal("authRetried not set")
 	}
 	// Turn is finished while the async recover runs; busy stays true.
-	if m.turn != nil {
+	if m.turn.current != nil {
 		t.Fatal("turn should be finished during recover")
 	}
-	if !m.AuthRetrying || !m.busy() {
+	if !m.session.AuthRetrying || !m.busy() {
 		t.Fatal("should be busy while recovering")
 	}
 
@@ -130,17 +130,17 @@ func TestTurnErrAuthRetriesOnce(t *testing.T) {
 	if follow == nil {
 		t.Fatal("expected beginTurn cmd")
 	}
-	if m.turn == nil || m.turn.id != 6 {
-		t.Fatalf("turn not restarted: %+v", m.turn)
+	if m.turn.current == nil || m.turn.current.id != 6 {
+		t.Fatalf("turn not restarted: %+v", m.turn.current)
 	}
-	if got := m.Cfg.Providers["xai"].OAuth.AccessToken; got != "new-at" {
+	if got := m.session.Cfg.Providers["xai"].OAuth.AccessToken; got != "new-at" {
 		t.Fatalf("access token = %q", got)
 	}
-	if got := m.Cfg.Providers["xai"].OAuth.RefreshToken; got != "new-rt" {
+	if got := m.session.Cfg.Providers["xai"].OAuth.RefreshToken; got != "new-rt" {
 		t.Fatalf("refresh token = %q", got)
 	}
-	if len(m.History) != 1 || m.History[0].Text != "hello" {
-		t.Fatalf("history changed: %+v", m.History)
+	if len(m.session.History) != 1 || m.session.History[0].Text != "hello" {
+		t.Fatalf("history changed: %+v", m.session.History)
 	}
 	m.finishTurn()
 }
@@ -148,110 +148,110 @@ func TestTurnErrAuthRetriesOnce(t *testing.T) {
 func TestTurnErrAuthNoRetryAfterProgress(t *testing.T) {
 	isolateZetaHome(t)
 	m := testModel()
-	m.Cfg = oauthTestCfg()
-	m.ApplyClient()
-	m.History = []ai.Message{{Role: ai.RoleUser, Text: "hello"}}
-	m.nextTurnID = 5
-	m.turn = fakeTurn(5)
-	m.Streamed = true
+	m.session.Cfg = oauthTestCfg()
+	m.session.ApplyClient()
+	m.session.History = []ai.Message{{Role: ai.RoleUser, Text: "hello"}}
+	m.turn.nextID = 5
+	m.turn.current = fakeTurn(5)
+	m.session.Streamed = true
 
 	cmd := m.handleTurnErr(ai.ErrAuth)
 	if cmd != nil {
 		t.Fatal("no retry after progress")
 	}
-	if m.AuthRetried {
+	if m.session.AuthRetried {
 		t.Fatal("authRetried must stay false")
 	}
-	if m.turn != nil {
+	if m.turn.current != nil {
 		t.Fatal("turn should be finished")
 	}
-	if n := len(m.messages); n == 0 || m.messages[n-1].Role != RoleError {
-		t.Fatalf("messages=%+v", m.messages)
+	if n := len(m.transcript.messages); n == 0 || m.transcript.messages[n-1].Role != RoleError {
+		t.Fatalf("messages=%+v", m.transcript.messages)
 	}
 }
 
 func TestTurnErrAuthNoRetryAfterEffects(t *testing.T) {
 	isolateZetaHome(t)
 	m := testModel()
-	m.Cfg = oauthTestCfg()
-	m.ApplyClient()
-	m.History = []ai.Message{{Role: ai.RoleUser, Text: "hello"}}
-	m.nextTurnID = 5
-	m.turn = fakeTurn(5)
+	m.session.Cfg = oauthTestCfg()
+	m.session.ApplyClient()
+	m.session.History = []ai.Message{{Role: ai.RoleUser, Text: "hello"}}
+	m.turn.nextID = 5
+	m.turn.current = fakeTurn(5)
 	// A tool ran: replaying would repeat its side effect, even though nothing
 	// was streamed to the transcript.
-	m.Effects = true
+	m.session.Effects = true
 
 	cmd := m.handleTurnErr(ai.ErrAuth)
 	if cmd != nil {
 		t.Fatal("no retry once a tool has run")
 	}
-	if m.AuthRetried {
+	if m.session.AuthRetried {
 		t.Fatal("authRetried must stay false")
 	}
-	if m.turn != nil {
+	if m.turn.current != nil {
 		t.Fatal("turn should be finished")
 	}
 }
 
 func TestTurnErrAuthNoRetryApiKey(t *testing.T) {
 	m := testModelWithClient() // API-key provider
-	m.History = []ai.Message{{Role: ai.RoleUser, Text: "hello"}}
-	m.nextTurnID = 5
-	m.turn = fakeTurn(5)
+	m.session.History = []ai.Message{{Role: ai.RoleUser, Text: "hello"}}
+	m.turn.nextID = 5
+	m.turn.current = fakeTurn(5)
 
 	cmd := m.handleTurnErr(ai.ErrAuth)
 	if cmd != nil {
 		t.Fatal("no retry for API-key provider")
 	}
-	if m.AuthRetried {
+	if m.session.AuthRetried {
 		t.Fatal("authRetried must stay false")
 	}
-	if m.turn != nil {
+	if m.turn.current != nil {
 		t.Fatal("turn should be finished")
 	}
-	if n := len(m.messages); n == 0 || m.messages[n-1].Role != RoleError {
-		t.Fatalf("messages=%+v", m.messages)
+	if n := len(m.transcript.messages); n == 0 || m.transcript.messages[n-1].Role != RoleError {
+		t.Fatalf("messages=%+v", m.transcript.messages)
 	}
 }
 
 func TestAuthRetryingBlocksSubmitAndQueueDeliver(t *testing.T) {
 	isolateZetaHome(t)
 	m := testModel()
-	m.Cfg = oauthTestCfg()
-	m.ApplyClient()
-	m.AuthRetrying = true
-	m.History = []ai.Message{{Role: ai.RoleUser, Text: "hello"}}
+	m.session.Cfg = oauthTestCfg()
+	m.session.ApplyClient()
+	m.session.AuthRetrying = true
+	m.session.History = []ai.Message{{Role: ai.RoleUser, Text: "hello"}}
 
 	// Direct submit must not start a turn under the recover wait.
 	if cmd := m.submit("next", nil); cmd != nil {
 		t.Fatal("submit must no-op while authRetrying")
 	}
-	if m.turn != nil {
+	if m.turn.current != nil {
 		t.Fatal("submit must not create a turn while authRetrying")
 	}
-	if len(m.History) != 1 {
-		t.Fatalf("history mutated: %+v", m.History)
+	if len(m.session.History) != 1 {
+		t.Fatalf("history mutated: %+v", m.session.History)
 	}
 
 	// Queue deliver (empty Enter / focus Enter) must not interrupt recover.
-	m.queue = []queuedPrompt{newQueuedPrompt(1, "queued", nil)}
+	m.queue.prompts = []queuedPrompt{newQueuedPrompt(1, "queued", nil)}
 	if cmd := m.deliverQueued(1); cmd != nil {
 		t.Fatal("deliverQueued must no-op while authRetrying")
 	}
-	if len(m.queue) != 1 {
-		t.Fatalf("queue item dropped: %+v", m.queue)
+	if len(m.queue.prompts) != 1 {
+		t.Fatalf("queue item dropped: %+v", m.queue.prompts)
 	}
 
 	// Composer text during recover is enqueued, not submitted.
-	m.textarea.SetValue("follow up")
+	m.composer.textarea.SetValue("follow up")
 	if cmd := m.submitInput(); cmd != nil {
 		t.Fatalf("submitInput cmd = %T", cmd)
 	}
-	if len(m.queue) != 2 {
-		t.Fatalf("expected enqueue, queue=%+v", m.queue)
+	if len(m.queue.prompts) != 2 {
+		t.Fatalf("expected enqueue, queue=%+v", m.queue.prompts)
 	}
-	if m.turn != nil || !m.AuthRetrying {
+	if m.turn.current != nil || !m.session.AuthRetrying {
 		t.Fatal("recover wait must stay busy without a turn")
 	}
 }
@@ -264,17 +264,17 @@ func TestTurnErrAuthRefreshRejectedSurfacesReauth(t *testing.T) {
 	})
 
 	m := testModel()
-	m.Cfg = oauthTestCfg()
-	m.ApplyClient()
-	m.History = []ai.Message{{Role: ai.RoleUser, Text: "hello"}}
-	m.nextTurnID = 5
-	m.turn = fakeTurn(5)
+	m.session.Cfg = oauthTestCfg()
+	m.session.ApplyClient()
+	m.session.History = []ai.Message{{Role: ai.RoleUser, Text: "hello"}}
+	m.turn.nextID = 5
+	m.turn.current = fakeTurn(5)
 
 	cmd := m.handleTurnErr(ai.ErrAuth)
 	if cmd == nil {
 		t.Fatal("expected recover cmd")
 	}
-	if !m.AuthRetried {
+	if !m.session.AuthRetried {
 		t.Fatal("authRetried should be set after one attempt")
 	}
 
@@ -283,28 +283,28 @@ func TestTurnErrAuthRefreshRejectedSurfacesReauth(t *testing.T) {
 	if follow != nil {
 		t.Fatal("no retry when refresh is rejected")
 	}
-	if m.turn != nil {
+	if m.turn.current != nil {
 		t.Fatal("turn should stay finished")
 	}
-	if n := len(m.messages); n == 0 || m.messages[n-1].Role != RoleError {
-		t.Fatalf("messages=%+v", m.messages)
+	if n := len(m.transcript.messages); n == 0 || m.transcript.messages[n-1].Role != RoleError {
+		t.Fatalf("messages=%+v", m.transcript.messages)
 	}
-	text := m.messages[len(m.messages)-1].Text
+	text := m.transcript.messages[len(m.transcript.messages)-1].Text
 	if text != config.ErrReauthRequired.Error() {
 		t.Fatalf("error = %q", text)
 	}
-	if !m.Cfg.Providers["xai"].OAuth.RefreshFailed {
+	if !m.session.Cfg.Providers["xai"].OAuth.RefreshFailed {
 		t.Fatal("RefreshFailed not installed in memory")
 	}
 
 	// A later 401 short-circuits instead of replaying the doomed refresh.
-	m.AuthRetried = false
-	m.turn = fakeTurn(6)
+	m.session.AuthRetried = false
+	m.turn.current = fakeTurn(6)
 	cmd = m.handleTurnErr(ai.ErrAuth)
 	if cmd != nil {
 		t.Fatal("second auth error must surface, not retry")
 	}
-	if m.AuthRetried {
+	if m.session.AuthRetried {
 		t.Fatal("authRetried must stay false when canRetryOAuth is false")
 	}
 }

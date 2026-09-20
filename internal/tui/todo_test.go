@@ -17,9 +17,9 @@ func TestApplySessionRestoresAndClearsTodos(t *testing.T) {
 	proj := t.TempDir()
 
 	m := testModel()
-	m.WS = workspace.Context{Abs: proj}
-	m.Todos = todo.NewStore()
-	if _, err := m.Todos.Replace([]todo.Item{{ID: "old", Subject: "stale"}}); err != nil {
+	m.session.WS = workspace.Context{Abs: proj}
+	m.session.Todos = todo.NewStore()
+	if _, err := m.session.Todos.Replace([]todo.Item{{ID: "old", Subject: "stale"}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -56,14 +56,14 @@ func TestApplySessionRestoresAndClearsTodos(t *testing.T) {
 		t.Fatal(err)
 	}
 	m.applySession(sess, recs, nil)
-	snap := m.Todos.Snapshot()
+	snap := m.session.Todos.Snapshot()
 	if len(snap) != 1 || snap[0].ID != "1" || snap[0].Subject != "restored" {
 		t.Fatalf("restored=%+v", snap)
 	}
 
 	// Transcript keeps Format body for the todo row.
 	var found bool
-	for _, msg := range m.messages {
+	for _, msg := range m.transcript.messages {
 		if msg.Role == RoleTool && msg.Tool == tools.Todo {
 			found = true
 			if !strings.Contains(msg.Out, "Todos (1):") {
@@ -76,8 +76,8 @@ func TestApplySessionRestoresAndClearsTodos(t *testing.T) {
 	}
 
 	m.startNewSession()
-	if len(m.Todos.Snapshot()) != 0 {
-		t.Fatalf("new session should clear todos: %+v", m.Todos.Snapshot())
+	if len(m.session.Todos.Snapshot()) != 0 {
+		t.Fatalf("new session should clear todos: %+v", m.session.Todos.Snapshot())
 	}
 }
 

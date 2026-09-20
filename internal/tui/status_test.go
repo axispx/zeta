@@ -17,31 +17,31 @@ func TestBusyLabel(t *testing.T) {
 		t.Fatalf("idle = %q", got)
 	}
 
-	m.Compacting = true
+	m.session.Compacting = true
 	if got := m.busyLabel(); got != statusCompacting {
 		t.Fatalf("compacting = %q, want %q", got, statusCompacting)
 	}
-	m.Compacting = false
+	m.session.Compacting = false
 
-	m.turn = &turnSession{streaming: false, activeTool: -1}
+	m.turn.current = &turnSession{streaming: false, activeTool: -1}
 	if got := m.busyLabel(); got != statusWaiting {
 		t.Fatalf("pre-delta = %q, want %q", got, statusWaiting)
 	}
 
-	m.turn.thinking = "ponder"
+	m.turn.current.thinking = "ponder"
 	if got := m.busyLabel(); got != statusThinking {
 		t.Fatalf("thinking = %q, want %q", got, statusThinking)
 	}
-	m.turn.thinking = ""
+	m.turn.current.thinking = ""
 
-	m.turn.streaming = true
+	m.turn.current.streaming = true
 	if got := m.busyLabel(); got != statusWorking {
 		t.Fatalf("streaming = %q, want %q", got, statusWorking)
 	}
 
-	m.messages = []Message{{Role: RoleTool, Tool: tools.Read}}
-	m.turn.streaming = false
-	m.turn.activeTool = 0
+	m.transcript.messages = []Message{{Role: RoleTool, Tool: tools.Read}}
+	m.turn.current.streaming = false
+	m.turn.current.activeTool = 0
 	if got := m.busyLabel(); got != statusReading {
 		t.Fatalf("active tool = %q, want %q", got, statusReading)
 	}
@@ -54,7 +54,7 @@ func TestTurnStatusLine(t *testing.T) {
 	if got := m.turnStatusLine(); got != "" {
 		t.Fatalf("idle status = %q", got)
 	}
-	m.turn = &turnSession{streaming: false, activeTool: -1}
+	m.turn.current = &turnSession{streaming: false, activeTool: -1}
 	got := stripANSI(m.turnStatusLine())
 	if !strings.Contains(got, statusWaiting) {
 		t.Fatalf("busy status missing Waiting: %q", got)
@@ -67,8 +67,8 @@ func TestTurnStatusLine(t *testing.T) {
 	if len(lines) != busyStatusRows || strings.TrimSpace(lines[0]) != "" || strings.TrimSpace(lines[2]) != "" {
 		t.Fatalf("expected blank padding rows: %q", got)
 	}
-	m.messages = []Message{{Role: RoleTool, Tool: tools.Read}}
-	m.turn.activeTool = 0
+	m.transcript.messages = []Message{{Role: RoleTool, Tool: tools.Read}}
+	m.turn.current.activeTool = 0
 	got = stripANSI(m.turnStatusLine())
 	if !strings.Contains(got, statusReading) {
 		t.Fatalf("busy status missing Reading: %q", got)
@@ -80,37 +80,37 @@ func TestTurnStatusLine(t *testing.T) {
 // so the bubble text stays visible — not clip painted lines after the fact.
 func TestLayoutBusyGapKeepsBottomUserMessage(t *testing.T) {
 	m := testModel()
-	m.width = 60
-	m.height = 24
+	m.term.width = 60
+	m.term.height = 24
 	// Enough agent lines that the transcript overflows the viewport.
 	var lines []string
 	for i := 0; i < 40; i++ {
 		lines = append(lines, fmt.Sprintf("history line %02d", i))
 	}
-	m.messages = []Message{
+	m.transcript.messages = []Message{
 		{Role: RoleAgent, Text: strings.Join(lines, "\n\n")},
 		{Role: RoleUser, Text: "UNIQUE_USER_PROMPT"},
 	}
 	m.layout()
 	m.setTranscriptContent()
-	if !m.viewport.AtBottom() {
+	if !m.transcript.viewport.AtBottom() {
 		t.Fatal("expected stick-to-bottom after setTranscriptContent")
 	}
-	idleH := m.viewport.Height()
+	idleH := m.transcript.viewport.Height()
 	if m.gapHeight() != 1 { // styles.GapBeforeInput
 		t.Fatalf("idle gapHeight=%d, want 1", m.gapHeight())
 	}
 
-	m.turn = &turnSession{streaming: false, activeTool: -1}
+	m.turn.current = &turnSession{streaming: false, activeTool: -1}
 	m.spinner = spinner.New(spinner.WithSpinner(spinner.MiniDot))
 	if m.gapHeight() != busyStatusRows {
 		t.Fatalf("busy gapHeight=%d, want %d", m.gapHeight(), busyStatusRows)
 	}
 	m.layoutPreservingBottom()
-	if m.viewport.Height() >= idleH {
-		t.Fatalf("busy viewport height %d should be < idle %d", m.viewport.Height(), idleH)
+	if m.transcript.viewport.Height() >= idleH {
+		t.Fatalf("busy viewport height %d should be < idle %d", m.transcript.viewport.Height(), idleH)
 	}
-	if !m.viewport.AtBottom() {
+	if !m.transcript.viewport.AtBottom() {
 		t.Fatal("expected stick-to-bottom after layoutPreservingBottom")
 	}
 
@@ -122,16 +122,16 @@ func TestLayoutBusyGapKeepsBottomUserMessage(t *testing.T) {
 
 func TestGapHeight(t *testing.T) {
 	m := testModel()
-	m.width = 60
+	m.term.width = 60
 	if got := m.gapHeight(); got != 1 {
 		t.Fatalf("idle gapHeight=%d, want 1", got)
 	}
-	m.turn = &turnSession{streaming: false, activeTool: -1}
+	m.turn.current = &turnSession{streaming: false, activeTool: -1}
 	if got := m.gapHeight(); got != busyStatusRows {
 		t.Fatalf("busy gapHeight=%d, want %d", got, busyStatusRows)
 	}
-	m.turn = nil
-	m.Compacting = true
+	m.turn.current = nil
+	m.session.Compacting = true
 	if got := m.gapHeight(); got != busyStatusRows {
 		t.Fatalf("compacting gapHeight=%d, want %d", got, busyStatusRows)
 	}
@@ -140,9 +140,9 @@ func TestGapHeight(t *testing.T) {
 func TestGapContentKeepsStatusWithOverlay(t *testing.T) {
 	// Status gap stays in-flow; floating overlay does not replace it.
 	m := testModel()
-	m.width = 60
+	m.term.width = 60
 	m.spinner = spinner.New(spinner.WithSpinner(spinner.MiniDot))
-	m.turn = &turnSession{streaming: false, activeTool: -1}
+	m.turn.current = &turnSession{streaming: false, activeTool: -1}
 	m.overlay.mode = overlayFiles
 	m.overlay.files.matches = []string{"a.go"}
 
@@ -158,7 +158,7 @@ func TestGapContentKeepsStatusWithOverlay(t *testing.T) {
 	}
 
 	// Idle + overlay: blank gap stays reserved (no transcript jump).
-	m.turn = nil
+	m.turn.current = nil
 	if m.gapHeight() != 1 {
 		t.Fatalf("idle+overlay gapHeight=%d want 1", m.gapHeight())
 	}

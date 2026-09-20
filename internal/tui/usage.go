@@ -78,9 +78,9 @@ func cachedValue(cached, input int64) string {
 
 // reportUsage handles /usage: cumulative token accounting for this session.
 func (m *Model) reportUsage() {
-	if m.Usage.Empty() {
+	if m.session.Usage.Empty() {
 		m.noteSystem(usageNoneText)
 		return
 	}
-	m.noteSystem(renderUsage(m.Usage))
+	m.noteSystem(renderUsage(m.session.Usage))
 }
