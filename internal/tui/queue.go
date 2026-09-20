@@ -539,7 +539,6 @@ func (m Model) renderQueueFollowups(width int) string {
 	if len(lines) == 0 {
 		return ""
 	}
-	lines = append(lines, row.Width(fillW).Render(""))
 	lines = append(lines, renderFollowUpsFooter(hint, m.queue.editID != 0, m.queue.focus))
 
 	boxStyle := styles.FollowUpsBoxBare(innerW)

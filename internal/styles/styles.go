@@ -173,7 +173,7 @@ func FollowUpsBoxBare(innerW int) lipgloss.Style {
 		Border(lipgloss.NormalBorder()).
 		BorderTop(false).
 		BorderForeground(Yellow).
-		Padding(1, OverlayPadRight, 0, 1).
+		Padding(0, OverlayPadRight, 0, 1).
 		Width(innerW)
 }
 
