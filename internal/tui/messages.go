@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/axispx/zeta/internal/plan"
 	"github.com/axispx/zeta/internal/styles"
@@ -185,9 +186,27 @@ func (m *Message) streamingMarkdown(source string, width int) string {
 	}
 }
 
+// widthBody wraps body to width and hard-wraps anything word wrap leaves over.
+// Words are never split when they fit, but a row wider than width is not an
+// option: Width() pads the whole block to the longest row, and the transcript
+// viewport (SoftWrap) wraps every row that overflows, so one long row doubles
+// the entire group with a blank display row under each of its lines.
 func widthBody(body string, width int) string {
-	if width > 0 {
-		return lipgloss.NewStyle().Width(width).Render(body)
+	if width <= 0 {
+		return body
 	}
-	return body
+	out := lipgloss.NewStyle().Width(width).Render(body)
+	lines := strings.Split(out, "\n")
+	changed := false
+	for i, line := range lines {
+		if ansi.StringWidth(line) <= width {
+			continue
+		}
+		lines[i] = strings.Join(wrapLine(line, width), "\n")
+		changed = true
+	}
+	if !changed {
+		return out
+	}
+	return strings.Join(lines, "\n")
 }

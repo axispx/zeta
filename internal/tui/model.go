@@ -87,6 +87,26 @@ type Options struct {
 	Rules    policy.Policy // persisted permission rules (loaded by main)
 }
 
+// newTranscriptViewport builds the transcript's viewport. New and the test
+// model both come through here: a test viewport configured differently would
+// silently exercise a viewport the program never shows.
+func newTranscriptViewport() viewport.Model {
+	vp := viewport.New()
+	vp.MouseWheelEnabled = true
+	vp.MouseWheelDelta = 5 // bubbles default is 3
+	// SoftWrap: overflow lines become extra display rows (not truncated). Required so
+	// YOffset/TotalLineCount and drag selection share one display-line space with
+	// wrapContentLines (scrollbar + select both count wrapped rows).
+	vp.SoftWrap = true
+	// Keep only pgup/pgdn — default keymap also binds j/k/f/space/b/u/d/h/l,
+	// which steals those chars from the input and scrolls the transcript.
+	vp.KeyMap = viewport.KeyMap{
+		PageDown: key.NewBinding(key.WithKeys("pgdown")),
+		PageUp:   key.NewBinding(key.WithKeys("pgup")),
+	}
+	return vp
+}
+
 // New creates the initial TUI model.
 func New(cfg config.Config, opts Options) (Model, error) {
 	ta := textarea.New()
@@ -118,19 +138,7 @@ func New(cfg config.Config, opts Options) (Model, error) {
 
 	ta.Focus()
 
-	vp := viewport.New()
-	vp.MouseWheelEnabled = true
-	vp.MouseWheelDelta = 5 // bubbles default is 3
-	// SoftWrap: overflow lines become extra display rows (not truncated). Required so
-	// YOffset/TotalLineCount and drag selection share one display-line space with
-	// wrapContentLines (scrollbar + select both count wrapped rows).
-	vp.SoftWrap = true
-	// Keep only pgup/pgdn — default keymap also binds j/k/f/space/b/u/d/h/l,
-	// which steals those chars from the input and scrolls the transcript.
-	vp.KeyMap = viewport.KeyMap{
-		PageDown: key.NewBinding(key.WithKeys("pgdown")),
-		PageUp:   key.NewBinding(key.WithKeys("pgup")),
-	}
+	vp := newTranscriptViewport()
 
 	ws := workspace.Load()
 	m := Model{

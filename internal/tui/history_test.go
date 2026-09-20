@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"charm.land/bubbles/v2/textarea"
-	"charm.land/bubbles/v2/viewport"
 
 	"github.com/axispx/zeta/internal/ai"
 	"github.com/axispx/zeta/internal/compact"
@@ -22,7 +21,7 @@ import (
 func testModel() Model {
 	m := Model{
 		composer:   composer{textarea: textarea.New()},
-		transcript: transcript{viewport: viewport.New()},
+		transcript: transcript{viewport: newTranscriptViewport()},
 		term: term{
 			width:  80,
 			height: 24,
