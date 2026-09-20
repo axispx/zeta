@@ -10,14 +10,13 @@ import (
 	"github.com/axispx/zeta/internal/styles"
 )
 
-// optionRow is one selectable row in a panel or overlay list.
+// optionRow is one selectable row in a panel. Rows carry no single-key
+// shortcut: a number prefix is the only affordance, and it is added at render
+// time so a row's text can be swapped without rebuilding it (the freeform
+// answer does this).
 type optionRow struct {
-	key   string // optional hotkey (e.g. "a"); empty → numbered
 	label string
 	hint  string // description lines under the label
-	// numbered rows get a "N. " prefix at render time, so a row's text can be
-	// swapped without rebuilding the number (the freeform answer does this).
-	numbered bool
 	// labelCursor marks label as the live freeform answer: the text scrolls
 	// from the left and carries a caret, like an input field.
 	labelCursor bool
@@ -37,8 +36,9 @@ func (o *optionList) setRows(rows []optionRow) {
 
 func (o *optionList) n() int { return len(o.rows) }
 
-// handleKey processes list navigation / hotkeys / enter.
-// chose=true means the user confirmed selected (enter or hotkey).
+// handleKey processes list navigation / row numbers / enter.
+// Digits only move the cursor; confirmed=true needs enter, so no single
+// keystroke decides. Other keys are swallowed (the panel owns the input).
 // handled=false for esc so the interrupt path can run.
 func (o *optionList) handleKey(msg tea.KeyPressMsg) (idx int, chose, handled bool) {
 	n := o.n()
@@ -59,10 +59,6 @@ func (o *optionList) handleKey(msg tea.KeyPressMsg) (idx int, chose, handled boo
 		i := clampOption(o.selected, n)
 		return i, true, true
 	default:
-		if i := keyOption(key, o.rows); i >= 0 {
-			o.selected = i
-			return i, true, true
-		}
 		if i := digitOption(key, n); i >= 0 {
 			o.selected = i
 			return i, false, true
@@ -148,16 +144,6 @@ func digitOption(key string, n int) int {
 	return idx
 }
 
-// keyOption maps a hotkey string to a row index, or -1.
-func keyOption(key string, rows []optionRow) int {
-	for i, r := range rows {
-		if r.key != "" && key == r.key {
-			return i
-		}
-	}
-	return -1
-}
-
 // clampOption keeps selected in range (empty list → 0).
 func clampOption(selected, n int) int {
 	if n < 1 {
@@ -179,7 +165,9 @@ const optionHintIndent = inputPromptWidth + 3
 // optionCaret marks the insertion point of a live freeform row.
 const optionCaret = "█"
 
-// renderOptionRows paints a vertical list of accent rows (leading newline per row).
+// renderOptionRows paints a vertical list of accent rows (leading newline per row),
+// each led by its 1-based row number ("1."…) — the number is what a digit press
+// selects, and rows are hit-tested by line, so the prefix is always drawn.
 // A row hint renders as dim, wrapped description lines under its label — a
 // right-aligned column would squeeze descriptions into an unreadable sliver.
 // A row whose label is live input (labelCursor) scrolls from the left and ends
@@ -193,13 +181,7 @@ func renderOptionRows(rows []optionRow, selected, contentW int, ink styles.Overl
 	var b strings.Builder
 	for i, r := range rows {
 		b.WriteByte('\n')
-		prefix := ""
-		switch {
-		case r.key != "":
-			prefix = "[" + r.key + "] "
-		case r.numbered:
-			prefix = fmt.Sprintf("%d. ", i+1)
-		}
+		prefix := fmt.Sprintf("%d. ", i+1)
 		label := prefix + r.label
 		if r.labelCursor {
 			// Keep the row number put and scroll the answer under it, reserving
@@ -231,12 +213,12 @@ func optionHintLines(r optionRow, contentW int) []string {
 	return strings.Split(wrapSimple(hint, body), "\n")
 }
 
-// numberedRows builds rows numbered "1."… at render time with optional
-// descriptions (no hotkey field).
-func numberedRows(labels, hints []string) []optionRow {
+// labeledRows builds numbered rows ("1."… at render time) with optional
+// descriptions (ask options).
+func labeledRows(labels, hints []string) []optionRow {
 	rows := make([]optionRow, len(labels))
 	for i, lab := range labels {
-		rows[i] = optionRow{numbered: true, label: lab}
+		rows[i] = optionRow{label: lab}
 		if i < len(hints) {
 			rows[i].hint = hints[i]
 		}

@@ -60,7 +60,7 @@ func askRows(q tools.AskQuestion) []optionRow {
 	// Other carries no description: typing replaces its label instead.
 	labels = append(labels, askOtherLabel)
 	hints = append(hints, "")
-	return numberedRows(labels, hints)
+	return labeledRows(labels, hints)
 }
 
 // syncOther turns the freeform row into the input field: its label is the typed
@@ -179,6 +179,12 @@ func (m *Model) handleAskKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 		return nil, false
 	}
 
+	// While the freeform field holds the keys, a list move hands them back so
+	// the ↑/↓ press still moves the selection instead of being swallowed.
+	if p.typing && isAskMoveKey(key) {
+		p.typing = false
+	}
+
 	// Freeform field owns printable input / backspace when typing or Other focused.
 	if p.typing || (p.isOther(p.qi) && isAskTextKey(msg)) {
 		p.typing = true
@@ -204,18 +210,20 @@ func (m *Model) handleAskKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 		return nil, m.handleAskType(msg)
 	}
 
+	if isAskMoveKey(key) {
+		_, _, handled := list.handleKey(msg)
+		p.typing = false
+		return nil, handled
+	}
+
 	switch key {
-	case "left", "shift+tab":
+	case "left":
 		if p.qi > 0 {
 			p.qi--
 			p.typing = p.isOther(p.qi)
 		}
 		return nil, true
-	case "right", "tab":
-		if p.isOther(p.qi) && !p.typing {
-			p.typing = true
-			return nil, true
-		}
+	case "right":
 		if p.qi < len(p.questions)-1 {
 			p.qi++
 			p.typing = p.isOther(p.qi)
@@ -228,14 +236,19 @@ func (m *Model) handleAskKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 		}
 		m.submitAsk()
 		return nil, true
-	case "up", "ctrl+p", "down", "ctrl+n":
-		_, _, handled := list.handleKey(msg)
-		p.typing = false
-		return nil, handled
 	default:
 		// Swallow remaining keys (list.handleKey would swallow too).
 		return nil, true
 	}
+}
+
+// isAskMoveKey reports whether key moves the option list (↑/↓ and the ctrl aliases).
+func isAskMoveKey(key string) bool {
+	switch key {
+	case "up", "down", "ctrl+p", "ctrl+n":
+		return true
+	}
+	return false
 }
 
 func isAskTextKey(msg tea.KeyPressMsg) bool {
@@ -297,9 +310,9 @@ func (m *Model) handleAskType(msg tea.KeyPressMsg) bool {
 		p.other[p.qi] = ""
 	case "ctrl+w":
 		p.other[p.qi] = trimLastWord(cur)
-	case "up", "ctrl+p", "down", "ctrl+n", "tab", "shift+tab":
-		p.typing = false
 	default:
+		// List moves never reach here: handleAskKey hands the selection back
+		// first (isAskMoveKey).
 		if t := askText(msg); t != "" {
 			p.other[p.qi] = cur + t
 		}
@@ -431,15 +444,7 @@ func (m Model) renderAskHeader(contentW int, ink styles.OverlayInk) string {
 func (m Model) renderAskFooter(contentW int, ink styles.OverlayInk) string {
 	inner := panelInner(contentW)
 	p := m.panel.ask
-	var parts []string
-	if p.typing {
-		parts = append(parts, "enter submit")
-	} else {
-		parts = append(parts, "↑/↓ select", "enter submit")
-		if p.isOther(p.qi) {
-			parts = append(parts, "tab type answer")
-		}
-	}
+	parts := []string{"↑/↓ select", "enter submit"}
 	if len(p.questions) > 1 {
 		parts = append(parts, "←/→ question")
 	}

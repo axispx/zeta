@@ -15,35 +15,19 @@ import (
 )
 
 type permOption struct {
-	key    string
 	label  string
 	decide permission.Decision
 }
 
 // permOptions maps an approval's choices to rows. The choice set is core policy
-// (core.Approval.Choices); keys and labels are this client's.
+// (core.Approval.Choices); labels are this client's. Row order is the choice
+// order, so the digit shortcut for a decision is its position here.
 func permOptions(tool string, a core.Approval) []permOption {
 	opts := make([]permOption, 0, len(a.Choices))
 	for _, d := range a.Choices {
-		opts = append(opts, permOption{key: permKey(d), label: permLabel(tool, d, a), decide: d})
+		opts = append(opts, permOption{label: permLabel(tool, d, a), decide: d})
 	}
 	return opts
-}
-
-// permKey is the hotkey for a decision (p = persist), matching the usual
-// approval shortcut. Deny is per-call only; a persistent deny is a hand-edit of
-// permissions.json.
-func permKey(d permission.Decision) string {
-	switch d {
-	case permission.AllowAlways:
-		return "p"
-	case permission.AllowSession:
-		return "s"
-	case permission.Deny:
-		return "d"
-	default:
-		return "a"
-	}
 }
 
 // permLabel names a decision. The "always allow" row shows the derived rule's
@@ -98,7 +82,7 @@ func (p *permissionPrompt) setOptions(opts []permOption) {
 	p.opts = opts
 	rows := make([]optionRow, len(opts))
 	for i, o := range opts {
-		rows[i] = optionRow{key: o.key, label: o.label}
+		rows[i] = optionRow{label: o.label}
 	}
 	p.list.setRows(rows)
 }
@@ -153,7 +137,9 @@ func (m *Model) abandonPermission() {
 	m.decidePermission(permission.Deny)
 }
 
-// handlePermissionKey consumes nav / a/s/d / enter while the prompt is open.
+// handlePermissionKey consumes nav / row numbers / enter while the prompt is
+// open. A stray letter is swallowed, so typing never decides for you:
+// ↑/↓ or a row number moves, Enter confirms.
 // Esc returns handled=false so Update's interrupt path still runs.
 func (m *Model) handlePermissionKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 	p := m.panel.perm

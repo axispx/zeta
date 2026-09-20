@@ -31,16 +31,9 @@ func TestDigitOption(t *testing.T) {
 	}
 }
 
-func TestKeyOption(t *testing.T) {
-	rows := []optionRow{{key: "a", label: "A"}, {key: "d", label: "D"}}
-	if keyOption("a", rows) != 0 || keyOption("d", rows) != 1 || keyOption("x", rows) != -1 {
-		t.Fatal("keys")
-	}
-}
-
 func TestOptionListHandleKey(t *testing.T) {
 	var o optionList
-	o.setRows([]optionRow{{key: "a", label: "A"}, {key: "d", label: "D"}})
+	o.setRows([]optionRow{{label: "A"}, {label: "D"}})
 	if _, chose, handled := o.handleKey(tea.KeyPressMsg{Text: "down"}); !handled || chose || o.selected != 1 {
 		t.Fatalf("down: sel=%d chose=%v handled=%v", o.selected, chose, handled)
 	}
@@ -48,8 +41,12 @@ func TestOptionListHandleKey(t *testing.T) {
 		t.Fatalf("enter: idx=%d chose=%v", idx, chose)
 	}
 	o.selected = 0
-	if idx, chose, handled := o.handleKey(tea.KeyPressMsg{Code: 'a', Text: "a"}); !handled || !chose || idx != 0 {
-		t.Fatalf("hotkey: idx=%d", idx)
+	if idx, chose, handled := o.handleKey(tea.KeyPressMsg{Code: '2', Text: "2"}); !handled || chose || idx != 1 || o.selected != 1 {
+		t.Fatalf("row number: idx=%d sel=%d chose=%v", idx, o.selected, chose)
+	}
+	// A letter is swallowed without moving or deciding.
+	if idx, chose, handled := o.handleKey(tea.KeyPressMsg{Code: 'a', Text: "a"}); !handled || chose || idx != 1 {
+		t.Fatalf("letter must not decide: idx=%d chose=%v handled=%v", idx, chose, handled)
 	}
 	if _, _, handled := o.handleKey(tea.KeyPressMsg{Text: "esc"}); handled {
 		t.Fatal("esc must not be handled")
@@ -59,8 +56,8 @@ func TestOptionListHandleKey(t *testing.T) {
 func TestRenderOptionRowsHintBelowLabel(t *testing.T) {
 	ink := styles.PlainOverlayInk()
 	rows := []optionRow{
-		{label: "1. First", hint: "What first means"},
-		{label: "2. Second", hint: ""},
+		{label: "First", hint: "What first means"},
+		{label: "Second", hint: ""},
 	}
 	lines := strings.Split(strings.TrimPrefix(stripANSI(renderOptionRows(rows, 0, 60, ink)), "\n"), "\n")
 	want := []string{
@@ -101,8 +98,8 @@ func TestOptionHintLinesWrapAndIndent(t *testing.T) {
 func TestOptionListRowAtLineSpansHint(t *testing.T) {
 	var o optionList
 	o.setRows([]optionRow{
-		{label: "1. First", hint: "one"},
-		{label: "2. Second", hint: "two"},
+		{label: "First", hint: "one"},
+		{label: "Second", hint: "two"},
 	})
 	// label · description, twice.
 	for line, want := range map[int]int{0: 0, 1: 0, 2: 1, 3: 1} {
@@ -120,7 +117,7 @@ func TestOptionListRowAtLineSpansHint(t *testing.T) {
 
 func TestRenderOptionRowsMultilineLabel(t *testing.T) {
 	ink := styles.PlainOverlayInk()
-	rows := numberedRows([]string{"Answer"}, []string{"a wrapped\nsecond line\nthird line"})
+	rows := labeledRows([]string{"Answer"}, []string{"a wrapped\nsecond line\nthird line"})
 	out := stripANSI(renderOptionRows(rows, 0, 60, ink))
 	lines := strings.Split(strings.TrimPrefix(out, "\n"), "\n")
 	// label · three hint lines.
@@ -139,7 +136,7 @@ func TestRenderOptionRowsMultilineLabel(t *testing.T) {
 
 func TestRenderOptionRowsFreeformLabel(t *testing.T) {
 	ink := styles.PlainOverlayInk()
-	rows := numberedRows([]string{"First", "Other"}, []string{"a description", ""})
+	rows := labeledRows([]string{"First", "Other"}, []string{"a description", ""})
 	rows[1].label, rows[1].labelCursor = "my typed answer", true
 	lines := strings.Split(strings.TrimPrefix(stripANSI(renderOptionRows(rows, 1, 60, ink)), "\n"), "\n")
 	// First row: label · description. Other: label only.

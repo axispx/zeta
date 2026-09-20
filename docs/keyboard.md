@@ -33,13 +33,21 @@ Drop a file (or several) from your file manager onto the window and its path lan
 Sometimes the agent asks a multiple-choice question (plus a freeform row, shown
 as **Type an answer**):
 
-| Key       | Action                    |
-| --------- | ------------------------- |
-| `↑` / `↓` | Move                      |
-| `Enter`   | Confirm                   |
-| `1`–`9`   | Jump to option            |
-| Type      | Fill the freeform answer  |
-| `Esc`     | Cancel                    |
+| Key         | Action                   |
+| ----------- | ------------------------ |
+| `↑` / `↓`   | Move                     |
+| `Enter`     | Confirm                  |
+| `1`–`9`     | Jump to option           |
+| Type        | Fill the freeform answer |
+| `←` / `→`   | Another question         |
+| `Esc`       | Cancel                   |
+
+Typing goes to the freeform row on its own — there is no key to focus it, and
+`↑`/`↓` hand the keys back to the list.
+
+Permission and plan prompts use the same keys (row numbers only move; `Enter`
+confirms). No panel binds a bare letter, so typing while a prompt is open never
+answers it — see [Permissions](permissions.md).
 
 ## Terminal notes
 

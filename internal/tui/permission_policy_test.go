@@ -15,56 +15,50 @@ import (
 	"github.com/axispx/zeta/internal/workspace"
 )
 
-func TestPermOptionsOrderAndKeys(t *testing.T) {
+func TestPermOptionsOrderAndLabels(t *testing.T) {
 	root := t.TempDir()
-	keysOf := func(tool string, args json.RawMessage) (keys, labels []string) {
+	labelsOf := func(tool string, args json.RawMessage) []string {
+		var labels []string
 		for _, o := range permOptions(tool, core.ApprovalFor(root, tool, args)) {
-			keys = append(keys, o.key)
 			labels = append(labels, o.label)
 		}
-		return keys, labels
+		return labels
 	}
 
-	keys, labels := keysOf(tools.Bash, bashArgs("go test"))
-	wantKeys := []string{"a", "p", "s", "d"}
+	// Row order is what the digit shortcuts select, so it is part of the contract.
+	labels := labelsOf(tools.Bash, bashArgs("go test"))
 	wantLabels := []string{"Allow once", "Always allow `go test`", "Allow for session", "Deny"}
-	if strings.Join(keys, ",") != strings.Join(wantKeys, ",") {
-		t.Fatalf("bash keys=%v want %v", keys, wantKeys)
-	}
 	if strings.Join(labels, "|") != strings.Join(wantLabels, "|") {
 		t.Fatalf("bash labels=%v want %v", labels, wantLabels)
 	}
 
-	// There is no always-deny row or hotkey.
+	// There is no persistent deny row.
 	for _, o := range permOptions(tools.Bash, core.ApprovalFor(root, tools.Bash, bashArgs("go test"))) {
-		if strings.Contains(o.label, "deny ") || o.key == "x" {
+		if strings.Contains(o.label, "deny ") {
 			t.Fatalf("no persistent deny row: %+v", o)
 		}
 	}
 
 	// Without a derivable rule the persist row drops out.
-	keys, _ = keysOf(tools.Bash, json.RawMessage(`{}`))
-	if strings.Join(keys, ",") != "a,s,d" {
-		t.Fatalf("bash no-persist keys=%v", keys)
+	labels = labelsOf(tools.Bash, json.RawMessage(`{}`))
+	if strings.Join(labels, "|") != "Allow once|Allow for session|Deny" {
+		t.Fatalf("bash no-persist labels=%v", labels)
 	}
 
 	// edit/write are allow/deny only — persist is deliberately ignored.
-	keys, _ = keysOf(tools.Edit, json.RawMessage(`{"path":"a.go"}`))
-	if strings.Join(keys, ",") != "a,d" {
-		t.Fatalf("edit keys=%v", keys)
+	labels = labelsOf(tools.Edit, json.RawMessage(`{"path":"a.go"}`))
+	if strings.Join(labels, "|") != "Allow|Deny" {
+		t.Fatalf("edit labels=%v", labels)
 	}
 
-	keys, labels = keysOf(tools.Read, json.RawMessage(`{"path":"../x.txt"}`))
-	if strings.Join(keys, ",") != "a,s,d" {
-		t.Fatalf("read keys=%v", keys)
-	}
+	labels = labelsOf(tools.Read, json.RawMessage(`{"path":"../x.txt"}`))
 	if strings.Join(labels, "|") != "Allow once|Allow this directory for session|Deny" {
 		t.Fatalf("read labels=%v", labels)
 	}
 
-	keys, _ = keysOf(tools.Read, json.RawMessage(`{"path":".env"}`))
-	if strings.Join(keys, ",") != "a,p,d" {
-		t.Fatalf("env read keys=%v", keys)
+	labels = labelsOf(tools.Read, json.RawMessage(`{"path":".env"}`))
+	if strings.Join(labels, "|") != "Allow|Always allow this file|Deny" {
+		t.Fatalf("env read labels=%v", labels)
 	}
 }
 
@@ -261,7 +255,7 @@ func TestHandWrittenDenyRuleAutoDenies(t *testing.T) {
 	}
 }
 
-func TestPersistHotkeyPWritesAllow(t *testing.T) {
+func TestPersistRowWritesAllow(t *testing.T) {
 	isolateZetaHome(t)
 	root := t.TempDir()
 	replies := make(chan agent.Reply, 1)
@@ -270,11 +264,10 @@ func TestPersistHotkeyPWritesAllow(t *testing.T) {
 	m.turn.current = &turnSession{activeTool: -1, ch: make(chan agent.Event), reply: replies, cancel: func() {}}
 
 	_ = m.handleTurnToolStart(turnToolStartMsg{name: tools.Bash, label: "bash go test", args: bashArgs("go test")})
-	if _, ok := m.handlePermissionKey(tea.KeyPressMsg{Code: 'p', Text: "p"}); !ok {
-		t.Fatal("p must be handled while the prompt is open")
-	}
+	// Row 2 is "always allow" for a persistable command; it must be confirmed.
+	pressPermRow(t, &m, permission.AllowAlways)
 	if r := <-replies; r.Kind != agent.ReplyRun {
-		t.Fatalf("p should allow this call: %+v", r)
+		t.Fatalf("always-allow should allow this call: %+v", r)
 	}
 	want := policy.Rule{Tool: tools.Bash, CommandPrefix: "go test", Action: policy.ActionAllow}
 	if len(m.session.Rules.Policy().Rules) != 1 || m.session.Rules.Policy().Rules[0] != want {
@@ -285,7 +278,7 @@ func TestPersistHotkeyPWritesAllow(t *testing.T) {
 	}
 }
 
-func TestHotkeyXIsInert(t *testing.T) {
+func TestStrayLetterIsInert(t *testing.T) {
 	isolateZetaHome(t)
 	root := t.TempDir()
 	replies := make(chan agent.Reply, 1)
@@ -294,20 +287,23 @@ func TestHotkeyXIsInert(t *testing.T) {
 	m.turn.current = &turnSession{activeTool: -1, ch: make(chan agent.Event), reply: replies, cancel: func() {}}
 
 	_ = m.handleTurnToolStart(turnToolStartMsg{name: tools.Edit, label: "edit a.go", path: "a.go", args: json.RawMessage(`{"path":"a.go"}`)})
-	// x is not an option: swallowed, no decision, no rule.
-	if _, ok := m.handlePermissionKey(tea.KeyPressMsg{Code: 'x', Text: "x"}); !ok {
-		t.Fatal("unknown key still consumed")
+	// Letters are not shortcuts: swallowed, no decision, no rule. Typing a
+	// message over an open prompt must never answer it.
+	for _, key := range []string{"a", "d", "p", "s", "x"} {
+		if _, ok := m.handlePermissionKey(tea.KeyPressMsg{Code: rune(key[0]), Text: key}); !ok {
+			t.Fatalf("%q must be consumed", key)
+		}
 	}
 	if m.panel.perm == nil {
-		t.Fatal("prompt should remain on an unknown key")
+		t.Fatal("prompt should remain on a letter")
 	}
 	select {
 	case r := <-replies:
-		t.Fatalf("x must not decide: %+v", r)
+		t.Fatalf("a letter must not decide: %+v", r)
 	default:
 	}
 	if len(m.session.Rules.Policy().Rules) != 0 {
-		t.Fatalf("x must not write a rule: %+v", m.session.Rules.Policy())
+		t.Fatalf("a letter must not write a rule: %+v", m.session.Rules.Policy())
 	}
 }
 

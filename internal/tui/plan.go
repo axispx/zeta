@@ -22,21 +22,20 @@ const (
 )
 
 type planOption struct {
-	key    string
 	label  string
 	action planAction
 }
 
 var planOptions = []planOption{
-	{"a", "Approve & build", planApprove},
-	{"r", "Revise", planRevise},
-	{"d", "Discard", planDiscard},
+	{"Approve & build", planApprove},
+	{"Revise", planRevise},
+	{"Discard", planDiscard},
 }
 
 func planOptionRows() []optionRow {
 	rows := make([]optionRow, len(planOptions))
 	for i, o := range planOptions {
-		rows[i] = optionRow{key: o.key, label: o.label}
+		rows[i] = optionRow{label: o.label}
 	}
 	return rows
 }
@@ -95,7 +94,9 @@ func (m *Model) dismissPlan() {
 	m.afterPanelChange()
 }
 
-// handlePlanKey consumes nav / a/r/d / enter while the plan approval panel is open.
+// handlePlanKey consumes nav / row numbers / enter while the plan approval
+// panel is open. A stray letter is swallowed; ↑/↓ or a row number moves,
+// Enter confirms.
 // Esc returns false so Update's interrupt path runs.
 func (m *Model) handlePlanKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 	p := m.panel.plan

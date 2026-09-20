@@ -185,6 +185,93 @@ func TestHandleAskTypePastesText(t *testing.T) {
 	}
 }
 
+// Tab has no job in the ask panel: any printable key drops into the freeform
+// row on its own, and ←/→ move between questions.
+func TestAskTabIsInert(t *testing.T) {
+	m := Model{panel: panel{ask: newAskPrompt(sampleAskArgs())}}
+	p := m.panel.ask
+	p.lists[0].selected = 2 // freeform row
+	if _, ok := m.handleAskKey(tea.KeyPressMsg{Code: tea.KeyTab, Text: "\t"}); !ok {
+		t.Fatal("tab must still be swallowed")
+	}
+	if p.typing {
+		t.Fatal("tab must not focus the freeform field")
+	}
+
+	// Two questions: tab must not jump either.
+	args := sampleAskArgs()
+	args.Questions = append(args.Questions, tools.AskQuestion{
+		ID: "scope", Header: "Scope", Question: "How wide?",
+		Options: []tools.AskOption{{Label: "Narrow"}},
+	})
+	m = Model{panel: panel{ask: newAskPrompt(args)}}
+	p = m.panel.ask
+	if _, ok := m.handleAskKey(tea.KeyPressMsg{Code: tea.KeyTab, Text: "\t"}); !ok {
+		t.Fatal("tab must still be swallowed")
+	}
+	if p.qi != 0 {
+		t.Fatalf("tab moved to question %d", p.qi)
+	}
+	// ←/→ are the question keys.
+	if _, ok := m.handleAskKey(tea.KeyPressMsg{Code: tea.KeyRight}); !ok || p.qi != 1 {
+		t.Fatalf("right: q=%d", p.qi)
+	}
+	if _, ok := m.handleAskKey(tea.KeyPressMsg{Code: tea.KeyLeft}); !ok || p.qi != 0 {
+		t.Fatalf("left: q=%d", p.qi)
+	}
+}
+
+// ↑/↓ leave the freeform field and move the list, so the footer's "↑/↓ select"
+// holds while typing. ↓ from the freeform row stays put (it is the last row).
+func TestAskMoveLeavesFreeformAndMoves(t *testing.T) {
+	m := Model{panel: panel{ask: newAskPrompt(sampleAskArgs())}}
+	p := m.panel.ask
+	p.lists[0].selected = 2
+	p.typing = true
+	p.other[0] = "hybrid"
+
+	if _, ok := m.handleAskKey(tea.KeyPressMsg{Code: tea.KeyDown}); !ok {
+		t.Fatal("down must be handled")
+	}
+	if p.typing {
+		t.Fatal("down must leave the freeform field")
+	}
+	if p.lists[0].selected != 2 {
+		t.Fatalf("down past the last row must clamp: selected=%d", p.lists[0].selected)
+	}
+
+	if _, ok := m.handleAskKey(tea.KeyPressMsg{Code: tea.KeyUp}); !ok {
+		t.Fatal("up must be handled")
+	}
+	if p.lists[0].selected != 1 {
+		t.Fatalf("up: selected=%d", p.lists[0].selected)
+	}
+
+	// The typed answer survives leaving the field, ↑ included.
+	if got := p.other[0]; got != "hybrid" {
+		t.Fatalf("other = %q", got)
+	}
+}
+
+// The footer advertises the keys that exist, and Tab is not one of them.
+func TestRenderAskFooterOmitsTab(t *testing.T) {
+	m := Model{term: term{width: 80}, panel: panel{ask: newAskPrompt(sampleAskArgs())}}
+	out := stripANSI(m.renderAsk(80))
+	if strings.Contains(out, "tab") {
+		t.Fatalf("footer still mentions tab: %q", out)
+	}
+	if !strings.Contains(out, "↑/↓ select") {
+		t.Fatalf("footer missing select hint: %q", out)
+	}
+	// The freeform row is chosen: the hint must not change with focus.
+	m.panel.ask.lists[0].selected = 2
+	m.panel.ask.typing = true
+	out = stripANSI(m.renderAsk(80))
+	if !strings.Contains(out, "↑/↓ select") {
+		t.Fatalf("footer hint must not depend on focus: %q", out)
+	}
+}
+
 func TestRenderAskShowsOptions(t *testing.T) {
 	m := Model{term: term{width: 80}, panel: panel{ask: newAskPrompt(sampleAskArgs())}}
 	out := stripANSI(m.renderAsk(80))

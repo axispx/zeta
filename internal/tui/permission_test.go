@@ -3,6 +3,7 @@ package tui
 import (
 	"encoding/json"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -17,6 +18,31 @@ import (
 	"github.com/axispx/zeta/internal/workspace"
 )
 
+// pressPermRow answers the open prompt with the row number of decision d.
+// Letters are not shortcuts, so tests decide the way the UI does: move by
+// number (or ↑/↓), then Enter.
+func pressPermRow(t *testing.T, m *Model, d permission.Decision) {
+	t.Helper()
+	p := m.panel.perm
+	if p == nil {
+		t.Fatal("no permission prompt open")
+	}
+	for i, o := range p.opts {
+		if o.decide != d {
+			continue
+		}
+		key := strconv.Itoa(i + 1)
+		if _, ok := m.handlePermissionKey(tea.KeyPressMsg{Code: rune(key[0]), Text: key}); !ok {
+			t.Fatalf("row number %s for %v not handled", key, d)
+		}
+		if _, ok := m.handlePermissionKey(tea.KeyPressMsg{Code: tea.KeyEnter, Text: "enter"}); !ok {
+			t.Fatalf("enter after row number %s not handled", key)
+		}
+		return
+	}
+	t.Fatalf("prompt offers no %v row: %+v", d, p.opts)
+}
+
 func TestHandlePermissionKey(t *testing.T) {
 	replies := make(chan agent.Reply, 1)
 	m := Model{
@@ -24,9 +50,7 @@ func TestHandlePermissionKey(t *testing.T) {
 		panel:   panel{perm: newPermissionPrompt("bash echo", tools.Bash, "")},
 		turn:    turn{current: &turnSession{reply: replies, activeTool: -1, cancel: func() {}}},
 	}
-	if _, ok := m.handlePermissionKey(tea.KeyPressMsg{Code: 'a', Text: "a"}); !ok {
-		t.Fatal("expected handled")
-	}
+	pressPermRow(t, &m, permission.AllowOnce)
 	if m.panel.perm != nil {
 		t.Fatal("perm should clear")
 	}
@@ -38,9 +62,7 @@ func TestHandlePermissionKey(t *testing.T) {
 	m.panel.perm = newPermissionPrompt("", tools.Bash, "")
 	m.panel.perm.setArgs(bashArgs("echo"), t.TempDir())
 	m.turn.current.reply = replies
-	if _, ok := m.handlePermissionKey(tea.KeyPressMsg{Code: 's', Text: "s"}); !ok {
-		t.Fatal("expected s handled")
-	}
+	pressPermRow(t, &m, permission.AllowSession)
 	if !m.session.Grants.Granted(tools.Bash) {
 		t.Fatal("session grant should stick on harness")
 	}
@@ -51,9 +73,7 @@ func TestHandlePermissionKey(t *testing.T) {
 	replies = make(chan agent.Reply, 1)
 	m.panel.perm = newPermissionPrompt("", tools.Bash, "")
 	m.turn.current.reply = replies
-	if _, ok := m.handlePermissionKey(tea.KeyPressMsg{Code: 'd', Text: "d"}); !ok {
-		t.Fatal("expected d handled")
-	}
+	pressPermRow(t, &m, permission.Deny)
 	if allow := <-replies; allow.Kind != agent.ReplyDeny {
 		t.Fatal("want deny")
 	}
@@ -66,9 +86,10 @@ func TestHandlePermissionKeyEditNoSession(t *testing.T) {
 		panel:   panel{perm: newPermissionPrompt("", tools.Edit, "a.go")},
 		turn:    turn{current: &turnSession{reply: replies, activeTool: -1, cancel: func() {}}},
 	}
-	// [s] is not an option for edit — swallowed, no decision.
-	if _, ok := m.handlePermissionKey(tea.KeyPressMsg{Code: 's', Text: "s"}); !ok {
-		t.Fatal("unknown key still consumed")
+	// Edit offers exactly two rows: a digit past the last row is swallowed
+	// without deciding, and no session grant can come of it.
+	if _, ok := m.handlePermissionKey(tea.KeyPressMsg{Code: '9', Text: "9"}); !ok {
+		t.Fatal("out-of-range row number still consumed")
 	}
 	if m.panel.perm == nil {
 		t.Fatal("perm should remain")
@@ -78,13 +99,11 @@ func TestHandlePermissionKeyEditNoSession(t *testing.T) {
 	}
 	select {
 	case <-replies:
-		t.Fatal("should not decide on s")
+		t.Fatal("should not decide on an out-of-range row number")
 	default:
 	}
 
-	if _, ok := m.handlePermissionKey(tea.KeyPressMsg{Code: 'a', Text: "a"}); !ok {
-		t.Fatal("a")
-	}
+	pressPermRow(t, &m, permission.AllowOnce)
 	if allow := <-replies; allow.Kind == agent.ReplyDeny {
 		t.Fatal("want allow")
 	}
@@ -603,9 +622,7 @@ func TestReadOutsideSessionGrantSkipsLater(t *testing.T) {
 		name: tools.Read, label: "read a.txt", path: filepath.Join(outer, "one", "a.txt"),
 		args: oneA,
 	})
-	if _, ok := m.handlePermissionKey(tea.KeyPressMsg{Code: 's', Text: "s"}); !ok {
-		t.Fatal("s")
-	}
+	pressPermRow(t, &m, permission.AllowSession)
 	if !m.session.Grants.DirGranted(permission.CallFor(root, tools.Read, oneA)) {
 		t.Fatal("directory grant should stick")
 	}
@@ -681,6 +698,8 @@ func TestReadOutsidePromptsInAskMode(t *testing.T) {
 	}
 }
 
+// TestHandlePermissionKeySwallowsUnknown: while the prompt owns the input, keys
+// that are not nav / row numbers / Enter are consumed but decide nothing.
 func TestHandlePermissionKeySwallowsUnknown(t *testing.T) {
 	replies := make(chan agent.Reply, 1)
 	m := Model{
@@ -688,8 +707,10 @@ func TestHandlePermissionKeySwallowsUnknown(t *testing.T) {
 		panel:   panel{perm: newPermissionPrompt("", tools.Bash, "")},
 		turn:    turn{current: &turnSession{reply: replies, activeTool: -1, cancel: func() {}}},
 	}
-	if _, ok := m.handlePermissionKey(tea.KeyPressMsg{Text: "/"}); !ok {
-		t.Fatal("unknown keys should be consumed while prompt open")
+	for _, key := range []tea.KeyPressMsg{{Text: "/"}, {Code: 'a', Text: "a"}, {Code: 'x', Text: "x"}} {
+		if _, ok := m.handlePermissionKey(key); !ok {
+			t.Fatalf("unknown keys should be consumed while prompt open: %q", key.String())
+		}
 	}
 	if m.panel.perm == nil {
 		t.Fatal("perm should remain")

@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 
@@ -114,13 +115,24 @@ func TestLoadSessionFramePlanDefaultFalse(t *testing.T) {
 	}
 }
 
+// choosePlanRow moves to 1-based row n and confirms it. Letters are not
+// shortcuts, so this is the path a keyboard user takes: number (or ↑/↓), Enter.
+func choosePlanRow(t *testing.T, m *Model, n int) (tea.Cmd, bool) {
+	t.Helper()
+	key := strconv.Itoa(n)
+	if _, ok := m.handlePlanKey(tea.KeyPressMsg{Code: rune(key[0]), Text: key}); !ok {
+		t.Fatalf("row number %s not handled", key)
+	}
+	return m.handlePlanKey(tea.KeyPressMsg{Code: tea.KeyEnter, Text: "enter"})
+}
+
 func TestHandlePlanKeyApproveOpensBuildPick(t *testing.T) {
 	m := testModel()
 	m.session.Cfg = sampleTUIConfig()
 	m.session.Mode = prompt.ModePlan
 	m.panel.plan = newPlanPrompt("## T\nbody", "T")
 
-	cmd, ok := m.handlePlanKey(tea.KeyPressMsg{Code: 'a', Text: "a"})
+	cmd, ok := choosePlanRow(t, &m, 1)
 	if !ok {
 		t.Fatal("expected handled")
 	}
@@ -145,7 +157,7 @@ func TestHandlePlanKeyRevise(t *testing.T) {
 	m := testModel()
 	m.panel.plan = newPlanPrompt("x", "T")
 	m.pendingPlan = "should clear"
-	cmd, ok := m.handlePlanKey(tea.KeyPressMsg{Code: 'r', Text: "r"})
+	cmd, ok := choosePlanRow(t, &m, 2)
 	if !ok {
 		t.Fatal("expected handled")
 	}
@@ -166,7 +178,7 @@ func TestHandlePlanKeyRevise(t *testing.T) {
 func TestHandlePlanKeyDiscard(t *testing.T) {
 	m := testModel()
 	m.panel.plan = newPlanPrompt("x", "T")
-	_, ok := m.handlePlanKey(tea.KeyPressMsg{Code: 'd', Text: "d"})
+	_, ok := choosePlanRow(t, &m, 3)
 	if !ok {
 		t.Fatal("expected handled")
 	}
