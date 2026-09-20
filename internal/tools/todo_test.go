@@ -12,8 +12,8 @@ func TestTodoToolAlwaysRegistered(t *testing.T) {
 	if _, ok := ByName(Build(), Todo); !ok {
 		t.Fatal("Build() should include todo")
 	}
-	if _, ok := ByName(Inspect(), Todo); !ok {
-		t.Fatal("Inspect() should include todo")
+	if _, ok := ByName(ForMode(false, Env{}), Todo); !ok {
+		t.Fatal("read-only set should include todo")
 	}
 	if Interactive(Todo) {
 		t.Fatal("todo must not be interactive")

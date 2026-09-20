@@ -98,13 +98,6 @@ func (p *askPrompt) curList() *optionList {
 	return &p.lists[p.qi]
 }
 
-func (p *askPrompt) optionCount(qi int) int {
-	if p == nil || qi < 0 || qi >= len(p.lists) {
-		return 0
-	}
-	return p.lists[qi].n()
-}
-
 func (p *askPrompt) isOther(qi int) bool {
 	if p == nil || qi < 0 || qi >= len(p.lists) || qi >= len(p.questions) {
 		return false

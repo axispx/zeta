@@ -179,28 +179,3 @@ func writeIndex(dir string, entries []IndexEntry) error {
 	}
 	return nil
 }
-
-// latestFromIndex returns the transcript path for the newest index entry, if any.
-func latestFromIndex(dir string) (string, error) {
-	entries, err := readIndex(dir)
-	if err != nil {
-		return "", err
-	}
-	if len(entries) == 0 {
-		return "", nil
-	}
-	best := entries[0]
-	for _, e := range entries[1:] {
-		if e.Updated > best.Updated {
-			best = e
-		}
-	}
-	path := filepath.Join(dir, best.ID+".jsonl")
-	if _, err := os.Stat(path); err != nil {
-		if os.IsNotExist(err) {
-			return "", fmt.Errorf("session %q missing transcript %s", best.ID, path)
-		}
-		return "", err
-	}
-	return path, nil
-}

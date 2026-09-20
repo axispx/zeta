@@ -48,11 +48,9 @@ type Env struct {
 // Harness paths should use ForMode.
 func Build() []Tool { return ForMode(true, Env{}) }
 
-// Inspect returns ask/plan-safe tools (no edits, no shell) with no session env.
-func Inspect() []Tool { return ForMode(false, Env{}) }
-
 // ForMode returns build tools when build is true, else ask/plan-safe tools.
 // env.Todos binds the session checklist (nil → todo tool errors on Run).
+// Read-only callers (tests, ask/plan) pass build=false with an empty Env.
 func ForMode(build bool, env Env) []Tool {
 	todo := todoTool{store: env.Todos}
 	if build {

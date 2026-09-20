@@ -21,9 +21,6 @@ const (
 	maxLineBytes  = 2000
 	maxLineSuffix = "... (line truncated)"
 
-	// Room reserved for the middle-omit marker inside maxToolBytes.
-	middleMarkerReserve = 80
-
 	// spillMaxAge drops older cache files when writing a new spill.
 	spillMaxAge = 24 * time.Hour
 )

@@ -189,7 +189,8 @@ func TestRenderEditCall(t *testing.T) {
 		t.Fatalf("missing guttered context: %q", plain)
 	}
 	// Markdown-style list content must not glue into "+-" / "--".
-	list := stripANSI(renderUnifiedDiff("@@ -1 +1 @@\n-- item\n+- item\n"))
+	_, _, body := formatUnifiedDiff("@@ -1 +1 @@\n-- item\n+- item\n")
+	list := stripANSI(body)
 	if strings.Contains(list, "@@") {
 		t.Fatalf("should omit hunk header: %q", list)
 	}

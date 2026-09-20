@@ -317,15 +317,6 @@ func (m Model) permissionTitleH() int {
 	return lipgloss.Height(m.renderPermissionTitle(contentW, ink))
 }
 
-// permissionOptionAt returns the option index at terminal (x,y), or -1.
-// Used by tests.
-func (m Model) permissionOptionAt(x, y int) int {
-	if m.panel.perm == nil {
-		return -1
-	}
-	return optionIndexAt(x, y, m.transcript.viewport.Height(), m.term.width, m.permissionTitleH(), m.panel.perm.list.n())
-}
-
 func (m Model) renderPermission(width int) string {
 	p := m.panel.perm
 	if p == nil {

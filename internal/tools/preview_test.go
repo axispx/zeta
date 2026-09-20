@@ -148,11 +148,11 @@ func TestPreviewEditFallback(t *testing.T) {
 }
 
 func TestPreviewMissingFromSet(t *testing.T) {
-	got := Preview(Inspect(), "edit", t.TempDir(), mustRaw(t, map[string]any{
+	got := Preview(ForMode(false, Env{}), "edit", t.TempDir(), mustRaw(t, map[string]any{
 		"path": "a.txt", "old_string": "", "new_string": "x",
 	}))
 	if got != "" {
-		t.Fatalf("inspect set has no edit: %q", got)
+		t.Fatalf("read-only set has no edit: %q", got)
 	}
 }
 

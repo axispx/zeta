@@ -91,11 +91,6 @@ func formatUnifiedDiff(diff string) (adds, dels int, body string) {
 	return adds, dels, b.String()
 }
 
-func renderUnifiedDiff(diff string) string {
-	_, _, body := formatUnifiedDiff(diff)
-	return body
-}
-
 func countDiffLines(diff string) (adds, dels int) {
 	for _, line := range parseUnifiedDiff(diff) {
 		switch line.kind {

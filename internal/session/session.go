@@ -99,24 +99,6 @@ func (s *Session) Persisted() bool {
 	return s != nil && s.onDisk
 }
 
-// Open resumes the latest session for cwd, or creates a new one if none exist.
-func Open(cwd string) (*Session, []Record, error) {
-	abs, err := absCwd(cwd)
-	if err != nil {
-		return nil, nil, err
-	}
-	dir := projectDirPath(abs)
-
-	latest, err := latestFromIndex(dir)
-	if err != nil {
-		return nil, nil, err
-	}
-	if latest == "" {
-		return create(abs, dir), nil, nil
-	}
-	return load(abs, latest)
-}
-
 // OpenID resumes a specific session by ID for cwd.
 func OpenID(cwd, id string) (*Session, []Record, error) {
 	abs, err := absCwd(cwd)

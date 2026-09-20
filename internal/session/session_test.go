@@ -26,17 +26,14 @@ func TestCwdKey(t *testing.T) {
 	}
 }
 
-func TestOpenAppendResume(t *testing.T) {
+func TestAppendResume(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("ZETA_HOME", home)
 	proj := filepath.Join(t.TempDir(), "proj")
 
-	s, recs, err := Open(proj)
+	s, err := New(proj)
 	if err != nil {
 		t.Fatal(err)
-	}
-	if len(recs) != 0 {
-		t.Fatalf("fresh session records = %d", len(recs))
 	}
 
 	// Empty sessions are not indexed.
@@ -64,7 +61,7 @@ func TestOpenAppendResume(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	s2, recs2, err := Open(proj)
+	s2, recs2, err := OpenID(proj, s.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -415,7 +412,7 @@ func TestUsageRoundTrip(t *testing.T) {
 	t.Setenv("ZETA_HOME", home)
 	proj := filepath.Join(t.TempDir(), "proj")
 
-	s, _, err := Open(proj)
+	s, err := New(proj)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -468,7 +465,7 @@ func TestUsageModelRoundTrip(t *testing.T) {
 	t.Setenv("ZETA_HOME", home)
 	proj := filepath.Join(t.TempDir(), "proj")
 
-	s, _, err := Open(proj)
+	s, err := New(proj)
 	if err != nil {
 		t.Fatal(err)
 	}

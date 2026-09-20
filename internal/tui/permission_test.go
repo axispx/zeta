@@ -469,45 +469,6 @@ func TestReadToolStartNoDecision(t *testing.T) {
 	}
 }
 
-func TestPermissionOptionAt(t *testing.T) {
-	vp := viewport.New()
-	vp.SetHeight(10)
-	m := Model{
-		term: term{
-			width: 80,
-		},
-		transcript: transcript{viewport: vp},
-		panel: panel{
-			perm: newPermissionPrompt("", tools.Bash, "")},
-	}
-	// gap starts at y=10; blank spacer + panel pad → content at 12.
-	// title=12, options 13/14/15 (Allow once / Allow for session / Deny)
-	if i := m.permissionOptionAt(2, 13); i != 0 {
-		t.Fatalf("opt0: got %d", i)
-	}
-	if i := m.permissionOptionAt(2, 14); i != 1 {
-		t.Fatalf("opt1: got %d", i)
-	}
-	if i := m.permissionOptionAt(2, 15); i != 2 {
-		t.Fatalf("opt2: got %d", i)
-	}
-	if i := m.permissionOptionAt(2, 16); i != -1 {
-		t.Fatalf("past last option should miss: %d", i)
-	}
-	if i := m.permissionOptionAt(2, 12); i != -1 {
-		t.Fatalf("title row should miss: %d", i)
-	}
-
-	// edit has only 2 options
-	m.panel.perm = newPermissionPrompt("", tools.Edit, "")
-	if i := m.permissionOptionAt(2, 14); i != 1 {
-		t.Fatalf("edit deny: got %d", i)
-	}
-	if i := m.permissionOptionAt(2, 15); i != -1 {
-		t.Fatalf("edit has no third option: %d", i)
-	}
-}
-
 func TestHandlePermissionClick(t *testing.T) {
 	vp := viewport.New()
 	vp.SetHeight(10)
