@@ -6,7 +6,11 @@ New folders are gated too: the first open in a directory asks you to **trust** i
 
 ## Prompt keys
 
-Prompts list numbered choices. `↑`/`↓` (or the row's number) moves, `Enter` confirms, `Esc` cancels, and clicking a row confirms it too. There are no single-letter shortcuts, so a stray keystroke — typing your next message over an open prompt — never answers it for you.
+Prompts list numbered choices. `↑`/`↓` (or the row's number) moves, `Enter` confirms, and clicking a row confirms it too. There are no single-letter shortcuts, so a stray keystroke — typing your next message over an open prompt — never answers it for you.
+
+`Esc` **denies**: a prompt is a yes/no question, so the key that cancels elsewhere answers "no" here and the turn keeps going (the model sees the rejection and can adapt). To abort the whole turn, use `Ctrl+C`.
+
+With **deny** selected, typing starts a reason on that row instead of being swallowed. `Enter` still confirms, so the reason never sends itself, and it reaches the model as `rejected: <reason>` rather than the generic denial — enough to steer the next attempt ("use the helper in foo.go", "don't touch generated files"). `↑`/`↓` leaves the field and returns to the list; `Backspace` on an empty field does the same. An empty reason is a plain deny.
 
 | Action                   | Choices                                              |
 | ------------------------ | ---------------------------------------------------- |

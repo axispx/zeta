@@ -11,7 +11,7 @@
 | `Shift+Enter` / `Ctrl+J` / `Alt+Enter` | Newline                                     |
 | `@`                                    | File mention picker (gitignore-aware; Tab/Enter insert) |
 | `Tab` (in `/model`)                    | Cycle reasoning (Low → Medium → High)       |
-| `Esc`                                  | Cancel edit / leave queue / cancel turn (queue kept) |
+| `Esc`                                  | Cancel edit / leave queue / cancel turn (queue kept); denies an open permission prompt |
 | `Ctrl+C`                               | Leave edit/focus → interrupt → clear queue → quit |
 | Mouse / `PgUp` / `PgDn`                | Scroll                                      |
 | Drag transcript                        | Select text and copy on release (no scrollbar) |
@@ -47,7 +47,9 @@ Typing goes to the freeform row on its own — there is no key to focus it, and
 
 Permission and plan prompts use the same keys (row numbers only move; `Enter`
 confirms). No panel binds a bare letter, so typing while a prompt is open never
-answers it — see [Permissions](permissions.md).
+answers it — see [Permissions](permissions.md). On a permission prompt `Esc`
+denies rather than cancelling the turn (`Ctrl+C` aborts the turn); on the ask and
+plan panels `Esc` cancels as usual.
 
 ## Terminal notes
 

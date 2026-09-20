@@ -178,7 +178,7 @@ func TestPersistAllowWritesRuleAndSkipsSecondPrompt(t *testing.T) {
 	}
 	m.turn.current.activeTool = -1 // reset the open row for the decision
 
-	m.decidePermission(permission.AllowAlways)
+	m.decidePermission(permission.AllowAlways, "")
 	if allow := <-replies; allow.Kind == agent.ReplyDeny {
 		t.Fatal("allow-always should allow the current call")
 	}

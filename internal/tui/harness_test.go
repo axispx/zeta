@@ -51,7 +51,7 @@ func TestGateAndHarnessShareLiveRules(t *testing.T) {
 	if m.panel.perm == nil {
 		t.Fatal("expected the first prompt")
 	}
-	m.decidePermission(permission.AllowAlways)
+	m.decidePermission(permission.AllowAlways, "")
 	if r := <-replies; r.Kind != agent.ReplyRun {
 		t.Fatalf("allow-always should allow the current call: %+v", r)
 	}

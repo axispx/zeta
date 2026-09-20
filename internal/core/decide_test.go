@@ -135,7 +135,7 @@ func TestDecidePermissionSessionGrantAndDeny(t *testing.T) {
 	s := &Session{Grants: &grants, Rules: permission.NewRules(policy.Policy{})}
 
 	bash := permission.CallFor(root, tools.Bash, bashArgs("go test"))
-	reply, err := s.DecidePermission(permission.AllowSession, bash)
+	reply, err := s.DecidePermission(permission.AllowSession, bash, "")
 	if err != nil || reply.Kind != agent.ReplyRun {
 		t.Fatalf("grant: reply=%+v err=%v", reply, err)
 	}
@@ -145,7 +145,7 @@ func TestDecidePermissionSessionGrantAndDeny(t *testing.T) {
 
 	// An outside read grants the directory, not the read class.
 	outside := permission.CallFor(root, tools.Read, json.RawMessage(`{"path":"../x.txt"}`))
-	if _, err := s.DecidePermission(permission.AllowSession, outside); err != nil {
+	if _, err := s.DecidePermission(permission.AllowSession, outside, ""); err != nil {
 		t.Fatal(err)
 	}
 	if grants.Granted(tools.Read) {
@@ -155,8 +155,28 @@ func TestDecidePermissionSessionGrantAndDeny(t *testing.T) {
 		t.Fatal("outside directory should be granted")
 	}
 
-	if r, err := s.DecidePermission(permission.Deny, bash); err != nil || r.Kind != agent.ReplyDeny {
+	if r, err := s.DecidePermission(permission.Deny, bash, ""); err != nil || r.Kind != agent.ReplyDeny {
 		t.Fatalf("deny: reply=%+v err=%v", r, err)
+	}
+}
+
+func TestDecidePermissionDenyReason(t *testing.T) {
+	root := t.TempDir()
+	s := &Session{Grants: &permission.Session{}, Rules: permission.NewRules(policy.Policy{})}
+	bash := permission.CallFor(root, tools.Bash, bashArgs("go test"))
+
+	// A typed reason reaches the model instead of the generic denial.
+	r, err := s.DecidePermission(permission.Deny, bash, "use make test instead")
+	if err != nil || r.Kind != agent.ReplyDeny {
+		t.Fatalf("reply=%+v err=%v", r, err)
+	}
+	if r.Reason != "use make test instead" {
+		t.Fatalf("reason=%q", r.Reason)
+	}
+
+	// Empty / whitespace reason falls back to the generic denial.
+	if r, _ := s.DecidePermission(permission.Deny, bash, "  "); r.Reason != "the user denied this call" {
+		t.Fatalf("blank reason should stay generic: %q", r.Reason)
 	}
 }
 
@@ -166,7 +186,7 @@ func TestDecidePermissionAllowAlwaysPersists(t *testing.T) {
 	rules := permission.NewRules(policy.Policy{})
 	s := &Session{Grants: &permission.Session{}, Rules: rules}
 
-	reply, err := s.DecidePermission(permission.AllowAlways, permission.CallFor(root, tools.Bash, bashArgs("go test")))
+	reply, err := s.DecidePermission(permission.AllowAlways, permission.CallFor(root, tools.Bash, bashArgs("go test")), "")
 	if err != nil || reply.Kind != agent.ReplyRun {
 		t.Fatalf("reply=%+v err=%v", reply, err)
 	}
@@ -194,7 +214,7 @@ func TestDecidePermissionPersistFailureStillAllows(t *testing.T) {
 	rules := permission.NewRules(policy.Policy{})
 	s := &Session{Grants: &permission.Session{}, Rules: rules}
 
-	reply, err := s.DecidePermission(permission.AllowAlways, permission.CallFor(root, tools.Bash, bashArgs("go test")))
+	reply, err := s.DecidePermission(permission.AllowAlways, permission.CallFor(root, tools.Bash, bashArgs("go test")), "")
 	if err == nil {
 		t.Fatal("expected a persist error")
 	}

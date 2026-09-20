@@ -4,10 +4,12 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/axispx/zeta/internal/agent"
 	"github.com/axispx/zeta/internal/ai"
 	"github.com/axispx/zeta/internal/core"
 	"github.com/axispx/zeta/internal/image"
 	"github.com/axispx/zeta/internal/session"
+	"github.com/axispx/zeta/internal/tools"
 )
 
 func TestTryInterruptCancelsTurn(t *testing.T) {
@@ -110,6 +112,35 @@ func TestTryInterruptIdle(t *testing.T) {
 	m := Model{}
 	if m.tryInterrupt() {
 		t.Fatal("expected no interrupt when idle")
+	}
+}
+
+// TestTryInterruptWithPermissionPromptCancelsTurn: Esc on a permission prompt
+// denies (see TestPermissionEscDeniesNotCancels), so Ctrl+C is what aborts the
+// turn while the prompt is open. tryInterrupt must still reach the turn and
+// abandon the panel with a deny so the agent unblocks.
+func TestTryInterruptWithPermissionPromptCancelsTurn(t *testing.T) {
+	replies := make(chan agent.Reply, 1)
+	m := testModel()
+	m.panel.perm = newPermissionPrompt("", tools.Edit, "a.go")
+	cancelled := false
+	m.turn.current = &turnSession{
+		cancel:     func() { cancelled = true },
+		ch:         closedAgentEvents(),
+		reply:      replies,
+		activeTool: -1,
+	}
+	if !m.tryInterrupt() {
+		t.Fatal("expected interrupt")
+	}
+	if !cancelled || m.turn.current != nil {
+		t.Fatal("turn not finished")
+	}
+	if m.panel.perm != nil {
+		t.Fatal("panel should be abandoned")
+	}
+	if r := <-replies; r.Kind != agent.ReplyDeny {
+		t.Fatalf("abandon should deny: %+v", r)
 	}
 }
 

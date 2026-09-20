@@ -14,6 +14,10 @@ import (
 	"github.com/axispx/zeta/internal/tools"
 )
 
+// denyReasonPlaceholder stands in for the reason on the Deny row while it holds
+// the keys and nothing has been typed yet.
+const denyReasonPlaceholder = "Type a reason…"
+
 type permOption struct {
 	label  string
 	decide permission.Decision
@@ -69,6 +73,10 @@ type permissionPrompt struct {
 	appr  core.Approval // derived from the tool name, args, and workspace root
 	opts  []permOption  // source of truth for the row list and the decision dispatched for a chosen index
 	list  optionList
+	// reason is the freeform deny text typed on the last row.
+	reason string
+	// typing is true while the freeform row owns key input.
+	typing bool
 }
 
 func newPermissionPrompt(label, name, path string) *permissionPrompt {
@@ -85,6 +93,45 @@ func (p *permissionPrompt) setOptions(opts []permOption) {
 		rows[i] = optionRow{label: o.label}
 	}
 	p.list.setRows(rows)
+}
+
+// reasonRow is the index of the Deny row — the row that doubles as a reason
+// field once the user types on it — or -1 when the prompt offers no deny.
+func (p *permissionPrompt) reasonRow() int {
+	if p == nil {
+		return -1
+	}
+	for i, o := range p.opts {
+		if o.decide == permission.Deny {
+			return i
+		}
+	}
+	return -1
+}
+
+// denySelected reports whether the cursor sits on the Deny row, which is what
+// lets typing start a reason instead of being swallowed.
+func (p *permissionPrompt) denySelected() bool {
+	return p.list.selected == p.reasonRow() && p.reasonRow() >= 0
+}
+
+// syncReason paints the Deny row as the reason field: the typed reason (or a
+// placeholder) with a caret while it owns the keys, and the plain "Deny" label
+// otherwise. Derived state — call it before rendering or hit-testing, the only
+// readers.
+func (p *permissionPrompt) syncReason() {
+	i := p.reasonRow()
+	if i < 0 || i >= p.list.n() || i >= len(p.opts) {
+		return
+	}
+	r := &p.list.rows[i]
+	r.hint, r.labelCursor, r.label = "", p.typing, p.opts[i].label
+	switch {
+	case strings.TrimSpace(p.reason) != "":
+		r.label = p.reason
+	case p.typing:
+		r.label = denyReasonPlaceholder
+	}
 }
 
 // setApproval records the derived approval and mirrors its choices into the rows.
@@ -112,13 +159,14 @@ func (m *Model) sendReply(r agent.Reply) {
 }
 
 // decidePermission applies the user's choice to the session and answers the
-// agent. The grant/persist/reply logic is core.Session.DecidePermission.
-func (m *Model) decidePermission(d permission.Decision) {
+// agent. The grant/persist/reply logic is core.Session.DecidePermission; reason
+// is an optional deny explanation the model sees on the rejected tool result.
+func (m *Model) decidePermission(d permission.Decision, reason string) {
 	p := m.panel.perm
 	if p == nil {
 		return
 	}
-	reply, err := m.session.DecidePermission(d, p.appr.Call)
+	reply, err := m.session.DecidePermission(d, p.appr.Call, reason)
 	if err != nil {
 		// Keep the decision even when the rule cannot be saved.
 		m.noteError("permissions: " + err.Error())
@@ -134,28 +182,102 @@ func (m *Model) abandonPermission() {
 	if m.panel.perm == nil {
 		return
 	}
-	m.decidePermission(permission.Deny)
+	m.decidePermission(permission.Deny, "")
 }
 
-// handlePermissionKey consumes nav / row numbers / enter while the prompt is
-// open. A stray letter is swallowed, so typing never decides for you:
-// ↑/↓ or a row number moves, Enter confirms.
-// Esc returns handled=false so Update's interrupt path still runs.
+// submitReason denies with the typed reason (a plain deny when empty).
+func (m *Model) submitReason() {
+	p := m.panel.perm
+	if p == nil {
+		return
+	}
+	m.decidePermission(permission.Deny, strings.TrimSpace(p.reason))
+}
+
+// handlePermissionKey consumes nav / row numbers / enter / esc while the prompt
+// is open. A stray letter is swallowed, so typing never decides for you: ↑/↓ or
+// a row number moves, Enter confirms. With Deny selected, typing starts a reason
+// field on that row instead of being swallowed — the deny still needs Enter, so
+// typing alone never answers the prompt.
+//
+// Esc denies: the prompt is a yes/no question, so the key that cancels elsewhere
+// answers "no" here and the turn keeps going. Ctrl+C still aborts the turn
+// (handleCtrlC runs before panel routing).
 func (m *Model) handlePermissionKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 	p := m.panel.perm
 	if p == nil {
 		return nil, false
 	}
+	key := msg.String()
+	// Esc answers the prompt, taking whatever reason is already typed. A live
+	// transcript selection takes Esc first (deselect), so the highlight left by
+	// copying a diff is not mistaken for a denial.
+	if key == "esc" {
+		if m.selection.sel.has() {
+			return nil, false
+		}
+		m.submitReason()
+		return nil, true
+	}
+	// An ↑/↓ press hands the keys back to the list so it still moves while a
+	// reason is being typed instead of the arrow being swallowed.
+	if p.typing && isAskMoveKey(key) {
+		p.typing = false
+	}
+	if p.typing {
+		return nil, m.handleReasonType(msg)
+	}
+	// Typing on the Deny row is the reason for the denial, not a stray key.
+	// List moves are not text: they fall through so the cursor still moves.
+	if p.denySelected() && !isAskMoveKey(key) {
+		if t := askText(msg); t != "" {
+			p.typing = true
+			p.syncReason()
+			return nil, m.handleReasonType(msg)
+		}
+	}
 	idx, chose, handled := p.list.handleKey(msg)
 	if !handled {
 		return nil, false
 	}
-	if chose {
-		if idx >= 0 && idx < len(p.opts) {
-			m.decidePermission(p.opts[idx].decide)
-		}
+	if chose && idx >= 0 && idx < len(p.opts) {
+		m.decidePermission(p.opts[idx].decide, "")
 	}
 	return nil, true
+}
+
+// handleReasonType edits the deny reason while the field owns the keys.
+// Enter submits the deny; backspace at the empty field drops back to the list.
+func (m *Model) handleReasonType(msg tea.KeyPressMsg) bool {
+	p := m.panel.perm
+	if p == nil {
+		return false
+	}
+	if i := p.reasonRow(); i >= 0 {
+		p.list.selected = i
+	}
+	cur := p.reason
+	switch msg.String() {
+	case "enter":
+		m.submitReason()
+	case "backspace", "ctrl+h":
+		if cur != "" {
+			r := []rune(cur)
+			p.reason = string(r[:len(r)-1])
+		} else {
+			p.typing = false
+		}
+	case "ctrl+u":
+		p.reason = ""
+	case "ctrl+w":
+		p.reason = trimLastWord(cur)
+	default:
+		if t := askText(msg); t != "" {
+			p.reason = cur + t
+		}
+	}
+	p.syncReason()
+	return true
 }
 
 // handlePermissionClick selects an option under the cursor on left-click.
@@ -164,6 +286,7 @@ func (m *Model) handlePermissionClick(msg tea.MouseClickMsg) (tea.Cmd, bool) {
 	if p == nil || msg.Button != tea.MouseLeft {
 		return nil, false
 	}
+	p.syncReason()
 	titleH := m.permissionTitleH()
 	_, contentW := overlayWidths(m.term.width)
 	idx, chose := p.list.handleClick(msg.X, msg.Y, m.transcript.viewport.Height(), m.term.width, titleH, contentW)
@@ -171,7 +294,7 @@ func (m *Model) handlePermissionClick(msg tea.MouseClickMsg) (tea.Cmd, bool) {
 		return nil, false
 	}
 	if idx >= 0 && idx < len(p.opts) {
-		m.decidePermission(p.opts[idx].decide)
+		m.decidePermission(p.opts[idx].decide, "")
 		return nil, true
 	}
 	return nil, false
@@ -183,6 +306,7 @@ func (m *Model) handlePermissionMotion(msg tea.MouseMotionMsg) bool {
 	if p == nil {
 		return false
 	}
+	p.syncReason()
 	_, contentW := overlayWidths(m.term.width)
 	return p.list.handleMotion(msg.X, msg.Y, m.transcript.viewport.Height(), m.term.width, m.permissionTitleH(), contentW)
 }
@@ -207,6 +331,7 @@ func (m Model) renderPermission(width int) string {
 	if p == nil {
 		return ""
 	}
+	p.syncReason()
 	_, contentW := overlayWidths(width)
 	ink := m.term.chrome.OverlayInk()
 

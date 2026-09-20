@@ -76,7 +76,9 @@ func (m *Model) abandonPanel() {
 
 // interruptPanel handles esc/ctrl+c for post-turn panels.
 // Returns true when something was dismissed (caller should not quit further).
-// Open harness panels (perm/ask) return false so finishTurn abandons them.
+// Open harness panels (perm/ask) return false so finishTurn abandons them. Only
+// Ctrl+C reaches this for a permission prompt — Esc is consumed by the prompt
+// itself (it denies) before key routing gets here.
 func (m *Model) interruptPanel() bool {
 	switch {
 	case m.panel.build != nil:

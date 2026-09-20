@@ -158,6 +158,143 @@ func TestHandlePermissionKeyIdle(t *testing.T) {
 	}
 }
 
+// pressPermKey presses a printable key the way the terminal delivers it.
+func pressPermKey(t *testing.T, m *Model, s string) {
+	t.Helper()
+	if _, ok := m.handlePermissionKey(tea.KeyPressMsg{Code: rune(s[0]), Text: s}); !ok {
+		t.Fatalf("key %q not handled", s)
+	}
+}
+
+// selectDenyRow moves the cursor onto the Deny row with its row number, the way
+// the UI does (a number only moves; Enter confirms).
+func selectDenyRow(t *testing.T, m *Model) {
+	t.Helper()
+	p := m.panel.perm
+	if p == nil {
+		t.Fatal("no permission prompt open")
+	}
+	i := p.reasonRow()
+	if i < 0 {
+		t.Fatalf("prompt offers no deny row: %+v", p.opts)
+	}
+	pressPermKey(t, m, strconv.Itoa(i+1))
+	if p.list.selected != i {
+		t.Fatalf("selected=%d want deny row %d", p.list.selected, i)
+	}
+}
+
+// TestDenyReasonTypeToFocus: with Deny selected, typing is the denial's reason
+// and never decides; Enter then denies with that reason.
+func TestDenyReasonTypeToFocus(t *testing.T) {
+	replies := make(chan agent.Reply, 1)
+	m := Model{
+		session: core.Session{Grants: &permission.Session{}},
+		panel:   panel{perm: newPermissionPrompt("", tools.Edit, "a.go")},
+		turn:    turn{current: &turnSession{reply: replies, activeTool: -1, cancel: func() {}}},
+	}
+	selectDenyRow(t, &m)
+	select {
+	case r := <-replies:
+		t.Fatalf("selecting the deny row must not decide: %+v", r)
+	default:
+	}
+
+	// Letters and digits are the reason's text, not row jumps or a decision.
+	for _, s := range []string{"w", "r", "o", "n", "g", "7"} {
+		pressPermKey(t, &m, s)
+	}
+	if !m.panel.perm.typing {
+		t.Fatal("typing on deny should claim the keys")
+	}
+	if got := m.panel.perm.reason; got != "wrong7" {
+		t.Fatalf("reason=%q", got)
+	}
+	select {
+	case r := <-replies:
+		t.Fatalf("typing must not decide: %+v", r)
+	default:
+	}
+
+	if _, ok := m.handlePermissionKey(tea.KeyPressMsg{Code: tea.KeyEnter, Text: "enter"}); !ok {
+		t.Fatal("enter submit not handled")
+	}
+	if m.panel.perm != nil {
+		t.Fatal("perm should clear after denying")
+	}
+	if r := <-replies; r.Kind != agent.ReplyDeny || r.Reason != "wrong7" {
+		t.Fatalf("reply=%+v", r)
+	}
+}
+
+// TestDenyReasonEdges: typing elsewhere is still swallowed; an arrow hands the
+// keys back to the list; an empty reason denies plainly.
+func TestDenyReasonEdges(t *testing.T) {
+	newModel := func() (*Model, chan agent.Reply) {
+		replies := make(chan agent.Reply, 1)
+		m := &Model{
+			session: core.Session{Grants: &permission.Session{}},
+			panel:   panel{perm: newPermissionPrompt("", tools.Edit, "a.go")},
+			turn:    turn{current: &turnSession{reply: replies, activeTool: -1, cancel: func() {}}},
+		}
+		return m, replies
+	}
+
+	// With Allow selected, a letter is still swallowed (no reason field).
+	m, _ := newModel()
+	pressPermKey(t, m, "x")
+	if m.panel.perm.typing || m.panel.perm.reason != "" {
+		t.Fatalf("typing off the deny row must not start a reason: %+v", m.panel.perm)
+	}
+
+	// ↑ exits the field (keeping the text) and moves the list.
+	m, _ = newModel()
+	selectDenyRow(t, m)
+	pressPermKey(t, m, "x")
+	if _, ok := m.handlePermissionKey(tea.KeyPressMsg{Text: "up"}); !ok {
+		t.Fatal("up should be consumed")
+	}
+	if m.panel.perm.typing {
+		t.Fatal("an arrow should hand keys back to the list")
+	}
+	if m.panel.perm.reason != "x" {
+		t.Fatalf("reason should survive: %q", m.panel.perm.reason)
+	}
+	if want := m.panel.perm.reasonRow() - 1; m.panel.perm.list.selected != want {
+		t.Fatalf("selection should move up: %d want %d", m.panel.perm.list.selected, want)
+	}
+
+	// Empty field + Enter = plain deny (generic reason).
+	m, replies := newModel()
+	selectDenyRow(t, m)
+	if _, ok := m.handlePermissionKey(tea.KeyPressMsg{Code: tea.KeyEnter, Text: "enter"}); !ok {
+		t.Fatal("enter on the deny row not handled")
+	}
+	if r := <-replies; r.Kind != agent.ReplyDeny || r.Reason != "the user denied this call" {
+		t.Fatalf("plain deny: %+v", r)
+	}
+}
+
+// TestDenyReasonRendering: the Deny row shows the typed reason with a caret
+// while it owns the keys, and the placeholder before anything is typed.
+func TestDenyReasonRendering(t *testing.T) {
+	m := Model{term: term{width: 80}, panel: panel{perm: newPermissionPrompt("", tools.Edit, "a.go")}}
+	base := stripANSI(m.renderPermission(80))
+	if !strings.Contains(base, "Deny") {
+		t.Fatalf("deny row missing: %q", base)
+	}
+	if strings.Contains(base, optionCaret) || strings.Contains(base, denyReasonPlaceholder) {
+		t.Fatalf("no field before typing: %q", base)
+	}
+
+	selectDenyRow(t, &m)
+	pressPermKey(t, &m, "t")
+	out := stripANSI(m.renderPermission(80))
+	if !strings.Contains(out, "t"+optionCaret) {
+		t.Fatalf("live reason with caret: %q", out)
+	}
+}
+
 func TestGapHeightWithPermission(t *testing.T) {
 	m := Model{term: term{width: 80}, panel: panel{perm: newPermissionPrompt("", tools.Bash, "")}}
 	// blank + panel pad + title + 3 options (bash)
@@ -715,13 +852,73 @@ func TestHandlePermissionKeySwallowsUnknown(t *testing.T) {
 	if m.panel.perm == nil {
 		t.Fatal("perm should remain")
 	}
+	// Swallowed means swallowed: the prompt starts on Allow, so nothing typed
+	// here becomes a deny reason either.
+	if m.panel.perm.typing || m.panel.perm.reason != "" {
+		t.Fatalf("stray keys must not start a reason: %+v", m.panel.perm)
+	}
 	select {
 	case <-replies:
 		t.Fatal("should not decide")
 	default:
 	}
-	if _, ok := m.handlePermissionKey(tea.KeyPressMsg{Text: "esc"}); ok {
-		t.Fatal("esc must fall through to interrupt")
+	if _, ok := m.handlePermissionKey(tea.KeyPressMsg{Text: "esc"}); !ok {
+		t.Fatal("esc should be handled by the prompt")
+	}
+	if r := <-replies; r.Kind != agent.ReplyDeny {
+		t.Fatalf("esc should deny: %+v", r)
+	}
+}
+
+// TestPermissionEscDeniesNotCancels: Esc answers the prompt ("no") and leaves
+// the turn running — only Ctrl+C aborts it.
+func TestPermissionEscDeniesNotCancels(t *testing.T) {
+	replies := make(chan agent.Reply, 1)
+	cancelled := false
+	m := testModel()
+	m.transcript.messages = []Message{{Role: RoleTool, Text: "edit a.go", Tool: tools.Edit}}
+	m.panel.perm = newPermissionPrompt("", tools.Edit, "a.go")
+	m.turn.current = &turnSession{
+		activeTool: 0,
+		ch:         make(chan agent.Event),
+		reply:      replies,
+		cancel:     func() { cancelled = true },
+	}
+	if _, ok := m.handlePermissionKey(tea.KeyPressMsg{Code: tea.KeyEscape, Text: "esc"}); !ok {
+		t.Fatal("esc should be consumed by the prompt")
+	}
+	if m.panel.perm != nil {
+		t.Fatal("prompt should close")
+	}
+	if cancelled || m.turn.current == nil {
+		t.Fatal("esc must not cancel the turn")
+	}
+	if r := <-replies; r.Kind != agent.ReplyDeny || r.Reason != "the user denied this call" {
+		t.Fatalf("reply=%+v", r)
+	}
+	for _, msg := range m.transcript.messages {
+		if msg.Text == turnCancelledText {
+			t.Fatal("esc must not append Cancelled")
+		}
+	}
+}
+
+// TestPermissionEscTakesTypedReason: Esc denies with the reason already typed.
+func TestPermissionEscTakesTypedReason(t *testing.T) {
+	replies := make(chan agent.Reply, 1)
+	m := Model{
+		session: core.Session{Grants: &permission.Session{}},
+		panel:   panel{perm: newPermissionPrompt("", tools.Edit, "a.go")},
+		turn:    turn{current: &turnSession{reply: replies, activeTool: -1, cancel: func() {}}},
+	}
+	selectDenyRow(t, &m)
+	pressPermKey(t, &m, "n")
+	pressPermKey(t, &m, "o")
+	if _, ok := m.handlePermissionKey(tea.KeyPressMsg{Code: tea.KeyEscape, Text: "esc"}); !ok {
+		t.Fatal("esc should be consumed")
+	}
+	if r := <-replies; r.Kind != agent.ReplyDeny || r.Reason != "no" {
+		t.Fatalf("reply=%+v", r)
 	}
 }
 

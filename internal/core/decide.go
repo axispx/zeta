@@ -13,6 +13,7 @@ package core
 
 import (
 	"encoding/json"
+	"strings"
 
 	"github.com/axispx/zeta/internal/agent"
 	"github.com/axispx/zeta/internal/permission"
@@ -66,7 +67,11 @@ func Gate(rules *permission.Rules, grants *permission.Session, root string) func
 // "always allow" writes, and allows or denies the call. The rule is persisted
 // with policy.Add and swapped in place, so the agent's Gate sees it mid-turn.
 // A rule that cannot be saved is reported but does not change the decision.
-func (s *Session) DecidePermission(d permission.Decision, call permission.Call) (agent.Reply, error) {
+//
+// reason is an optional deny explanation. When set, the model sees it in the
+// tool result ("rejected: <reason>") instead of the generic denial, so it can
+// steer the next attempt. It is ignored for allow decisions.
+func (s *Session) DecidePermission(d permission.Decision, call permission.Call, reason string) (agent.Reply, error) {
 	var persistErr error
 	switch d {
 	case permission.AllowSession:
@@ -86,7 +91,16 @@ func (s *Session) DecidePermission(d permission.Decision, call permission.Call) 
 		}
 	}
 	if d == permission.Deny {
-		return agent.DenyTool(), persistErr
+		return denyReply(reason), persistErr
 	}
 	return agent.RunTool(), persistErr
+}
+
+// denyReply rejects the call, preferring a user-supplied reason so the model
+// sees why (as "rejected: <reason>") instead of the generic denial.
+func denyReply(reason string) agent.Reply {
+	if r := strings.TrimSpace(reason); r != "" {
+		return agent.DenyToolReason(r)
+	}
+	return agent.DenyTool()
 }
