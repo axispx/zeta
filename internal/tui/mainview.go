@@ -25,22 +25,24 @@ type mainViewKey struct {
 	aLine, aCol, hLine, hCol int
 }
 
-func (m *Model) invalidateMainView() {
-	if m.mainCache != nil {
-		*m.mainCache = mainViewCache{}
+func (t *transcriptState) invalidateMainView() {
+	if t.mainCache != nil {
+		*t.mainCache = mainViewCache{}
 	}
 }
 
-func (m Model) mainViewKey() mainViewKey {
+// mainViewKey is the tray of inputs the painted frame depends on. Selection
+// lives in selectionState, so it is passed in rather than reached for.
+func (t transcriptState) mainViewKey(sel transcriptSel) mainViewKey {
 	k := mainViewKey{
-		yOff:  m.viewport.YOffset(),
-		w:     m.viewport.Width(),
-		h:     m.viewport.Height(),
-		bar:   m.showScrollbar,
-		empty: len(m.messages) == 0,
+		yOff:  t.viewport.YOffset(),
+		w:     t.viewport.Width(),
+		h:     t.viewport.Height(),
+		bar:   t.showScrollbar,
+		empty: len(t.messages) == 0,
 	}
-	if m.sel.has() {
-		start, end := m.sel.normalized()
+	if sel.has() {
+		start, end := sel.normalized()
 		k.sel = true
 		k.aLine, k.aCol = start.line, start.col
 		k.hLine, k.hCol = end.line, end.col
@@ -52,51 +54,59 @@ func (m Model) mainViewKey() mainViewKey {
 // Trackpad momentum keeps emitting past the edge; without this each tick still
 // runs Update→View (SoftWrap walk) and reverse scrolls feel stuck until the
 // backlog drains.
-func (m *Model) rejectEdgeScroll(msg tea.MouseWheelMsg) bool {
+func (t *transcriptState) rejectEdgeScroll(msg tea.MouseWheelMsg) bool {
 	switch msg.Button {
 	case tea.MouseWheelUp:
-		return m.viewport.AtTop()
+		return t.viewport.AtTop()
 	case tea.MouseWheelDown:
-		return m.viewport.AtBottom()
+		return t.viewport.AtBottom()
 	default:
 		return false
 	}
 }
 
-func (m Model) mainView() string {
-	w := m.viewport.Width()
-	h := m.viewport.Height()
+// mainView paints the transcript region: the banner when there is nothing to
+// show, otherwise the viewport with the drag selection highlighted and the
+// scrollbar beside it.
+func (t *transcriptState) mainView(sel transcriptSel) string {
+	w := t.viewport.Width()
+	h := t.viewport.Height()
 	if w <= 0 || h <= 0 {
 		return ""
 	}
 
-	key := m.mainViewKey()
-	if m.mainCache != nil && m.mainCache.text != "" && m.mainCache.key == key {
-		return m.mainCache.text
+	key := t.mainViewKey(sel)
+	if t.mainCache != nil && t.mainCache.text != "" && t.mainCache.key == key {
+		return t.mainCache.text
 	}
 
 	var inner string
-	if len(m.messages) == 0 {
+	if len(t.messages) == 0 {
 		banner := styles.Banner.Render(strings.TrimSpace(styles.BannerArt))
 		ver := styles.Placeholder.Render("v" + version.Version)
 		hero := lipgloss.JoinVertical(lipgloss.Center, banner, "", ver)
 		inner = lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, hero)
 	} else {
-		inner = m.viewport.View()
-		if m.sel.has() {
-			start, end := m.sel.normalized()
-			inner = highlightSelection(inner, m.viewport.YOffset(), start, end)
+		inner = t.viewport.View()
+		if sel.has() {
+			start, end := sel.normalized()
+			inner = highlightSelection(inner, t.viewport.YOffset(), start, end)
 		}
 	}
 
 	body := styles.Transcript.Render(inner)
 	out := body
-	if m.showScrollbar {
-		bar := renderScrollbar(h, m.viewport.TotalLineCount(), m.viewport.YOffset())
+	if t.showScrollbar {
+		bar := renderScrollbar(h, t.viewport.TotalLineCount(), t.viewport.YOffset())
 		out = lipgloss.JoinHorizontal(lipgloss.Top, body, bar)
 	}
-	if m.mainCache != nil {
-		*m.mainCache = mainViewCache{text: out, key: key}
+	if t.mainCache != nil {
+		*t.mainCache = mainViewCache{text: out, key: key}
 	}
 	return out
+}
+
+// mainView paints the transcript region with the current drag selection.
+func (m Model) mainView() string {
+	return m.transcriptState.mainView(m.sel)
 }

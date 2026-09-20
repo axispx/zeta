@@ -14,7 +14,7 @@ import (
 func histModel(prompts ...string) Model {
 	ta := textarea.New()
 	ta.Focus()
-	m := Model{textarea: ta}
+	m := Model{composerState: composerState{textarea: ta}}
 	for _, p := range prompts {
 		m.messages = append(m.messages, Message{Role: RoleUser, Text: p})
 	}

@@ -99,7 +99,7 @@ func TestMatchCommands(t *testing.T) {
 func TestSubmitInputQuit(t *testing.T) {
 	ta := textarea.New()
 	ta.SetValue(":q")
-	m := Model{textarea: ta}
+	m := Model{composerState: composerState{textarea: ta}}
 	cmd := m.submitInput()
 	if !m.quitting {
 		t.Fatal("quitting = false")
@@ -111,7 +111,7 @@ func TestSubmitInputQuit(t *testing.T) {
 	for _, other := range []string{":quit", "/quit", ":Q"} {
 		ta := textarea.New()
 		ta.SetValue(other)
-		m := Model{textarea: ta}
+		m := Model{composerState: composerState{textarea: ta}}
 		_ = m.submitInput()
 		if m.quitting {
 			t.Fatalf("%q should not quit", other)
@@ -184,7 +184,7 @@ func TestFormatAccentRow(t *testing.T) {
 func TestSyncOverlaySelectsPartial(t *testing.T) {
 	ta := textarea.New()
 	ta.SetValue("/cle")
-	m := Model{textarea: ta}
+	m := Model{composerState: composerState{textarea: ta}}
 	_ = m.syncOverlay()
 	if !m.overlay.showing() || m.overlay.mode != overlayCommands {
 		t.Fatal("command overlay inactive")
@@ -254,8 +254,8 @@ func TestCycleModelReasoning(t *testing.T) {
 		},
 	}
 	m := Model{
-		Session:  core.Session{Cfg: cfg},
-		textarea: textarea.New(),
+		Session:       core.Session{Cfg: cfg},
+		composerState: composerState{textarea: textarea.New()},
 		overlay: filterOverlay{
 			mode:   overlayModels,
 			models: cfg.ModelChoices(),

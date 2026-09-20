@@ -15,18 +15,18 @@ func TestLiveFromIdleAndStreaming(t *testing.T) {
 		{Role: RoleUser, Text: "hi"},
 		{Role: RoleAgent, Text: "hello"},
 	}
-	if got := m.liveFrom(); got != 2 {
+	if got := m.liveFrom(m.turn); got != 2 {
 		t.Fatalf("idle liveFrom=%d, want 2", got)
 	}
 
 	m.turn = &turnSession{streaming: true, activeTool: -1}
-	if got := m.liveFrom(); got != 1 {
+	if got := m.liveFrom(m.turn); got != 1 {
 		t.Fatalf("streaming agent liveFrom=%d, want 1", got)
 	}
 
 	m.turn.streaming = false
 	m.turn.thinking = "hmm"
-	if got := m.liveFrom(); got != 2 {
+	if got := m.liveFrom(m.turn); got != 2 {
 		t.Fatalf("thinking-only liveFrom=%d, want 2", got)
 	}
 }
@@ -39,7 +39,7 @@ func TestLiveFromActiveToolRun(t *testing.T) {
 		{Role: RoleTool, Text: "bash ls", Tool: tools.Bash, Out: "x"},
 	}
 	m.turn = &turnSession{activeTool: 2, streaming: false}
-	if got := m.liveFrom(); got != 1 {
+	if got := m.liveFrom(m.turn); got != 1 {
 		t.Fatalf("tool run liveFrom=%d, want 1 (run start)", got)
 	}
 }
@@ -110,7 +110,7 @@ func TestTranscriptCacheMatchesFullRender(t *testing.T) {
 	inc := m.viewport.GetContent()
 
 	m.tx.invalidate()
-	full := m.buildTranscriptFull()
+	full := m.buildTranscriptFull(m.chrome, m.turn)
 	if inc != full {
 		t.Fatalf("incremental != full\ninc:\n%s\nfull:\n%s", stripANSI(inc), stripANSI(full))
 	}
@@ -143,7 +143,7 @@ func TestTranscriptCacheToolRunRewind(t *testing.T) {
 	if !strings.Contains(got, "read") {
 		t.Fatalf("tool run missing read row: %q", got)
 	}
-	full := m.buildTranscriptFull()
+	full := m.buildTranscriptFull(m.chrome, m.turn)
 	if m.viewport.GetContent() != full {
 		t.Fatalf("rewind path != full render")
 	}

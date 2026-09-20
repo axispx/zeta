@@ -2,6 +2,8 @@ package tui
 
 import (
 	"strings"
+
+	"github.com/axispx/zeta/internal/styles"
 )
 
 // transcriptCache stores the rendered text of settled messages so stream/tool
@@ -17,57 +19,73 @@ type transcriptCache struct {
 
 func (c *transcriptCache) invalidate() { *c = transcriptCache{} }
 
-// setTranscriptContent paints the viewport: cached prefix + fresh tail +
-// thinking. Stick-to-bottom only when already at the bottom so stream paints
-// don't yank the user back down after they scroll up (pgup / mouse wheel).
-func (m *Model) setTranscriptContent() {
-	m.syncPrefix()
-	atBottom := m.viewport.AtBottom()
+// The transcript surface renders from its own state — messages, viewport, and
+// the two memos (tx, mainCache) — plus two inputs it does not own: the terminal
+// theme, and the in-flight turn, whose live tail (thinking text, streaming
+// answer, open tool row) is re-rendered every frame. Those are threaded through
+// as arguments rather than reached for on Model, so both caches stay private to
+// this file and mainview.go. Model's setTranscriptContent / mainView wrap them
+// with the theme and live turn.
+
+// invalidate drops the settled-prefix cache and the painted-frame memo. Call
+// whenever something baked into already-rendered rows changes — the theme, the
+// wrap width, or the messages themselves.
+func (t *transcriptState) invalidate() {
+	t.tx.invalidate()
+	t.invalidateMainView()
+}
+
+// setContent paints the viewport: cached prefix + fresh tail + thinking.
+// Stick-to-bottom only when already at the bottom so stream paints don't yank
+// the user back down after they scroll up (pgup / mouse wheel).
+func (t *transcriptState) setContent(chrome styles.Chrome, turn *turnSession) {
+	t.syncPrefix(chrome, turn)
+	atBottom := t.viewport.AtBottom()
 	var b strings.Builder
-	b.WriteString(joinBlocks(m.tx.prefix, m.renderMessages(m.tx.frozen, len(m.messages))))
-	if m.turn != nil && m.turn.thinking != "" {
-		writeThinkingTail(&b, m.turn.thinking, m.contentW)
+	b.WriteString(joinBlocks(t.tx.prefix, t.renderMessages(t.tx.frozen, len(t.messages), chrome, turn)))
+	if turn != nil && turn.thinking != "" {
+		writeThinkingTail(&b, turn.thinking, t.contentW)
 	}
-	m.viewport.SetContent(b.String())
-	m.invalidateMainView()
+	t.viewport.SetContent(b.String())
+	t.invalidateMainView()
 	if atBottom {
-		m.viewport.GotoBottom()
+		t.viewport.GotoBottom()
 	}
 }
 
 // syncPrefix makes tx.prefix == render(messages[0:liveFrom]).
-func (m *Model) syncPrefix() {
-	if m.contentW != m.tx.width || m.tx.frozen > len(m.messages) {
-		m.tx = transcriptCache{width: m.contentW}
+func (t *transcriptState) syncPrefix(chrome styles.Chrome, turn *turnSession) {
+	if t.contentW != t.tx.width || t.tx.frozen > len(t.messages) {
+		t.tx = transcriptCache{width: t.contentW}
 	}
 
-	liveFrom := m.liveFrom()
+	liveFrom := t.liveFrom(turn)
 	switch {
-	case liveFrom == m.tx.frozen:
+	case liveFrom == t.tx.frozen:
 		// already in sync
-	case liveFrom < m.tx.frozen:
+	case liveFrom < t.tx.frozen:
 		// e.g. a new tool joined a run we had already frozen — rebuild
-		m.tx.prefix = m.renderMessages(0, liveFrom)
-		m.tx.frozen = liveFrom
+		t.tx.prefix = t.renderMessages(0, liveFrom, chrome, turn)
+		t.tx.frozen = liveFrom
 	default:
 		// newly settled messages — append to prefix
-		m.tx.prefix = joinBlocks(m.tx.prefix, m.renderMessages(m.tx.frozen, liveFrom))
-		m.tx.frozen = liveFrom
+		t.tx.prefix = joinBlocks(t.tx.prefix, t.renderMessages(t.tx.frozen, liveFrom, chrome, turn))
+		t.tx.frozen = liveFrom
 	}
 }
 
 // liveFrom is the first message index that may still change this frame.
-func (m *Model) liveFrom() int {
-	n := len(m.messages)
-	if n == 0 || m.turn == nil {
+func (t *transcriptState) liveFrom(turn *turnSession) int {
+	n := len(t.messages)
+	if n == 0 || turn == nil {
 		return n
 	}
 	// Streaming tool output: whole consecutive tool block is live.
-	if i := m.turn.activeTool; i >= 0 && i < n {
-		return toolRunStart(m.messages, i)
+	if i := turn.activeTool; i >= 0 && i < n {
+		return toolRunStart(t.messages, i)
 	}
 	// Streaming answer: last agent row is live.
-	if m.turn.streaming && m.messages[n-1].Role == RoleAgent {
+	if turn.streaming && t.messages[n-1].Role == RoleAgent {
 		return n - 1
 	}
 	// Otherwise (thinking, waiting) everything is settled.
@@ -84,14 +102,14 @@ func toolRunStart(msgs []Message, i int) int {
 
 // renderMessages renders messages[start:end). Top margin only on message 0.
 // Callers pass liveFrom-aligned ranges (never mid tool-run).
-func (m *Model) renderMessages(start, end int) string {
+func (t *transcriptState) renderMessages(start, end int, chrome styles.Chrome, turn *turnSession) string {
 	if start >= end {
 		return ""
 	}
 
-	userMsg := m.chrome.UserMsg()
-	streaming := m.turn != nil && m.turn.streaming
-	atEnd := end == len(m.messages)
+	userMsg := chrome.UserMsg()
+	streaming := turn != nil && turn.streaming
+	atEnd := end == len(t.messages)
 
 	var b strings.Builder
 	for i := start; i < end; {
@@ -103,15 +121,15 @@ func (m *Model) renderMessages(start, end int) string {
 			top = 1
 		}
 
-		if run := toolRunAt(m.messages, i); run != nil {
-			b.WriteString(renderToolGroup(run, m.contentW, top))
+		if run := toolRunAt(t.messages, i); run != nil {
+			b.WriteString(renderToolGroup(run, t.contentW, top))
 			i += len(run)
 			continue
 		}
 
-		msg := &m.messages[i]
-		live := streaming && atEnd && i == len(m.messages)-1 && msg.Role == RoleAgent
-		b.WriteString(msg.render(m.contentW, top, userMsg, live))
+		msg := &t.messages[i]
+		live := streaming && atEnd && i == len(t.messages)-1 && msg.Role == RoleAgent
+		b.WriteString(msg.render(t.contentW, top, userMsg, live))
 		i++
 	}
 	return b.String()
@@ -130,11 +148,18 @@ func joinBlocks(a, b string) string {
 }
 
 // buildTranscriptFull renders everything with no cache (tests only).
-func (m *Model) buildTranscriptFull() string {
+func (t *transcriptState) buildTranscriptFull(chrome styles.Chrome, turn *turnSession) string {
 	var b strings.Builder
-	b.WriteString(m.renderMessages(0, len(m.messages)))
-	if m.turn != nil && m.turn.thinking != "" {
-		writeThinkingTail(&b, m.turn.thinking, m.contentW)
+	b.WriteString(t.renderMessages(0, len(t.messages), chrome, turn))
+	if turn != nil && turn.thinking != "" {
+		writeThinkingTail(&b, turn.thinking, t.contentW)
 	}
 	return b.String()
+}
+
+// setTranscriptContent paints the viewport from the transcript cache, the
+// current theme, and the live turn — the two inputs the surface depends on but
+// does not own.
+func (m *Model) setTranscriptContent() {
+	m.transcriptState.setContent(m.chrome, m.turn)
 }

@@ -72,12 +72,14 @@ func TestHighlightSelection(t *testing.T) {
 
 func TestTranscriptPosRejectsScrollbar(t *testing.T) {
 	m := Model{
-		ready:         true,
-		width:         40,
-		contentW:      37,
-		showScrollbar: true,
-		messages:      []Message{{Role: RoleUser, Text: "hi"}},
-		viewport:      viewport.New(),
+		ready: true,
+		width: 40,
+		transcriptState: transcriptState{
+			contentW:      37,
+			showScrollbar: true,
+			messages:      []Message{{Role: RoleUser, Text: "hi"}},
+			viewport:      viewport.New(),
+		},
 	}
 	m.viewport.SetWidth(m.contentW)
 	m.viewport.SetHeight(10)
@@ -97,11 +99,13 @@ func TestTranscriptPosRejectsScrollbar(t *testing.T) {
 
 func TestTranscriptPosAppliesYOffset(t *testing.T) {
 	m := Model{
-		ready:    true,
-		width:    40,
-		contentW: 38,
-		messages: []Message{{Role: RoleUser, Text: "hi"}},
-		viewport: viewport.New(),
+		ready: true,
+		width: 40,
+		transcriptState: transcriptState{
+			contentW: 38,
+			messages: []Message{{Role: RoleUser, Text: "hi"}},
+			viewport: viewport.New(),
+		},
 	}
 	m.viewport.SetWidth(m.contentW)
 	m.viewport.SetHeight(5)
@@ -119,12 +123,14 @@ func TestTranscriptPosAppliesYOffset(t *testing.T) {
 
 func TestTranscriptPosClamp(t *testing.T) {
 	m := Model{
-		ready:         true,
-		width:         40,
-		contentW:      37,
-		showScrollbar: true,
-		messages:      []Message{{Role: RoleUser, Text: "hi"}},
-		viewport:      viewport.New(),
+		ready: true,
+		width: 40,
+		transcriptState: transcriptState{
+			contentW:      37,
+			showScrollbar: true,
+			messages:      []Message{{Role: RoleUser, Text: "hi"}},
+			viewport:      viewport.New(),
+		},
 	}
 	m.viewport.SetWidth(m.contentW)
 	m.viewport.SetHeight(10)
@@ -141,12 +147,14 @@ func TestTranscriptPosClamp(t *testing.T) {
 
 func TestSelectionDragThreshold(t *testing.T) {
 	m := Model{
-		ready:    true,
-		width:    42,
-		height:   20,
-		contentW: 40,
-		messages: []Message{{Role: RoleUser, Text: "hi"}},
-		viewport: viewport.New(),
+		ready:  true,
+		width:  42,
+		height: 20,
+		transcriptState: transcriptState{
+			contentW: 40,
+			messages: []Message{{Role: RoleUser, Text: "hi"}},
+			viewport: viewport.New(),
+		},
 	}
 	m.viewport.SetWidth(40)
 	m.viewport.SetHeight(10)
@@ -183,12 +191,14 @@ func TestSelectionNormalized(t *testing.T) {
 
 func TestSelectionReleaseExtendsWithoutMotion(t *testing.T) {
 	m := Model{
-		ready:    true,
-		width:    42,
-		height:   20,
-		contentW: 40,
-		messages: []Message{{Role: RoleUser, Text: "hi"}},
-		viewport: viewport.New(),
+		ready:  true,
+		width:  42,
+		height: 20,
+		transcriptState: transcriptState{
+			contentW: 40,
+			messages: []Message{{Role: RoleUser, Text: "hi"}},
+			viewport: viewport.New(),
+		},
 	}
 	m.viewport.SoftWrap = true
 	m.viewport.SetWidth(40)
@@ -217,12 +227,14 @@ func TestSelectionReleaseExtendsWithoutMotion(t *testing.T) {
 
 func TestSelectionBlurFinishesDrag(t *testing.T) {
 	m := Model{
-		ready:    true,
-		width:    42,
-		height:   20,
-		contentW: 40,
-		messages: []Message{{Role: RoleUser, Text: "hi"}},
-		viewport: viewport.New(),
+		ready:  true,
+		width:  42,
+		height: 20,
+		transcriptState: transcriptState{
+			contentW: 40,
+			messages: []Message{{Role: RoleUser, Text: "hi"}},
+			viewport: viewport.New(),
+		},
 	}
 	m.viewport.SetWidth(40)
 	m.viewport.SetHeight(10)
@@ -259,11 +271,13 @@ func TestOutsideTerminal(t *testing.T) {
 
 func TestModelSelectedTextMultiLine(t *testing.T) {
 	m := Model{
-		ready:    true,
-		width:    42,
-		contentW: 40,
-		messages: []Message{{Role: RoleUser, Text: "hi"}},
-		viewport: viewport.New(),
+		ready: true,
+		width: 42,
+		transcriptState: transcriptState{
+			contentW: 40,
+			messages: []Message{{Role: RoleUser, Text: "hi"}},
+			viewport: viewport.New(),
+		},
 	}
 	m.viewport.SetWidth(40)
 	m.viewport.SetHeight(10)

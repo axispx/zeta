@@ -345,7 +345,7 @@ func (m *Model) applySession(sess *session.Session, recs []session.Record, err e
 	m.clearQueue()
 	m.closeOverlay()
 	m.Grants = &permission.Session{}
-	m.tx.invalidate()
+	m.invalidate()
 	m.refreshTranscript()
 }
 

@@ -20,9 +20,9 @@ import (
 func TestHandlePermissionKey(t *testing.T) {
 	replies := make(chan agent.Reply, 1)
 	m := Model{
-		Session: core.Session{Grants: &permission.Session{}},
-		bottom:  bottomSlot{perm: newPermissionPrompt("bash echo", tools.Bash, "")},
-		turn:    &turnSession{reply: replies, activeTool: -1, cancel: func() {}},
+		Session:   core.Session{Grants: &permission.Session{}},
+		bottom:    bottomSlot{perm: newPermissionPrompt("bash echo", tools.Bash, "")},
+		turnState: turnState{turn: &turnSession{reply: replies, activeTool: -1, cancel: func() {}}},
 	}
 	if _, ok := m.handlePermissionKey(tea.KeyPressMsg{Code: 'a', Text: "a"}); !ok {
 		t.Fatal("expected handled")
@@ -62,9 +62,9 @@ func TestHandlePermissionKey(t *testing.T) {
 func TestHandlePermissionKeyEditNoSession(t *testing.T) {
 	replies := make(chan agent.Reply, 1)
 	m := Model{
-		Session: core.Session{Grants: &permission.Session{}},
-		bottom:  bottomSlot{perm: newPermissionPrompt("", tools.Edit, "a.go")},
-		turn:    &turnSession{reply: replies, activeTool: -1, cancel: func() {}},
+		Session:   core.Session{Grants: &permission.Session{}},
+		bottom:    bottomSlot{perm: newPermissionPrompt("", tools.Edit, "a.go")},
+		turnState: turnState{turn: &turnSession{reply: replies, activeTool: -1, cancel: func() {}}},
 	}
 	// [s] is not an option for edit — swallowed, no decision.
 	if _, ok := m.handlePermissionKey(tea.KeyPressMsg{Code: 's', Text: "s"}); !ok {
@@ -97,9 +97,9 @@ func TestHandlePermissionKeyNavEnter(t *testing.T) {
 	// edit has Allow / Deny (2 options)
 	replies := make(chan agent.Reply, 1)
 	m := Model{
-		Session: core.Session{Grants: &permission.Session{}},
-		bottom:  bottomSlot{perm: newPermissionPrompt("", tools.Edit, "")},
-		turn:    &turnSession{reply: replies, activeTool: -1, cancel: func() {}},
+		Session:   core.Session{Grants: &permission.Session{}},
+		bottom:    bottomSlot{perm: newPermissionPrompt("", tools.Edit, "")},
+		turnState: turnState{turn: &turnSession{reply: replies, activeTool: -1, cancel: func() {}}},
 	}
 	if _, ok := m.handlePermissionKey(tea.KeyPressMsg{Text: "down"}); !ok {
 		t.Fatal("down")
@@ -309,8 +309,8 @@ func TestPermissionOptionAt(t *testing.T) {
 	vp := viewport.New()
 	vp.SetHeight(10)
 	m := Model{
-		width:    80,
-		viewport: vp,
+		width:           80,
+		transcriptState: transcriptState{viewport: vp},
 		bottom: bottomSlot{
 			perm: newPermissionPrompt("", tools.Bash, "")},
 	}
@@ -347,11 +347,11 @@ func TestHandlePermissionClick(t *testing.T) {
 	vp.SetHeight(10)
 	replies := make(chan agent.Reply, 1)
 	m := Model{
-		width:    80,
-		viewport: vp,
-		Session:  core.Session{Grants: &permission.Session{}},
-		bottom:   bottomSlot{perm: newPermissionPrompt("", tools.Bash, "")},
-		turn:     &turnSession{reply: replies, activeTool: -1, cancel: func() {}},
+		width:           80,
+		transcriptState: transcriptState{viewport: vp},
+		Session:         core.Session{Grants: &permission.Session{}},
+		bottom:          bottomSlot{perm: newPermissionPrompt("", tools.Bash, "")},
+		turnState:       turnState{turn: &turnSession{reply: replies, activeTool: -1, cancel: func() {}}},
 	}
 	// y=15 is Deny for bash (3 options)
 	if _, ok := m.handlePermissionClick(tea.MouseClickMsg{X: 2, Y: 15, Button: tea.MouseLeft}); !ok {
@@ -672,9 +672,9 @@ func TestReadOutsidePromptsInAskMode(t *testing.T) {
 func TestHandlePermissionKeySwallowsUnknown(t *testing.T) {
 	replies := make(chan agent.Reply, 1)
 	m := Model{
-		Session: core.Session{Grants: &permission.Session{}},
-		bottom:  bottomSlot{perm: newPermissionPrompt("", tools.Bash, "")},
-		turn:    &turnSession{reply: replies, activeTool: -1, cancel: func() {}},
+		Session:   core.Session{Grants: &permission.Session{}},
+		bottom:    bottomSlot{perm: newPermissionPrompt("", tools.Bash, "")},
+		turnState: turnState{turn: &turnSession{reply: replies, activeTool: -1, cancel: func() {}}},
 	}
 	if _, ok := m.handlePermissionKey(tea.KeyPressMsg{Text: "/"}); !ok {
 		t.Fatal("unknown keys should be consumed while prompt open")

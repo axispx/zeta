@@ -64,8 +64,8 @@ func TestAskPromptFreeformEmptyAnswersOther(t *testing.T) {
 func TestHandleAskSubmitSendsResult(t *testing.T) {
 	replies := make(chan agent.Reply, 1)
 	m := Model{
-		bottom: bottomSlot{ask: newAskPrompt(sampleAskArgs())},
-		turn:   &turnSession{reply: replies, activeTool: -1, cancel: func() {}},
+		bottom:    bottomSlot{ask: newAskPrompt(sampleAskArgs())},
+		turnState: turnState{turn: &turnSession{reply: replies, activeTool: -1, cancel: func() {}}},
 	}
 	// select second option
 	m.bottom.ask.lists[0].selected = 1
@@ -89,8 +89,8 @@ func TestHandleAskSubmitSendsResult(t *testing.T) {
 func TestHandleAskKeyNavAndEnter(t *testing.T) {
 	replies := make(chan agent.Reply, 1)
 	m := Model{
-		bottom: bottomSlot{ask: newAskPrompt(sampleAskArgs())},
-		turn:   &turnSession{reply: replies, activeTool: -1, cancel: func() {}},
+		bottom:    bottomSlot{ask: newAskPrompt(sampleAskArgs())},
+		turnState: turnState{turn: &turnSession{reply: replies, activeTool: -1, cancel: func() {}}},
 	}
 	if _, ok := m.handleAskKey(tea.KeyPressMsg{Code: tea.KeyDown}); !ok {
 		t.Fatal("expected handled")
@@ -337,7 +337,7 @@ func TestHandleAskClickOnDescriptionLine(t *testing.T) {
 
 func TestOpenAskFromToolStart(t *testing.T) {
 	replies := make(chan agent.Reply, 1)
-	m := Model{turn: &turnSession{reply: replies, activeTool: -1, cancel: func() {}}}
+	m := Model{turnState: turnState{turn: &turnSession{reply: replies, activeTool: -1, cancel: func() {}}}}
 	raw, _ := json.Marshal(sampleAskArgs())
 	m.openAskFromToolStart(raw)
 	if m.bottom.ask == nil || len(m.bottom.ask.questions) != 1 {
@@ -347,7 +347,7 @@ func TestOpenAskFromToolStart(t *testing.T) {
 
 func TestOpenAskInvalidArgsReturnsErrorResult(t *testing.T) {
 	replies := make(chan agent.Reply, 1)
-	m := Model{turn: &turnSession{reply: replies, activeTool: -1, cancel: func() {}}}
+	m := Model{turnState: turnState{turn: &turnSession{reply: replies, activeTool: -1, cancel: func() {}}}}
 	m.openAskFromToolStart(json.RawMessage(`{"questions":[]}`))
 	r := <-replies
 	if r.Kind != agent.ReplyInject || !strings.Contains(r.Result, "error:") {
@@ -358,8 +358,8 @@ func TestOpenAskInvalidArgsReturnsErrorResult(t *testing.T) {
 func TestAbandonAskDenies(t *testing.T) {
 	replies := make(chan agent.Reply, 1)
 	m := Model{
-		bottom: bottomSlot{ask: newAskPrompt(sampleAskArgs())},
-		turn:   &turnSession{reply: replies, activeTool: -1, cancel: func() {}},
+		bottom:    bottomSlot{ask: newAskPrompt(sampleAskArgs())},
+		turnState: turnState{turn: &turnSession{reply: replies, activeTool: -1, cancel: func() {}}},
 	}
 	m.abandonAsk()
 	if m.bottom.ask != nil {
@@ -386,8 +386,8 @@ func TestMultiQuestionAdvance(t *testing.T) {
 	}
 	replies := make(chan agent.Reply, 1)
 	m := Model{
-		bottom: bottomSlot{ask: newAskPrompt(args)},
-		turn:   &turnSession{reply: replies, activeTool: -1, cancel: func() {}},
+		bottom:    bottomSlot{ask: newAskPrompt(args)},
+		turnState: turnState{turn: &turnSession{reply: replies, activeTool: -1, cancel: func() {}}},
 	}
 	m.submitAsk() // advance to q2
 	if m.bottom.ask == nil || m.bottom.ask.qi != 1 {

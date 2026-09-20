@@ -37,43 +37,78 @@ const (
 )
 
 // Model is the root Bubble Tea model for zeta.
+//
+// State is composed into embedded groups: each group owns one concern, and its
+// fields are promoted, so call sites read the same (`m.viewport`) while the
+// group can be reasoned about — and later given methods — on its own. A field
+// owned by a single group never sits at the top level.
 type Model struct {
 	core.Session
-	viewport      viewport.Model
+
+	composerState
+	queueState
+	transcriptState
+	selectionState
+	turnState
+
+	width        int
+	height       int
+	ready        bool
+	quitting     bool
+	updateOnExit bool          // /update: quit so main updates in the CLI and relaunches
+	chrome       styles.Chrome // terminal-derived panels; zero until BackgroundColorMsg
+	spinner      spinner.Model // animated while a turn is in flight
+	bottom       bottomSlot    // exclusive input-slot panel (perm | ask | plan)
+	pendingPlan  string        // plan body produced this turn; offered once on turnDone
+	overlay      filterOverlay
+	picker       pickerState
+	config       configDialog
+}
+
+// composerState is the input editor and everything staged in it.
+type composerState struct {
 	textarea      textarea.Model
+	promptHist    promptHistory     // up/down recall of prior user turns
+	pendingImages map[int]image.Ref // draft images keyed by stable [Image N] id
+	nextImageN    int               // last allocated token number (never renumbered)
+}
+
+// queueState is the follow-up queue and its list navigation. editID is the item
+// open in the composer, or 0; queueFocus+queueSel drive the panel.
+type queueState struct {
+	queue       []queuedPrompt // waiting follow-ups (FIFO; oldest at [0])
+	editID      int            // queue item id open in composer, or 0
+	nextQueueID int            // last allocated follow-up id
+	queueFocus  bool           // nav over the follow-ups panel
+	queueSel    listSel        // selection while queueFocus
+}
+
+// transcriptState is the scrollable conversation surface: the rendered message
+// list, the viewport that scrolls it, and the memos that keep repaints cheap.
+type transcriptState struct {
 	messages      []Message
-	sessionDiff   lineStats // memo of sessionDiff(messages); refreshSessionDiff only
-	width         int
-	height        int
-	contentW      int // contentW is the wrap width for transcript lines (matches styles.Transcript inset).
+	viewport      viewport.Model
+	contentW      int // wrap width for transcript lines (matches styles.Transcript inset).
 	showScrollbar bool
-	ready         bool
-	quitting      bool
-	updateOnExit  bool // /update: quit so main updates in the CLI and relaunches
+	sessionDiff   lineStats       // memo of sessionDiff(messages); refreshSessionDiff only
+	tx            transcriptCache // frozen settled transcript; tail re-renders only
+	mainCache     *mainViewCache  // memo of mainView() for transcript + gap; invalidated on transcript change
+	paint         streamPaint     // throttled live redraw; gen survives turn boundaries
+}
+
+// selectionState is app-level transcript drag selection plus its copy flash.
+type selectionState struct {
+	sel          transcriptSel // app-level transcript drag selection
+	copyFlash    bool          // brief "Copied" in the gap after a successful copy
+	copyFlashGen int           // invalidates stale flash timers
+}
+
+// turnState is the in-flight work: the agent turn, the compact job's cancel,
+// and the id allocator that lets late turn events be dropped.
+type turnState struct {
 	turn          *turnSession
 	nextTurnID    int // last allocated turnSession.id
 	compactCancel context.CancelFunc
-	bottom        bottomSlot // exclusive input-slot panel (perm | ask | plan)
-	pendingPlan   string     // plan body produced this turn; offered once on turnDone
-	overlay       filterOverlay
-	picker        pickerState
-	config        configDialog
-	chrome        styles.Chrome     // terminal-derived panels; zero until BackgroundColorMsg
-	promptHist    promptHistory     // up/down recall of prior user turns
-	spinner       spinner.Model     // animated while a turn is in flight
-	tx            transcriptCache   // frozen settled transcript; tail re-renders only
-	paint         streamPaint       // throttled live redraw; gen survives turn boundaries
-	sel           transcriptSel     // app-level transcript drag selection
-	copyFlash     bool              // brief "Copied" in the gap after a successful copy
-	copyFlashGen  int               // invalidates stale flash timers
-	queue         []queuedPrompt    // waiting follow-ups (FIFO; oldest at [0])
-	editID        int               // queue item id open in composer, or 0
-	nextQueueID   int               // last allocated follow-up id
-	queueFocus    bool              // nav over the follow-ups panel
-	queueSel      listSel           // selection while queueFocus
-	pendingImages map[int]image.Ref // draft images keyed by stable [Image N] id
-	nextImageN    int               // last allocated token number (never renumbered)
-	mainCache     *mainViewCache    // memo of mainView() for transcript + gap; invalidated on transcript change
 }
 
 // Options controls how the TUI starts a session.
@@ -130,8 +165,8 @@ func New(cfg config.Config, opts Options) (Model, error) {
 
 	ws := workspace.Load()
 	m := Model{
-		viewport: vp,
-		textarea: ta,
+		transcriptState: transcriptState{viewport: vp, mainCache: &mainViewCache{}},
+		composerState:   composerState{textarea: ta},
 		Session: core.Session{
 			WS:     ws,
 			Cfg:    cfg,
@@ -139,8 +174,7 @@ func New(cfg config.Config, opts Options) (Model, error) {
 			Rules:  permission.NewRules(opts.Rules),
 			Todos:  todo.NewStore(),
 		},
-		spinner:   spinner.New(spinner.WithSpinner(spinner.MiniDot)),
-		mainCache: &mainViewCache{},
+		spinner: spinner.New(spinner.WithSpinner(spinner.MiniDot)),
 	}
 	m.promptHist.reset()
 	applyTextareaStyles(&m.textarea, nil)
@@ -186,7 +220,7 @@ func (m *Model) applyPanels(termBg color.Color, dark bool) {
 	m.chrome = styles.NewChrome(termBg, dark)
 	applyTextareaStyles(&m.textarea, m.chrome.Input)
 	// User bubbles bake chrome into the prefix; rebuild on theme change.
-	m.tx.invalidate()
+	m.invalidate()
 }
 
 // applyTextareaStyles sets textarea chrome; bg nil skips panel fill (pre-BackgroundColorMsg).
@@ -592,25 +626,16 @@ func loadSession(recs []session.Record) (ui []Message, history []ai.Message) {
 // Transcript height accounts for the in-flow gap (status/bottom/idle) + input + footer.
 // Filter overlays float over the transcript and do not consume layout rows.
 func (m *Model) layout() {
-	w := m.width
-	if w < minTermW {
-		w = minTermW
-	}
+	w := max(m.width, minTermW)
 
-	inputH := m.textarea.Height()
-	if inputH < inputMinHeight {
-		inputH = inputMinHeight
-	}
+	inputH := max(m.textarea.Height(), inputMinHeight)
 
 	// gap + footer; input chrome is hidden while a bottom panel replaces it.
 	chromeH := m.gapHeight() + footerRows
 	if !m.inputBlocked() {
 		chromeH += inputH + styles.InputChromeV + styles.InputMarginB
 	}
-	th := m.height - chromeH
-	if th < minTranscriptH {
-		th = minTranscriptH
-	}
+	th := max(m.height-chromeH, minTranscriptH)
 
 	// Transcript region (pad + content + pad) may share the row with a scrollbar.
 	// styles.Transcript pads ContentInset each side, so viewport width = contentW.
@@ -621,17 +646,11 @@ func (m *Model) layout() {
 	if regionW < minInputInnerW+2*styles.ContentInset {
 		regionW = minInputInnerW + 2*styles.ContentInset
 	}
-	contentW := regionW - 2*styles.ContentInset
-	if contentW < minInputInnerW {
-		contentW = minInputInnerW
-	}
+	contentW := max(regionW-2*styles.ContentInset, minInputInnerW)
 
 	// Input is inset by InputMarginH each side; scrollbar only affects transcript above.
 	// lipgloss v2 Width includes padding → textarea = boxW - pad.
-	inputInnerW := w - styles.InputChromeH - 2*styles.InputMarginH
-	if inputInnerW < minInputInnerW {
-		inputInnerW = minInputInnerW
-	}
+	inputInnerW := max(w-styles.InputChromeH-2*styles.InputMarginH, minInputInnerW)
 
 	m.contentW = contentW
 	m.viewport.SetWidth(contentW)
@@ -754,14 +773,9 @@ func (m Model) renderInput() string {
 	if m.inputBlocked() {
 		return ""
 	}
-	inputW := m.width - 2*styles.InputMarginH
-	if inputW < minInputInnerW+styles.InputChromeH {
-		inputW = minInputInnerW + styles.InputChromeH
-	}
-	inputH := m.textarea.Height()
-	if inputH < inputMinHeight {
-		inputH = inputMinHeight
-	}
+	inputW := max(m.width-2*styles.InputMarginH, minInputInnerW+styles.InputChromeH)
+	inputH := max(m.textarea.Height(), inputMinHeight)
+
 	input := m.chrome.InputBox().Width(inputW).Height(inputH + styles.InputPadV).Render(m.textarea.View())
 	return lipgloss.NewStyle().
 		Margin(0, styles.InputMarginH, styles.InputMarginB, styles.InputMarginH).
@@ -769,10 +783,8 @@ func (m Model) renderInput() string {
 }
 
 func (m Model) renderFooter() string {
-	footerW := m.width - 2*styles.InputMarginH
-	if footerW < 1 {
-		footerW = 1
-	}
+	footerW := max(m.width-2*styles.InputMarginH, 1)
+
 	return lipgloss.NewStyle().
 		Margin(0, styles.InputMarginH).
 		Render(inputFooter(footerW, m.WS, m.Cfg, m.Mode, m.ContextTokens, m.sessionDiff))

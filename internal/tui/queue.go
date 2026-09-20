@@ -72,9 +72,9 @@ func newQueuedPrompt(id int, text string, imgs []image.Ref) queuedPrompt {
 	}
 }
 
-func (m *Model) allocQueueID() int {
-	m.nextQueueID++
-	return m.nextQueueID
+func (q *queueState) allocQueueID() int {
+	q.nextQueueID++
+	return q.nextQueueID
 }
 
 func (m *Model) clearQueue() {
@@ -86,8 +86,9 @@ func (m *Model) clearQueue() {
 	m.queue = nil
 }
 
-func (m *Model) hasQueueState() bool {
-	return len(m.queue) > 0 || m.editID != 0
+// hasQueueState reports whether anything is queued or open for edit.
+func (q queueState) hasQueueState() bool {
+	return len(q.queue) > 0 || q.editID != 0
 }
 
 // toggleQueueFocus enters/leaves follow-up navigation.
@@ -120,23 +121,28 @@ func (m *Model) unfocusQueue() {
 	m.afterQueueChange()
 }
 
-func (m *Model) clampQueueSel() {
-	m.queueSel.clamp(len(m.queue))
-	if len(m.queue) == 0 {
-		m.unfocusQueue()
+// clampQueueSel keeps the selection inside the list, dropping focus when the
+// list emptied. It touches queue state only: row height depends on the item
+// count, not the selected index, so every mutation site already relayouts via
+// afterQueueChange.
+func (q *queueState) clampQueueSel() {
+	q.queueSel.clamp(len(q.queue))
+	if len(q.queue) == 0 {
+		q.queueFocus = false
+		q.queueSel.clear()
 	}
 }
 
 // selectedQueueID is the focused row's id, or 0.
-func (m Model) selectedQueueID() int {
-	if !m.queueFocus || len(m.queue) == 0 {
+func (q queueState) selectedQueueID() int {
+	if !q.queueFocus || len(q.queue) == 0 {
 		return 0
 	}
-	i := m.queueSel.selected
-	if i < 0 || i >= len(m.queue) {
+	i := q.queueSel.selected
+	if i < 0 || i >= len(q.queue) {
 		return 0
 	}
-	return m.queue[i].id
+	return q.queue[i].id
 }
 
 // handleQueueNavKey handles keys while the follow-ups panel is focused.
@@ -223,16 +229,16 @@ func (m *Model) deliverQueued(id int) tea.Cmd {
 }
 
 // queueHeadID is the id of the next waiting item, or 0.
-func (m Model) queueHeadID() int {
-	if len(m.queue) == 0 {
+func (q queueState) queueHeadID() int {
+	if len(q.queue) == 0 {
 		return 0
 	}
-	return m.queue[0].id
+	return q.queue[0].id
 }
 
 // editingHead is true when the composer holds the next item that would drain.
-func (m Model) editingHead() bool {
-	return m.editID != 0 && m.editID == m.queueHeadID()
+func (q queueState) editingHead() bool {
+	return q.editID != 0 && q.editID == q.queueHeadID()
 }
 
 // canDrain reports whether auto-start / empty-Enter may take the next follow-up.
@@ -252,9 +258,9 @@ func (m Model) composerIsEmpty() bool {
 	return text == "" && len(imgs) == 0
 }
 
-func (m *Model) queueIndex(id int) int {
-	for i := range m.queue {
-		if m.queue[i].id == id {
+func (q *queueState) queueIndex(id int) int {
+	for i := range q.queue {
+		if q.queue[i].id == id {
 			return i
 		}
 	}

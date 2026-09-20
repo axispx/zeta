@@ -21,11 +21,11 @@ import (
 
 func testModel() Model {
 	m := Model{
-		textarea: textarea.New(),
-		viewport: viewport.New(),
-		width:    80,
-		height:   24,
-		ready:    true,
+		composerState:   composerState{textarea: textarea.New()},
+		transcriptState: transcriptState{viewport: viewport.New()},
+		width:           80,
+		height:          24,
+		ready:           true,
 		Session: core.Session{
 			Grants: &permission.Session{},
 			Rules:  permission.NewRules(policy.Policy{}),
