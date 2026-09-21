@@ -114,18 +114,28 @@ func TestSetActive(t *testing.T) {
 
 func TestCycleReasoningEffort(t *testing.T) {
 	tests := []struct {
-		in, want string
+		in, want  string
+		supported []string
 	}{
-		{"", "low"},
-		{"low", "medium"},
-		{"medium", "high"},
-		{"high", ""},
-		{"xhigh", "low"},
-		{" HIGH ", ""},
+		// No catalog list: default low/medium/high.
+		{"", "low", nil},
+		{"low", "medium", nil},
+		{"medium", "high", nil},
+		{"high", "", nil},
+		{"xhigh", "low", nil}, // not in the default set
+		{" HIGH ", "", nil},
+		// Catalog list drives the cycle, including xhigh/max.
+		{"", "none", []string{"none", "low", "medium", "high", "xhigh", "max"}},
+		{"high", "xhigh", []string{"none", "low", "medium", "high", "xhigh", "max"}},
+		{"max", "", []string{"none", "low", "medium", "high", "xhigh", "max"}},
+		// Hand-set value the model no longer advertises restarts the cycle.
+		{"xhigh", "low", []string{"low", "high", "max"}},
+		// Duplicate/blank catalog values are dropped.
+		{"low", "high", []string{"low", " low ", "", "high"}},
 	}
 	for _, tt := range tests {
-		if got := CycleReasoningEffort(tt.in); got != tt.want {
-			t.Errorf("CycleReasoningEffort(%q) = %q, want %q", tt.in, got, tt.want)
+		if got := CycleReasoningEffort(tt.in, tt.supported); got != tt.want {
+			t.Errorf("CycleReasoningEffort(%q, %v) = %q, want %q", tt.in, tt.supported, got, tt.want)
 		}
 	}
 }
@@ -138,12 +148,58 @@ func TestReasoningEffortLabel(t *testing.T) {
 		{"low", "Low"},
 		{"medium", "Medium"},
 		{" HIGH ", "High"},
-		{"xhigh", "xhigh"},
+		{"none", "None"},
+		{"minimal", "Minimal"},
+		{"xhigh", "Extra high"},
+		{"max", "Max"},
+		{"banana", "banana"}, // unknown values pass through
 	}
 	for _, tt := range tests {
 		if got := ReasoningEffortLabel(tt.in); got != tt.want {
 			t.Errorf("ReasoningEffortLabel(%q) = %q, want %q", tt.in, got, tt.want)
 		}
+	}
+}
+
+func TestValidReasoningEffort(t *testing.T) {
+	efforts := []string{"low", "high", "max"}
+	if !ValidReasoningEffort("max", efforts) || !ValidReasoningEffort(" MAX ", efforts) {
+		t.Fatal("max should be valid for the model")
+	}
+	if ValidReasoningEffort("xhigh", efforts) {
+		t.Fatal("xhigh should be rejected when the model does not list it")
+	}
+	if ValidReasoningEffort("xhigh", nil) {
+		t.Fatal("xhigh is outside the default set")
+	}
+	if !ValidReasoningEffort("low", nil) || !ValidReasoningEffort(" medium ", nil) {
+		t.Fatal("default set should accept low/medium/high")
+	}
+}
+
+func TestSetReasoningEffortFollowsModel(t *testing.T) {
+	cfg := sampleConfig()
+	p := cfg.Providers["deepseek"]
+	md := p.Models["deepseek-v4-flash"]
+	md.ReasoningEfforts = []string{"low", "high", "max"}
+	p.Models["deepseek-v4-flash"] = md
+	cfg.Providers["deepseek"] = p
+
+	if err := cfg.SetReasoningEffort("deepseek", "deepseek-v4-flash", "max"); err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.ActiveReasoningEffort(); got != "max" {
+		t.Fatalf("active effort = %q", got)
+	}
+	if err := cfg.SetReasoningEffort("deepseek", "deepseek-v4-flash", "medium"); err == nil {
+		t.Fatal("expected error for effort outside the model's catalog list")
+	}
+	if got := cfg.ActiveReasoningEffort(); got != "max" {
+		t.Fatalf("rejected set must not change effort: %q", got)
+	}
+	ch, ok := cfg.ActiveChoice()
+	if !ok || len(ch.Efforts) != 3 {
+		t.Fatalf("ActiveChoice efforts = %#v", ch)
 	}
 }
 
@@ -276,6 +332,38 @@ func TestSaveRoundTrip(t *testing.T) {
 	}
 	if strings.Contains(s, `"id":`) {
 		t.Fatalf("provider id should be the map key, not a field: %s", data)
+	}
+	// Defaults is a struct: omitempty would still emit "defaults": {}, so the
+	// tag must be omitzero. Only Build set means the whole block is present.
+	if strings.Contains(s, `"defaults"`) {
+		t.Fatalf("zero defaults should be omitted: %s", data)
+	}
+}
+
+func TestSaveDefaultsOmittedUntilSet(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("ZETA_HOME", dir)
+
+	cfg := sampleConfig()
+	cfg.SetBuildDefault("deepseek/deepseek-chat")
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"defaults"`) ||
+		!strings.Contains(string(data), `"build": "deepseek/deepseek-chat"`) {
+		t.Fatalf("set defaults should marshal: %s", data)
+	}
+
+	loaded, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Defaults.Build != "deepseek/deepseek-chat" {
+		t.Fatalf("round-trip build = %q", loaded.Defaults.Build)
 	}
 }
 
@@ -589,10 +677,15 @@ func TestConnectPresetNotCustom(t *testing.T) {
 func TestPresetsFromModels(t *testing.T) {
 	in := []models.Preset{{
 		ID: "x", Name: "X", BaseURL: "https://x/v1", DefaultModel: "m",
-		Models: map[string]models.ModelInfo{"m": {Name: "M", ContextWindow: 8_000}},
+		Models: map[string]models.ModelInfo{
+			"m": {Name: "M", ContextWindow: 8_000, ReasoningEfforts: []string{"low", "high", "max"}},
+		},
 	}}
 	out := PresetsFromModels(in)
 	if len(out) != 1 || out[0].ID != "x" || out[0].Models["m"].ContextWindow != 8_000 {
 		t.Fatalf("%#v", out)
+	}
+	if got := out[0].Models["m"].ReasoningEfforts; len(got) != 3 || got[2] != "max" {
+		t.Fatalf("reasoning efforts = %#v", got)
 	}
 }

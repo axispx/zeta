@@ -22,7 +22,11 @@ func PresetsFromModels(in []models.Preset) []Preset {
 	for i, p := range in {
 		mds := make(map[string]ModelDef, len(p.Models))
 		for id, m := range p.Models {
-			mds[id] = ModelDef{Name: m.Name, ContextWindow: m.ContextWindow}
+			mds[id] = ModelDef{
+				Name:             m.Name,
+				ContextWindow:    m.ContextWindow,
+				ReasoningEfforts: m.ReasoningEfforts,
+			}
 		}
 		out[i] = Preset{
 			ID:           p.ID,

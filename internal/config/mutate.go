@@ -152,17 +152,19 @@ func (c *Config) SetModelEnabled(providerID, modelID string, enabled bool) error
 	return nil
 }
 
-// SetReasoningEffort stores low/medium/high on a model. Empty clears it
-// (provider default). Does not Save.
+// SetReasoningEffort stores a reasoning_effort value on a model, validating it
+// against the model's catalog-supported values. Empty clears it (provider
+// default). Does not Save.
 func (c *Config) SetReasoningEffort(providerID, modelID, effort string) error {
 	effort = strings.ToLower(strings.TrimSpace(effort))
-	if effort != "" && !validReasoningEffort(effort) {
-		return fmt.Errorf("reasoning_effort must be low, medium, or high")
-	}
 	return c.withProvider(providerID, func(p *Provider) error {
 		md, ok := p.Models[modelID]
 		if !ok {
 			return fmt.Errorf("model %q not in provider %q", modelID, providerID)
+		}
+		if effort != "" && !ValidReasoningEffort(effort, md.ReasoningEfforts) {
+			return fmt.Errorf("reasoning_effort %q not supported by %s (try %s)",
+				effort, modelID, strings.Join(md.EffortChoices(), ", "))
 		}
 		md.ReasoningEffort = effort
 		p.Models[modelID] = md

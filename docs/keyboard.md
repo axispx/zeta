@@ -10,7 +10,7 @@
 | `Shift+Tab`                            | Cycle mode (build → ask → plan)             |
 | `Shift+Enter` / `Ctrl+J` / `Alt+Enter` | Newline                                     |
 | `@`                                    | File mention picker (gitignore-aware; Tab/Enter insert) |
-| `Tab` (in `/model`)                    | Cycle reasoning (Low → Medium → High)       |
+| `Tab` (in `/model`)                    | Cycle the model's reasoning levels (off → its supported values) |
 | `Esc`                                  | Cancel edit / leave queue / cancel turn (queue kept); denies an open permission prompt |
 | `Ctrl+C`                               | Leave edit/focus → interrupt → clear queue → quit |
 | Mouse / `PgUp` / `PgDn`                | Scroll                                      |

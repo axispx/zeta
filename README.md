@@ -49,7 +49,7 @@ Type `/` for autocomplete.
 | `/compact` | Summarize older context now                      |
 | `/usage`   | Session token totals, by model (input, output, cached) |
 | `/resume`  | Open a previous session                          |
-| `/model`   | Switch model; Tab cycles reasoning (Low / Medium / High) |
+| `/model`   | Switch model; Tab cycles the model's reasoning levels (off → its supported values) |
 | `/config`  | Manage providers and models                      |
 | `/update`  | Update to the latest release, restarting zeta   |
 | `/review`  | Strict code-quality review of the current branch |

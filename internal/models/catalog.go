@@ -42,11 +42,20 @@ type Provider struct {
 
 // Model is one models.dev model entry (fields we use).
 type Model struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
-	Status   string `json:"status"`
-	ToolCall bool   `json:"tool_call"`
-	Limit    Limit  `json:"limit"`
+	ID               string            `json:"id"`
+	Name             string            `json:"name"`
+	Status           string            `json:"status"`
+	ToolCall         bool              `json:"tool_call"`
+	ReasoningOptions []ReasoningOption `json:"reasoning_options"`
+	Limit            Limit             `json:"limit"`
+}
+
+// ReasoningOption is one models.dev reasoning_options entry. Only effort
+// options are used: they list the reasoning_effort values a model accepts.
+// Values can contain null, hence the pointer slice.
+type ReasoningOption struct {
+	Type   string    `json:"type"`
+	Values []*string `json:"values"`
 }
 
 // Limit is token limits for a model.
@@ -58,6 +67,9 @@ type Limit struct {
 type ModelInfo struct {
 	Name          string
 	ContextWindow int
+	// ReasoningEfforts are the reasoning_effort values the model accepts.
+	// Empty means the catalog listed none; callers fall back to a default set.
+	ReasoningEfforts []string
 }
 
 // Preset is an OpenAI-compatible provider template from the catalog.
@@ -231,6 +243,35 @@ func providerAPI(p Provider) string {
 	return ""
 }
 
+// effortValues returns the reasoning_effort values a catalog model accepts,
+// read from its first effort-typed reasoning_options entry. nil when the
+// catalog lists no effort option (toggle-only models, non-reasoning models).
+func effortValues(m Model) []string {
+	for _, opt := range m.ReasoningOptions {
+		if opt.Type != "effort" {
+			continue
+		}
+		out := make([]string, 0, len(opt.Values))
+		seen := map[string]bool{}
+		for _, v := range opt.Values {
+			if v == nil {
+				continue
+			}
+			val := strings.TrimSpace(*v)
+			if val == "" || seen[val] {
+				continue
+			}
+			seen[val] = true
+			out = append(out, val)
+		}
+		if len(out) == 0 {
+			return nil
+		}
+		return out
+	}
+	return nil
+}
+
 func toPreset(p Provider) (Preset, bool) {
 	base := providerAPI(p)
 	if base == "" {
@@ -256,7 +297,7 @@ func toPreset(p Provider) (Preset, bool) {
 		if name == "" {
 			name = id
 		}
-		models[id] = ModelInfo{Name: name, ContextWindow: ctx}
+		models[id] = ModelInfo{Name: name, ContextWindow: ctx, ReasoningEfforts: effortValues(m)}
 		if defaultModel == "" {
 			defaultModel = id
 		}

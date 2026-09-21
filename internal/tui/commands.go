@@ -405,8 +405,8 @@ func (m *Model) selectModel() {
 	m.refreshTranscript()
 }
 
-// cycleModelReasoning walks the highlighted /model row's effort:
-// default → low → medium → high → default. Persists immediately.
+// cycleModelReasoning walks the highlighted /model row's effort over the
+// values that model accepts: off → first → … → last → off. Persists immediately.
 func (m *Model) cycleModelReasoning() {
 	if m.overlay.mode != overlayModels {
 		return
@@ -416,7 +416,7 @@ func (m *Model) cycleModelReasoning() {
 		return
 	}
 	choice := visible[m.overlay.selected]
-	next := config.CycleReasoningEffort(choice.Effort)
+	next := config.CycleReasoningEffort(choice.Effort, choice.Efforts)
 	prev := choice.Effort
 	if err := m.session.Cfg.SetReasoningEffort(choice.ProviderID, choice.ModelID, next); err != nil {
 		m.transcript.messages = append(m.transcript.messages, Message{Role: RoleError, Text: err.Error()})

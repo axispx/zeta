@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 )
@@ -167,6 +168,45 @@ func TestNormalizeAndFilter(t *testing.T) {
 		}
 	}
 }
+
+func TestReasoningEffortValues(t *testing.T) {
+	cat := map[string]Provider{
+		"deepseek": {
+			ID: "deepseek", Name: "DeepSeek", API: "https://api.deepseek.com",
+			NPM: "@ai-sdk/openai-compatible",
+			Models: map[string]Model{
+				// effort list, plus a null value the catalog sometimes carries
+				"v4": {Name: "V4", Limit: Limit{Context: 100_000},
+					ReasoningOptions: []ReasoningOption{
+						{Type: "toggle"},
+						{Type: "effort", Values: []*string{strPtr("low"), nil, strPtr("high"), strPtr("max")}},
+					}},
+				// toggle only, then budget only: no effort list
+				"toggle": {Name: "Toggle", Limit: Limit{Context: 100_000},
+					ReasoningOptions: []ReasoningOption{{Type: "toggle"}}},
+				"budget": {Name: "Budget", Limit: Limit{Context: 100_000},
+					ReasoningOptions: []ReasoningOption{{Type: "budget_tokens"}}},
+				"plain": {Name: "Plain", Limit: Limit{Context: 100_000}},
+			},
+		},
+	}
+	presets := presetsFromCatalog(cat)
+	if len(presets) != 1 {
+		t.Fatalf("presets = %#v", presets)
+	}
+	mds := presets[0].Models
+	want := []string{"low", "high", "max"}
+	if got := mds["v4"].ReasoningEfforts; !slices.Equal(got, want) {
+		t.Fatalf("v4 efforts = %#v, want %#v", got, want)
+	}
+	for _, id := range []string{"toggle", "budget", "plain"} {
+		if got := mds[id].ReasoningEfforts; len(got) != 0 {
+			t.Fatalf("%s efforts = %#v, want none", id, got)
+		}
+	}
+}
+
+func strPtr(s string) *string { return &s }
 
 func TestBaseURLRequiresAPI(t *testing.T) {
 	cat := map[string]Provider{

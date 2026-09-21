@@ -8,7 +8,7 @@ In `/config`:
 - **Providers** — add a catalog provider (API key, then enable models; `Ctrl+A` toggles all)
 - **Custom** — your own OpenAI-compatible endpoint
 
-Optional: set a preferred build model after plan approve with `"defaults": { "build": "provider/model" }` in the config file. Per-model `reasoning_effort` (`low` / `medium` / `high`) is set from `/model` with Tab.
+Optional: set a preferred build model after plan approve with `"defaults": { "build": "provider/model" }` in the config file. Per-model `reasoning_effort` is set from `/model` with Tab, which cycles that model's supported levels (from models.dev; e.g. `low`/`medium`/`high`/`xhigh`/`max`, or a model's shorter list). Models with no catalog effort data fall back to `low`/`medium`/`high`.
 
 Example shape (prefer the UI over hand-editing):
 
@@ -21,7 +21,12 @@ Example shape (prefer the UI over hand-editing):
       "base_url": "https://api.deepseek.com/v1",
       "api_key": "sk-...",
       "models": {
-        "deepseek-v4-flash": { "name": "V4 Flash", "context_window": 1000000, "reasoning_effort": "medium" }
+        "deepseek-v4-flash": {
+          "name": "V4 Flash",
+          "context_window": 1000000,
+          "reasoning_efforts": ["low", "high", "max"],
+          "reasoning_effort": "high"
+        }
       }
     }
   }

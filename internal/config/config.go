@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -16,7 +17,8 @@ type Config struct {
 	Active    string              `json:"active"` // provider/model eg: openai/gpt-5.6-luna
 	Providers map[string]Provider `json:"providers"`
 	// Defaults remembers preferred models (e.g. small build after plan approve).
-	Defaults ModeDefaults `json:"defaults,omitempty"`
+	// omitzero, not omitempty: omitempty never omits a struct.
+	Defaults ModeDefaults `json:"defaults,omitzero"`
 }
 
 // ModeDefaults holds optional preferred model ids (provider/model).
@@ -53,11 +55,21 @@ type Provider struct {
 type ModelDef struct {
 	Name          string `json:"name,omitempty"` // display label; defaults to map key
 	ContextWindow int    `json:"context_window"` // required; tokens the model can hold
+	// ReasoningEfforts are the reasoning_effort values this model accepts, from
+	// the models.dev catalog. Empty means unknown: EffortChoices falls back to
+	// defaultReasoningEfforts.
+	ReasoningEfforts []string `json:"reasoning_efforts,omitempty"`
 	// ReasoningEffort is sent as reasoning_effort (e.g. "low"/"medium"/"high").
 	// Empty means omit (provider default).
 	ReasoningEffort string `json:"reasoning_effort,omitempty"`
 	// Disabled keeps the model listed but excludes it from /model and Active.
 	Disabled bool `json:"disabled,omitempty"`
+}
+
+// EffortChoices is the reasoning_effort values this model accepts, with the
+// default set substituted when the catalog listed none.
+func (m ModelDef) EffortChoices() []string {
+	return normalizeEfforts(m.ReasoningEfforts)
 }
 
 // Enabled reports whether the model is selectable.
@@ -101,55 +113,92 @@ func (p Provider) ModelIDs() []string {
 	return ids
 }
 
-// reasoningEfforts are the levels /model can cycle. Empty omits the field
-// (provider default). Unknown values (e.g. hand-edited "xhigh") still send.
-var reasoningEfforts = []string{"low", "medium", "high"}
+// defaultReasoningEfforts is the effort cycle for models whose catalog entry
+// lists none. Empty omits the field (provider default).
+var defaultReasoningEfforts = []string{"low", "medium", "high"}
 
-// CycleReasoningEffort walks default → low → medium → high → default.
-func CycleReasoningEffort(current string) string {
+// effortLabels is the display form of the reasoning_effort vocabulary.
+var effortLabels = map[string]string{
+	"none":    "None",
+	"minimal": "Minimal",
+	"low":     "Low",
+	"medium":  "Medium",
+	"high":    "High",
+	"xhigh":   "Extra high",
+	"max":     "Max",
+}
+
+// normalizeEfforts trims, lowercases and dedupes catalog effort values in
+// order, falling back to defaultReasoningEfforts when nothing usable remains.
+// The result is always shared, so callers must not mutate it.
+func normalizeEfforts(in []string) []string {
+	if len(in) == 0 {
+		return defaultReasoningEfforts
+	}
+	out := make([]string, 0, len(in))
+	seen := map[string]bool{}
+	for _, e := range in {
+		e = strings.ToLower(strings.TrimSpace(e))
+		if e == "" || seen[e] {
+			continue
+		}
+		seen[e] = true
+		out = append(out, e)
+	}
+	if len(out) == 0 {
+		return defaultReasoningEfforts
+	}
+	return out
+}
+
+// CycleReasoningEffort walks off → first supported → … → last supported → off.
+// supported is the model's catalog effort list; empty falls back to the
+// default low/medium/high. An unrecognized current value resets to the start.
+func CycleReasoningEffort(current string, supported []string) string {
+	efforts := normalizeEfforts(supported)
 	cur := strings.ToLower(strings.TrimSpace(current))
 	if cur == "" {
-		return reasoningEfforts[0]
+		return efforts[0]
 	}
-	for i, e := range reasoningEfforts {
+	for i, e := range efforts {
 		if e == cur {
-			if i+1 == len(reasoningEfforts) {
+			if i+1 == len(efforts) {
 				return ""
 			}
-			return reasoningEfforts[i+1]
+			return efforts[i+1]
 		}
 	}
-	return reasoningEfforts[0]
+	return efforts[0]
 }
 
 // ReasoningEffortLabel is the display form of a reasoning_effort value:
-// "Low", "Medium", or "High". Empty and unknown values pass through unchanged.
+// Values outside the known vocabulary pass through.
 func ReasoningEffortLabel(s string) string {
 	s = strings.TrimSpace(s)
 	if s == "" {
 		return ""
 	}
-	if !validReasoningEffort(strings.ToLower(s)) {
-		return s
+	if label, ok := effortLabels[strings.ToLower(s)]; ok {
+		return label
 	}
-	return strings.ToUpper(s[:1]) + strings.ToLower(s[1:])
+	return s
 }
 
-func validReasoningEffort(s string) bool {
-	for _, e := range reasoningEfforts {
-		if e == s {
-			return true
-		}
-	}
-	return false
+// ValidReasoningEffort reports whether effort is one the model accepts.
+// supported is the model's catalog effort list; empty falls back to the
+// default low/medium/high.
+func ValidReasoningEffort(effort string, supported []string) bool {
+	e := strings.ToLower(strings.TrimSpace(effort))
+	return slices.Contains(normalizeEfforts(supported), e)
 }
 
 // ModelChoice is one selectable provider+model pair.
 type ModelChoice struct {
 	ProviderID string
 	ModelID    string
-	Name       string // display: "DeepSeek V4 Flash"
-	Effort     string // reasoning_effort; empty = provider default
+	Name       string   // display: "DeepSeek V4 Flash"
+	Effort     string   // reasoning_effort; empty = provider default
+	Efforts    []string // reasoning_effort values the model accepts
 }
 
 // ID returns the provider_id/model_id.
@@ -344,6 +393,7 @@ func (c Config) ActiveChoice() (ModelChoice, bool) {
 		ModelID:    modelID,
 		Name:       choiceName(p, provider, modelID),
 		Effort:     strings.TrimSpace(p.Models[modelID].ReasoningEffort),
+		Efforts:    p.Models[modelID].EffortChoices(),
 	}, true
 }
 
@@ -379,6 +429,7 @@ func (c Config) ModelChoices() []ModelChoice {
 				ModelID:    id,
 				Name:       choiceName(p, pid, id),
 				Effort:     strings.TrimSpace(p.Models[id].ReasoningEffort),
+				Efforts:    p.Models[id].EffortChoices(),
 			})
 		}
 	}
