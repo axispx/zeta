@@ -53,25 +53,59 @@ func transcriptAt(w int, rows []Message) Model {
 	return m
 }
 
+// overflowRows is the adversarial companion to wrapRows: one row per transcript
+// kind, each mixing prose, an unbreakable token, and a width-hostile construct.
+// Rows render through different styles (user padding, glamour, diff colouring,
+// plan framing), so each is a separate way to miss the wrap width.
+func overflowRows() []Message {
+	long := "https://example.com/very/long/url/that/never/breaks/anywhere/at/all?q=1&r=2"
+	return []Message{
+		{Role: RoleUser, Text: strings.Repeat("word ", 40) + long},
+		{Role: RoleAgent, Text: "Prose " + strings.Repeat("word ", 30) +
+			"\n\n- " + strings.Repeat("x", 300) + "\n\n`" + strings.Repeat("y", 200) + "`"},
+		{Role: RoleAgent, Text: "| a | b |\n|---|---|\n| " + strings.Repeat("cell ", 40) + " | z |\n"},
+		{Role: RoleAgent, Text: "## Plan\n\n- do this\n\n```go\n" + strings.Repeat("fmt.Println(\"x\")", 20) + "\n```"},
+		{Role: RoleTool, Tool: tools.Bash, Text: "bash " + strings.Repeat("z", 120), Out: "ok"},
+		{Role: RoleError, Text: strings.Repeat("boom ", 60)},
+		{Role: RoleSystem, Text: strings.Repeat("sys ", 60)},
+	}
+}
+
 // TestTranscriptRowsDoNotSoftWrap is the end-to-end guard: no transcript line
-// may exceed contentW, so the viewport never has to wrap one, so its display
-// rows equal its lines. Every extra display row is a blank row under a
-// transcript line.
+// may exceed contentW, so the viewport never has to wrap or cut one, so its
+// display rows equal its content lines and drag selection (which re-derives
+// rows with wrapContentLines) addresses the same cells the user sees.
 func TestTranscriptRowsDoNotSoftWrap(t *testing.T) {
-	for w := 20; w <= 160; w++ {
-		m := transcriptAt(w, wrapRows())
-		content := m.transcript.viewport.GetContent()
-		cw := m.transcript.contentW
-		for _, line := range strings.Split(content, "\n") {
-			if got := ansi.StringWidth(line); got > cw {
-				t.Fatalf("terminal width %d (contentW %d): transcript line is %d cells: %q",
-					w, cw, got, stripANSI(line))
+	fixtures := map[string][]Message{"tool-run": wrapRows(), "overflow": overflowRows()}
+	for name, rows := range fixtures {
+		for live := range 2 {
+			for w := 20; w <= 160; w++ {
+				m := transcriptAt(w, rows)
+				if live == 1 {
+					m.turn.current = &turnSession{
+						cancel: func() {}, activeTool: -1,
+						streaming: true,
+						thinking:  strings.Repeat("thinking about ", 20) + "x",
+					}
+					m.transcript.messages = append(m.transcript.messages, Message{
+						Role: RoleAgent, Text: "live " + strings.Repeat("tok ", 30),
+					})
+					m.refreshTranscript()
+				}
+				content := m.transcript.viewport.GetContent()
+				cw := m.transcript.contentW
+				for _, line := range strings.Split(content, "\n") {
+					if got := ansi.StringWidth(line); got > cw {
+						t.Fatalf("%s (live=%d) width %d (contentW %d): transcript line is %d cells: %q",
+							name, live, w, cw, got, stripANSI(line))
+					}
+				}
+				lines := strings.Count(content, "\n") + 1
+				if got := m.transcript.viewport.TotalLineCount(); got != lines {
+					t.Fatalf("%s (live=%d) terminal width %d (contentW %d): %d content lines render as %d display rows",
+						name, live, w, cw, lines, got)
+				}
 			}
-		}
-		lines := strings.Count(content, "\n") + 1
-		if got := m.transcript.viewport.TotalLineCount(); got != lines {
-			t.Fatalf("terminal width %d (contentW %d): %d content lines render as %d display rows",
-				w, cw, lines, got)
 		}
 	}
 }

@@ -69,6 +69,8 @@ func (t *transcript) invalidate() {
 }
 
 // setContent paints the viewport: cached prefix + fresh tail + thinking.
+// Rows are wrapped here, with the rules drag selection extracts by, because the
+// viewport does not soft-wrap (see newTranscriptViewport).
 // Stick-to-bottom only when already at the bottom so stream paints don't yank
 // the user back down after they scroll up (pgup / mouse wheel).
 func (t *transcript) setContent(chrome styles.Chrome, turn *turnSession) {
@@ -79,7 +81,11 @@ func (t *transcript) setContent(chrome styles.Chrome, turn *turnSession) {
 	if turn != nil && turn.thinking != "" {
 		writeThinkingTail(&b, turn.thinking, t.contentW)
 	}
-	t.viewport.SetContent(b.String())
+	if t.contentW > 0 {
+		t.viewport.SetContentLines(wrapContentLines(b.String(), t.contentW))
+	} else {
+		t.viewport.SetContent(b.String())
+	}
 	t.invalidateMainView()
 	if atBottom {
 		t.viewport.GotoBottom()
@@ -255,7 +261,8 @@ func writeThinkingTail(b *strings.Builder, text string, width int) {
 }
 
 // mainViewCache holds the last painted transcript chrome so no-op frames
-// (rejected edge wheels, spinner-only ticks with unchanged offset) skip SoftWrap.
+// (rejected edge wheels, spinner-only ticks with unchanged offset) skip the
+// viewport's per-line walk.
 type mainViewCache struct {
 	text string
 	key  mainViewKey
@@ -296,8 +303,8 @@ func (t transcript) mainViewKey(sel transcriptSel) mainViewKey {
 
 // rejectEdgeScroll drops wheel events that cannot move the transcript.
 // Trackpad momentum keeps emitting past the edge; without this each tick still
-// runs Update→View (SoftWrap walk) and reverse scrolls feel stuck until the
-// backlog drains.
+// runs Update→View (a full viewport walk) and reverse scrolls feel stuck until
+// the backlog drains.
 func (t *transcript) rejectEdgeScroll(msg tea.MouseWheelMsg) bool {
 	switch msg.Button {
 	case tea.MouseWheelUp:

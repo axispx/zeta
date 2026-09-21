@@ -94,10 +94,13 @@ func newTranscriptViewport() viewport.Model {
 	vp := viewport.New()
 	vp.MouseWheelEnabled = true
 	vp.MouseWheelDelta = 5 // bubbles default is 3
-	// SoftWrap: overflow lines become extra display rows (not truncated). Required so
-	// YOffset/TotalLineCount and drag selection share one display-line space with
-	// wrapContentLines (scrollbar + select both count wrapped rows).
-	vp.SoftWrap = true
+	// SoftWrap stays off: setContent pre-wraps rows with wrapContentLines, the same
+	// helper drag selection extracts with, so viewport display rows, TotalLineCount,
+	// and selection lines are one list. Leaving SoftWrap on made the viewport
+	// recompute ansi.StringWidth for every line on every paint (calculateLine, which
+	// every SetContent/AtBottom/GotoBottom/View/TotalLineCount call walks), and that
+	// walk — not our rendering — dominated streaming repaints on long sessions.
+	vp.SoftWrap = false
 	// Keep only pgup/pgdn — default keymap also binds j/k/f/space/b/u/d/h/l,
 	// which steals those chars from the input and scrolls the transcript.
 	vp.KeyMap = viewport.KeyMap{
