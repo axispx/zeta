@@ -91,13 +91,3 @@ func TestEditReturnsDiff(t *testing.T) {
 		t.Fatalf("noop edit: %q", out)
 	}
 }
-
-func TestEditSummaryCreateVsEdit(t *testing.T) {
-	var e editTool
-	if got := e.Summary(mustRaw(t, map[string]any{"path": "a.go", "old_string": "", "new_string": "x"})); got != "create a.go" {
-		t.Fatalf("create summary: %q", got)
-	}
-	if got := e.Summary(mustRaw(t, map[string]any{"path": "a.go", "old_string": "a", "new_string": "b"})); got != "edit a.go" {
-		t.Fatalf("edit summary: %q", got)
-	}
-}

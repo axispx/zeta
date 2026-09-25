@@ -21,43 +21,32 @@ func TestSupports(t *testing.T) {
 	}
 }
 
-func TestTokenRequestPendingErrors(t *testing.T) {
+func TestTokenRequestErrors(t *testing.T) {
 	t.Parallel()
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": "authorization_pending"})
-	}))
-	t.Cleanup(srv.Close)
-
-	_, err := tokenRequest(context.Background(), srv.URL, url.Values{})
-	if !errors.Is(err, ErrAuthorizationPending) {
-		t.Fatalf("got %v", err)
+	cases := []struct {
+		name   string
+		status int
+		body   string
+		want   error
+	}{
+		{"pending", http.StatusOK, `{"error":"authorization_pending"}`, ErrAuthorizationPending},
+		{"slow down", http.StatusOK, `{"error":"slow_down"}`, ErrSlowDown},
+		{"invalid grant", http.StatusBadRequest, `{"error":"invalid_grant"}`, ErrInvalidGrant},
 	}
-}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(tc.status)
+				_, _ = io.WriteString(w, tc.body)
+			}))
+			t.Cleanup(srv.Close)
 
-func TestTokenRequestSlowDown(t *testing.T) {
-	t.Parallel()
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": "slow_down"})
-	}))
-	t.Cleanup(srv.Close)
-
-	_, err := tokenRequest(context.Background(), srv.URL, url.Values{})
-	if !errors.Is(err, ErrSlowDown) {
-		t.Fatalf("got %v", err)
-	}
-}
-
-func TestTokenRequestInvalidGrant(t *testing.T) {
-	t.Parallel()
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid_grant"})
-	}))
-	t.Cleanup(srv.Close)
-
-	_, err := tokenRequest(context.Background(), srv.URL, url.Values{})
-	if !errors.Is(err, ErrInvalidGrant) {
-		t.Fatalf("got %v", err)
+			_, err := tokenRequest(context.Background(), srv.URL, url.Values{})
+			if !errors.Is(err, tc.want) {
+				t.Fatalf("got %v, want %v", err, tc.want)
+			}
+		})
 	}
 }
 

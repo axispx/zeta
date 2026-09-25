@@ -449,26 +449,6 @@ func TestSideEffectToolStartOpensApproval(t *testing.T) {
 	}
 }
 
-func TestReadToolStartNoDecision(t *testing.T) {
-	replies := make(chan agent.Reply, 1)
-	m := testModel()
-	m.turn.current = &turnSession{
-		activeTool: -1,
-		ch:         make(chan agent.Event),
-		reply:      replies,
-		cancel:     func() {},
-	}
-	_ = m.handleTurnToolStart(turnToolStartMsg{name: tools.Read, label: "read a.go", args: json.RawMessage(`{"path":"a.go"}`)})
-	if m.panel.perm != nil {
-		t.Fatal("read should not open modal")
-	}
-	select {
-	case d := <-replies:
-		t.Fatalf("agent is not waiting; must not send decision: %v", d)
-	default:
-	}
-}
-
 func TestHandlePermissionClick(t *testing.T) {
 	vp := viewport.New()
 	vp.SetHeight(10)

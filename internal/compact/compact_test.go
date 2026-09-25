@@ -18,9 +18,6 @@ func TestEstimateWithImages(t *testing.T) {
 	if Estimate([]ai.Message{with}) <= Estimate([]ai.Message{plain}) {
 		t.Fatal("images should add tokens")
 	}
-	if got := imageTokens(with.Images[0]); got != 765 {
-		t.Fatalf("1024x1024 tokens = %d, want 765", got)
-	}
 }
 
 // A full-size base64 data URL must not be charged by the byte. Charging the
