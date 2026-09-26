@@ -37,9 +37,6 @@ type Message struct {
 	Tool   string     // tool name for RoleTool
 	Out    string     // live/final tool output (bash stdout / edit unified diff)
 	Status ToolStatus // RoleTool lifecycle; zero value is ToolRunning
-	// Note is a short annotation on a tool row (e.g. the AI pre-screen's
-	// "auto-approved …" line). Live-only; not persisted to the session.
-	Note string
 
 	// framePlan: Plan-mode ingest snapshot. Framing does not follow later mode
 	// switches. Raw Text still holds tags for API/JSONL; render splits only when true.

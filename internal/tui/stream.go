@@ -49,8 +49,7 @@ func (d turnDecider) Decide(ctx context.Context, _ harness.Request) (harness.Rep
 
 // turnSession is one in-flight agent turn (stream + tool loop).
 type turnSession struct {
-	id         int             // matches turn*Msg.id; drops late events after cancel/replace
-	ctx        context.Context // cancelled with the turn
+	id         int // matches turn*Msg.id; drops late events after cancel/replace
 	cancel     context.CancelFunc
 	ch         <-chan harness.Event
 	reply      chan<- harness.Reply // UI → loop; one decision per gated start
@@ -257,7 +256,6 @@ func startTurn(id int, client *ai.Client, sess *harness.Session) (*turnSession, 
 	ch := sess.Run(ctx, client, turnDecider{replies})
 	t := &turnSession{
 		id:         id,
-		ctx:        ctx,
 		cancel:     cancel,
 		ch:         ch,
 		reply:      replies,
