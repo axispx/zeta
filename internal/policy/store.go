@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 
 	"github.com/axispx/zeta/internal/paths"
 )
@@ -99,10 +100,8 @@ func Add(r Rule) (Policy, error) {
 	if err != nil {
 		return Policy{}, err
 	}
-	for _, existing := range p.Rules {
-		if existing == r {
-			return p, nil
-		}
+	if slices.Contains(p.Rules, r) {
+		return p, nil
 	}
 	p.Rules = append(p.Rules, r)
 	if err := Save(p); err != nil {

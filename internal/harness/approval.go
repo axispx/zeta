@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 
 	"github.com/axispx/zeta/internal/permission"
+	"github.com/axispx/zeta/internal/policy"
 	"github.com/axispx/zeta/internal/tools"
 )
 
@@ -19,10 +20,11 @@ type Approval struct {
 	Choices []permission.Decision
 }
 
-// ApprovalFor derives the approval view of a gated tool call.
-func ApprovalFor(root, name string, args json.RawMessage) Approval {
-	call := permission.CallFor(root, name, args)
-	env := permission.EnvFile(call.Match.Path)
+// ApprovalFor derives the approval view of a gated tool call against the live
+// policy, which decides which part of the call a persisted rule would cover.
+func ApprovalFor(plan policy.Policy, root, name string, args json.RawMessage) Approval {
+	call := permission.CallFor(plan, root, name, args)
+	env := policy.EnvFile(call.Match.Path)
 	return Approval{Call: call, Env: env, Choices: approvalChoices(name, call.Persist, env)}
 }
 

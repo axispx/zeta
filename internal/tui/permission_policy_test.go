@@ -2,6 +2,7 @@ package tui
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 
@@ -18,7 +19,7 @@ func TestPermOptionsOrderAndLabels(t *testing.T) {
 	root := t.TempDir()
 	labelsOf := func(tool string, args json.RawMessage) []string {
 		var labels []string
-		for _, o := range permOptions(tool, harness.ApprovalFor(root, tool, args)) {
+		for _, o := range permOptions(tool, harness.ApprovalFor(policy.Policy{}, root, tool, args)) {
 			labels = append(labels, o.label)
 		}
 		return labels
@@ -26,13 +27,18 @@ func TestPermOptionsOrderAndLabels(t *testing.T) {
 
 	// Row order is what the digit shortcuts select, so it is part of the contract.
 	labels := labelsOf(tools.Bash, bashArgs("go test"))
-	wantLabels := []string{"Allow once", "Always allow `go test`", "Allow for session", "Deny"}
+	wantLabels := []string{
+		"Yes, proceed",
+		"Yes, and don't ask again for commands that start with `go test`",
+		"Yes, and don't ask again for this command in this session",
+		"No, and tell zeta what to do differently",
+	}
 	if strings.Join(labels, "|") != strings.Join(wantLabels, "|") {
 		t.Fatalf("bash labels=%v want %v", labels, wantLabels)
 	}
 
 	// There is no persistent deny row.
-	for _, o := range permOptions(tools.Bash, harness.ApprovalFor(root, tools.Bash, bashArgs("go test"))) {
+	for _, o := range permOptions(tools.Bash, harness.ApprovalFor(policy.Policy{}, root, tools.Bash, bashArgs("go test"))) {
 		if strings.Contains(o.label, "deny ") {
 			t.Fatalf("no persistent deny row: %+v", o)
 		}
@@ -40,23 +46,23 @@ func TestPermOptionsOrderAndLabels(t *testing.T) {
 
 	// Without a derivable rule the persist row drops out.
 	labels = labelsOf(tools.Bash, json.RawMessage(`{}`))
-	if strings.Join(labels, "|") != "Allow once|Allow for session|Deny" {
+	if strings.Join(labels, "|") != "Yes, proceed|Yes, and don't ask again for this command in this session|No, and tell zeta what to do differently" {
 		t.Fatalf("bash no-persist labels=%v", labels)
 	}
 
 	// edit/write are allow/deny only — persist is deliberately ignored.
 	labels = labelsOf(tools.Edit, json.RawMessage(`{"path":"a.go"}`))
-	if strings.Join(labels, "|") != "Allow|Deny" {
+	if strings.Join(labels, "|") != "Yes, proceed|No, and tell zeta what to do differently" {
 		t.Fatalf("edit labels=%v", labels)
 	}
 
 	labels = labelsOf(tools.Read, json.RawMessage(`{"path":"../x.txt"}`))
-	if strings.Join(labels, "|") != "Allow once|Allow this directory for session|Deny" {
+	if strings.Join(labels, "|") != "Yes, proceed|Yes, and don't ask again for this directory in this session|No, and tell zeta what to do differently" {
 		t.Fatalf("read labels=%v", labels)
 	}
 
 	labels = labelsOf(tools.Read, json.RawMessage(`{"path":".env"}`))
-	if strings.Join(labels, "|") != "Allow|Always allow this file|Deny" {
+	if strings.Join(labels, "|") != "Yes, proceed|Yes, and don't ask again for this file|No, and tell zeta what to do differently" {
 		t.Fatalf("env read labels=%v", labels)
 	}
 }
@@ -89,12 +95,12 @@ func TestPromptPersistRows(t *testing.T) {
 
 	// bash with a command offers persist rows
 	p := newPermissionPrompt("bash go test", tools.Bash, "")
-	p.setArgs(bashArgs("go test"), root)
+	p.setArgs(policy.Policy{}, bashArgs("go test"), root)
 	if !p.appr.Call.Persist {
 		t.Fatal("bash with command should be persistable")
 	}
 	out := stripANSI(Model{term: term{width: 80}, panel: panel{perm: p}}.renderPermission(80))
-	if !strings.Contains(out, "Always allow `go test`") {
+	if !strings.Contains(out, "Yes, and don't ask again for commands that start with `go test`") {
 		t.Fatalf("missing always-allow row in %q", out)
 	}
 	if strings.Contains(out, "Always deny") {
@@ -104,9 +110,9 @@ func TestPromptPersistRows(t *testing.T) {
 	// in-tree edit is still once-only: no persist row even though the path is
 	// rememberable.
 	pe := newPermissionPrompt("edit a.go", tools.Edit, "a.go")
-	pe.setArgs(json.RawMessage(`{"path":"a.go"}`), root)
+	pe.setArgs(policy.Policy{}, json.RawMessage(`{"path":"a.go"}`), root)
 	out = stripANSI(Model{term: term{width: 80}, panel: panel{perm: pe}}.renderPermission(80))
-	if strings.Contains(out, "Always") {
+	if strings.Contains(out, "don't ask again") {
 		t.Fatalf("edit must not offer a persist row: %q", out)
 	}
 }
@@ -114,52 +120,72 @@ func TestPromptPersistRows(t *testing.T) {
 func TestPromptNoPersistOutOfWorkspace(t *testing.T) {
 	root := t.TempDir()
 	p := newPermissionPrompt("edit ../x.txt", tools.Edit, "../x.txt")
-	p.setArgs(json.RawMessage(`{"path":"../x.txt"}`), root)
+	p.setArgs(policy.Policy{}, json.RawMessage(`{"path":"../x.txt"}`), root)
 	if p.appr.Call.Persist {
 		t.Fatal("out-of-workspace edit must not be persistable")
 	}
 	out := stripANSI(Model{term: term{width: 80}, panel: panel{perm: p}}.renderPermission(80))
-	if strings.Contains(out, "Always") {
+	if strings.Contains(out, "don't ask again") {
 		t.Fatalf("out-of-workspace prompt must not offer persist: %q", out)
 	}
 
 	pr := newPermissionPrompt("read ../x.txt", tools.Read, "../x.txt")
-	pr.setArgs(json.RawMessage(`{"path":"../x.txt"}`), root)
+	pr.setArgs(policy.Policy{}, json.RawMessage(`{"path":"../x.txt"}`), root)
 	if pr.appr.Call.Persist || !pr.appr.Call.Outside {
 		t.Fatalf("out-of-workspace read: persist=%v outside=%v", pr.appr.Call.Persist, pr.appr.Call.Outside)
 	}
 	out = stripANSI(Model{term: term{width: 80}, panel: panel{perm: pr}}.renderPermission(80))
-	if strings.Contains(out, "Always") {
+	if strings.Contains(out, "don't ask again for this file") {
 		t.Fatalf("outside read must not offer persist: %q", out)
 	}
-	if !strings.Contains(out, "Allow this directory for session") {
+	if !strings.Contains(out, "Yes, and don't ask again for this directory in this session") {
 		t.Fatalf("outside read should offer directory session grant: %q", out)
 	}
 
 	// bash without a command is not persistable either
 	pb := newPermissionPrompt("bash", tools.Bash, "")
-	pb.setArgs(json.RawMessage(`{}`), root)
+	pb.setArgs(policy.Policy{}, json.RawMessage(`{}`), root)
 	if pb.appr.Call.Persist {
 		t.Fatal("bash with no command must not be persistable")
 	}
 }
 
-func TestPromptNoPersistChainedCommand(t *testing.T) {
+func TestPromptPersistChainedCommand(t *testing.T) {
 	root := t.TempDir()
-	p := newPermissionPrompt("bash go test && rm -rf /", tools.Bash, "")
-	p.setArgs(bashArgs("go test && rm -rf /"), root)
-	if p.appr.Call.Persist {
-		t.Fatal("chained command must not be rememberable")
+	// One rule, the first part that still needs a decision, named whole on the row.
+	p := newPermissionPrompt("bash cd src && go test ./...", tools.Bash, "")
+	p.setArgs(policy.Policy{}, bashArgs("cd src && go test ./..."), root)
+	if !p.appr.Call.Persist {
+		t.Fatal("a plain chain must be rememberable")
 	}
 	out := stripANSI(Model{term: term{width: 80}, panel: panel{perm: p}}.renderPermission(80))
-	if strings.Contains(out, "Always") {
-		t.Fatalf("chained command must not offer persist: %q", out)
+	if !strings.Contains(out, "Yes, and don't ask again for commands that start with `go test ./...`") {
+		t.Fatalf("missing remember row in %q", out)
 	}
-	// A flag-first command still remembers, but keeps the whole command (no broadening).
+	// The read-only `cd src` needs no rule, so the row never names it.
+	if row := stripANSI(p.list.render(60, Model{term: term{width: 80}}.term.chrome.OverlayInk())); strings.Contains(row, "cd src") {
+		t.Fatalf("row must not offer a rule for a read-only part: %q", row)
+	}
+	// A chain of read-only parts runs on its own: nothing to remember.
+	pr := newPermissionPrompt("bash cat go.mod && head -30 Makefile", tools.Bash, "")
+	pr.setArgs(policy.Policy{}, bashArgs("cat go.mod && head -30 Makefile"), root)
+	if pr.appr.Call.Persist {
+		t.Fatalf("read-only chain must not be rememberable: %+v", pr.appr.Call)
+	}
 	pf := newPermissionPrompt("bash rm -rf /", tools.Bash, "")
-	pf.setArgs(bashArgs("rm -rf /"), root)
+	pf.setArgs(policy.Policy{}, bashArgs("rm -rf /"), root)
 	if !pf.appr.Call.Persist || pf.appr.Call.Rule.CommandPrefix != "rm -rf /" {
 		t.Fatalf("flag-first rule: canPersist=%v rule=%+v", pf.appr.Call.Persist, pf.appr.Call.Rule)
+	}
+	// Syntax that cannot be split is one opaque command: no rule to write.
+	po := newPermissionPrompt("bash go test ./... > out", tools.Bash, "")
+	po.setArgs(policy.Policy{}, bashArgs("go test ./... > out"), root)
+	if po.appr.Call.Persist {
+		t.Fatalf("a redirect must not be rememberable: %+v", po.appr.Call)
+	}
+	out = stripANSI(Model{term: term{width: 80}, panel: panel{perm: po}}.renderPermission(80))
+	if strings.Contains(out, "commands that start with") || strings.Contains(out, "these commands") {
+		t.Fatalf("opaque command must not offer persist: %q", out)
 	}
 }
 
@@ -202,6 +228,57 @@ func TestPersistAllowWritesRuleAndSkipsSecondPrompt(t *testing.T) {
 	select {
 	case r := <-replies:
 		t.Fatalf("agent gate is false for allowed call; must not reply: %+v", r)
+	default:
+	}
+}
+
+func TestPersistAllowChainWritesEveryRule(t *testing.T) {
+	isolateZetaHome(t)
+	root := t.TempDir()
+	replies := make(chan harness.Reply, 1)
+	m := testModel()
+	m.session.WS = workspace.Context{Abs: root}
+	m.turn.current = &turnSession{activeTool: -1, ch: make(chan harness.Event), reply: replies, cancel: func() {}}
+
+	_ = m.handleTurnToolStart(turnToolStartMsg{name: tools.Bash, label: "bash npm install && go test", args: bashArgs("npm install && go test")})
+	if m.panel.perm == nil || !m.panel.perm.appr.Call.Persist {
+		t.Fatalf("expected a persistable prompt: %+v", m.panel.perm)
+	}
+	m.turn.current.activeTool = -1
+
+	pressPermRow(t, &m, permission.AllowAlways)
+	if r := <-replies; r.Kind != harness.ReplyRun {
+		t.Fatalf("always-allow should allow this call: %+v", r)
+	}
+	want := []policy.Rule{{Tool: tools.Bash, CommandPrefix: "npm install", Action: policy.ActionAllow}}
+	if !slices.Equal(m.session.Rules.Policy().Rules, want) {
+		t.Fatalf("rules: %+v", m.session.Rules.Policy())
+	}
+	loaded, err := policy.Load()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if !slices.Equal(loaded.Rules, want) {
+		t.Fatalf("persisted: %+v", loaded)
+	}
+
+	// Only `npm install` was remembered, so the other part still asks.
+	m.turn.current.activeTool = -1
+	_ = m.handleTurnToolStart(turnToolStartMsg{name: tools.Bash, label: "bash go test", args: bashArgs("go test")})
+	if m.panel.perm == nil {
+		t.Fatal("an unremembered part must still prompt")
+	}
+	m.panel.clear()
+
+	// The remembered part is covered: no panel, and no reply is owed.
+	m.turn.current.activeTool = -1
+	_ = m.handleTurnToolStart(turnToolStartMsg{name: tools.Bash, label: "bash npm install", args: bashArgs("npm install")})
+	if m.panel.perm != nil {
+		t.Fatal("the remembered part should not prompt again")
+	}
+	select {
+	case r := <-replies:
+		t.Fatalf("no prompt means no reply owed: %+v", r)
 	default:
 	}
 }
@@ -317,14 +394,14 @@ func TestEditPromptOnlyAllowAndDeny(t *testing.T) {
 		args   string
 		labels []string
 	}{
-		{"edit", tools.Edit, "a.go", `{"path":"a.go"}`, []string{"Allow", "Deny"}},
-		{"write", tools.Write, "a.go", `{"path":"a.go"}`, []string{"Allow", "Deny"}},
-		{"edit outside", tools.Edit, "../x.txt", `{"path":"../x.txt"}`, []string{"Allow", "Deny"}},
+		{"edit", tools.Edit, "a.go", `{"path":"a.go"}`, []string{"Yes, proceed", "No, and tell zeta what to do differently"}},
+		{"write", tools.Write, "a.go", `{"path":"a.go"}`, []string{"Yes, proceed", "No, and tell zeta what to do differently"}},
+		{"edit outside", tools.Edit, "../x.txt", `{"path":"../x.txt"}`, []string{"Yes, proceed", "No, and tell zeta what to do differently"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			p := newPermissionPrompt(tc.name, tc.tool, tc.path)
-			p.setArgs(json.RawMessage(tc.args), root)
+			p.setArgs(policy.Policy{}, json.RawMessage(tc.args), root)
 			var labels []string
 			for _, o := range p.opts {
 				if o.decide == permission.AllowSession {
@@ -336,10 +413,10 @@ func TestEditPromptOnlyAllowAndDeny(t *testing.T) {
 				t.Fatalf("labels=%v want %v", labels, tc.labels)
 			}
 			out := stripANSI(Model{term: term{width: 80}, panel: panel{perm: p}}.renderPermission(80))
-			if !strings.Contains(out, "Allow") || !strings.Contains(out, "Deny") {
+			if !strings.Contains(out, "Yes, proceed") || !strings.Contains(out, "No, and") {
 				t.Fatalf("prompt must offer allow and deny: %q", out)
 			}
-			if strings.Contains(out, "Always") {
+			if strings.Contains(out, "don't ask again") {
 				t.Fatalf("prompt must not offer an always-allow row: %q", out)
 			}
 			if strings.Contains(out, "session") {

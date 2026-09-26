@@ -2,7 +2,6 @@ package permission
 
 import (
 	"encoding/json"
-	"path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -18,8 +17,9 @@ type Call struct {
 	// Path is the workspace-relative edit/write/read target (empty when an
 	// edit/write escapes; outside reads use the absolute path so deny globs match).
 	Match policy.Match
-	// Rule is the allow rule an "always allow" decision persists; Persist reports
-	// whether it is usable (a simple bash command, an in-workspace edit/write file).
+	// Rule is the single allow rule an "always allow" decision persists — the one
+	// part of the call that still needed approval, or the target file. Persist
+	// reports whether there is one to write.
 	Rule    policy.Rule
 	Persist bool
 	// Outside reports a read/edit/write target that escapes the workspace (prompt mark).
@@ -29,16 +29,26 @@ type Call struct {
 	Dir string
 }
 
-// CallFor derives the permission view of a tool call.
-func CallFor(root, tool string, args json.RawMessage) Call {
+// CallFor derives the permission view of a tool call against the live policy.
+// The policy is needed because the rule an "always allow" writes is the part of
+// the call that is not already covered by it.
+func CallFor(plan policy.Policy, root, tool string, args json.RawMessage) Call {
 	c := Call{Match: policy.Match{Tool: tool}}
 	switch tool {
 	case tools.Bash:
 		command := tools.ArgCommand(args)
 		c.Match.Command = command
-		if prefix, ok := policy.DeriveCommandPrefix(command); ok {
-			c.Rule = policy.Rule{Tool: tools.Bash, CommandPrefix: prefix, Action: policy.ActionAllow}
+		// The rule an "always allow" writes: the prefix the model proposed when
+		// it is sound, otherwise the first part that still needs approval.
+		if rule, ok := plan.RememberRule(tools.Bash, command); ok {
+			c.Rule = rule
 			c.Persist = true
+		}
+		if prefix := tools.ArgPrefixRule(args); len(prefix) > 0 {
+			if rule, ok := plan.RequestedRule(tools.Bash, prefix, command); ok {
+				c.Rule = rule
+				c.Persist = true
+			}
 		}
 	case tools.Edit, tools.Write:
 		rel, outside := tools.EditTarget(root, tools.ArgPath(args))
@@ -57,7 +67,7 @@ func CallFor(root, tool string, args json.RawMessage) Call {
 			c.Dir = tools.ExternalDir(abs)
 		} else {
 			c.Match.Path = rel
-			if EnvFile(rel) && rel != "" {
+			if policy.EnvFile(rel) && rel != "" {
 				c.Rule = policy.Rule{Tool: tools.Read, Path: rel, Action: policy.ActionAllow}
 				c.Persist = true
 			}
@@ -68,20 +78,18 @@ func CallFor(root, tool string, args json.RawMessage) Call {
 
 // Classify decides whether a tool call runs (policy.Allow), asks (policy.Ask), or
 // is denied (policy.Deny). Order: a policy deny always wins (over a session grant
-// too); then a session class grant; then an outside-read directory grant; then a
-// policy allow; then tools that need no decision; otherwise ask.
+// too); then a session grant for this exact command; then an outside-read
+// directory grant; then a policy allow; then tools that need no decision;
+// otherwise ask.
 func Classify(rules *Rules, grants *Session, root, tool string, args json.RawMessage) policy.Outcome {
-	call := CallFor(root, tool, args)
-	outcome := policy.Ask
-	if pol := rules.Policy(); len(pol.Rules) > 0 {
-		outcome = pol.Evaluate(call.Match)
-	}
+	call := CallFor(rules.Policy(), root, tool, args)
+	outcome := rules.Policy().Evaluate(call.Match)
 	switch {
 	case outcome == policy.Deny:
 		return policy.Deny
-	case grants.Granted(tool):
+	case grants.CmdGranted(call.Match.Command):
 		return policy.Allow
-	case grants.DirGranted(call) && !EnvFile(call.Match.Path):
+	case grants.DirGranted(call) && !policy.EnvFile(call.Match.Path):
 		return policy.Allow
 	case outcome == policy.Allow:
 		return policy.Allow
@@ -103,20 +111,7 @@ func needsAsk(call Call) bool {
 	if call.Match.Tool != tools.Read {
 		return false
 	}
-	return call.Outside || EnvFile(call.Match.Path)
-}
-
-// EnvFile reports whether path is a dotenv secret (.env / .env.*, not
-// .env.example). path is '/' -separated (workspace-relative or absolute).
-func EnvFile(p string) bool {
-	base := path.Base(filepath.ToSlash(p))
-	if base == "" || base == "." || base == "/" || base == ".env.example" {
-		return false
-	}
-	if base == ".env" || strings.HasPrefix(base, ".env.") {
-		return true
-	}
-	return strings.HasSuffix(base, ".env")
+	return call.Outside || policy.EnvFile(call.Match.Path)
 }
 
 // SideEffect reports whether a tool always needs a human decision before running
@@ -129,7 +124,7 @@ func SideEffect(tool string) bool {
 
 // SessionGrantable reports whether "allow for session" is offered for this tool.
 // File mutations (edit/write) always require a per-call review. Outside reads
-// offer a directory-scoped session grant via GrantDir, not this class grant.
+// offer a directory-scoped session grant via GrantDir, not a command grant.
 func SessionGrantable(tool string) bool {
 	c, ok := ClassOf(tool)
 	return ok && c != ClassEdit
@@ -198,45 +193,39 @@ func (r *Rules) Replace(p policy.Policy) {
 	r.pol = p
 }
 
-// Session holds "allow for session" grants (harness-owned).
-// Only SessionGrantable tools can be stored in ok; edit/write are never granted.
-// dirs are cleaned absolute directories allowed for outside reads this session.
+// Session holds "allow for session" grants (harness-owned): the exact shell
+// commands the user approved for this session, and the directories allowed for
+// outside reads. A command grant is the command text as it was approved, so it
+// covers the call the prompt showed and nothing else — the session row must not
+// turn one approved command into a blanket shell approval.
 type Session struct {
 	mu   sync.Mutex
-	ok   map[Class]bool
+	cmds map[string]bool
 	dirs []string
 }
 
-// Granted reports whether the tool's class was previously allowed for the session.
-func (s *Session) Granted(tool string) bool {
-	if s == nil || !SessionGrantable(tool) {
-		return false
-	}
-	c, ok := ClassOf(tool)
-	if !ok {
+// CmdGranted reports whether this exact shell command was allowed for the session.
+func (s *Session) CmdGranted(command string) bool {
+	if s == nil || command == "" {
 		return false
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.ok[c]
+	return s.cmds[command]
 }
 
-// Grant allows the tool's class for the rest of the session when SessionGrantable.
-// No-op for edit/write and unknown tools.
-func (s *Session) Grant(tool string) {
-	if s == nil || !SessionGrantable(tool) {
-		return
-	}
-	c, ok := ClassOf(tool)
-	if !ok {
+// GrantCmd allows one exact shell command for the rest of the session. No-op for
+// an empty command.
+func (s *Session) GrantCmd(command string) {
+	if s == nil || command == "" {
 		return
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.ok == nil {
-		s.ok = map[Class]bool{}
+	if s.cmds == nil {
+		s.cmds = map[string]bool{}
 	}
-	s.ok[c] = true
+	s.cmds[command] = true
 }
 
 // GrantDir allows outside reads under dir for the rest of the session.

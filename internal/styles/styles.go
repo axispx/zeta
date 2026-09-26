@@ -186,6 +186,10 @@ type OverlayInk struct {
 	Header                 lipgloss.Style
 	Gap                    lipgloss.Style
 	Kbd, HintText          lipgloss.Style
+	// Warn marks a prompt payload that needs attention (a path outside the
+	// workspace). Panel fill is baked in like every other row style: a raw
+	// styles.OutsideWarn would paint its own background band across the panel.
+	Warn lipgloss.Style
 }
 
 // OverlayInk returns row styles with the input-panel fill baked in.
@@ -201,6 +205,7 @@ func (c Chrome) OverlayInk() OverlayInk {
 		Gap:          c.withPanelBG(lipgloss.NewStyle()),
 		Kbd:          c.withPanelBG(Kbd),
 		HintText:     c.withPanelBG(HintText),
+		Warn:         c.withPanelBG(OutsideWarn),
 	}
 }
 
@@ -217,6 +222,7 @@ func PlainOverlayInk() OverlayInk {
 		Gap:          lipgloss.NewStyle(),
 		Kbd:          Kbd,
 		HintText:     HintText,
+		Warn:         OutsideWarn,
 	}
 }
 

@@ -7,7 +7,7 @@ Use any OpenAI-compatible provider — OpenAI, xAI, DeepSeek, Kimi, and more, pl
 ## Features
 
 - **Build / Ask / Plan** — implement with tools, read-only Q&A, or plan first then approve into Build
-- **Permission prompts** — shell, file changes, and reads outside the workspace ask before running
+- **Permission prompts** — shell (read-only commands excepted), file changes, and reads outside the workspace ask before running
 - **Local sessions** — chat history stays on your machine; resume anytime with `/resume`
 - **Auto-compaction** — long chats summarize older context when the model window fills up
 - **Multi-provider** — API keys and models managed in-app with `/config`. Providers and models come from [models.dev](https://models.dev).

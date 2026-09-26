@@ -39,6 +39,17 @@ func ArgCommand(raw json.RawMessage) string {
 	return strings.TrimSpace(a.Command)
 }
 
+// ArgPrefixRule returns the "prefix_rule" JSON argument for bash, or nil. It is
+// the prefix the model proposed to remember; whether it may be offered is the
+// policy's decision (Policy.RequestedRule), not this accessor's.
+func ArgPrefixRule(raw json.RawMessage) []string {
+	var a struct {
+		PrefixRule []string `json:"prefix_rule"`
+	}
+	_ = json.Unmarshal(raw, &a)
+	return a.PrefixRule
+}
+
 // Env carries session-scoped tool dependencies the harness wires per turn.
 type Env struct {
 	Todos *todo.Store

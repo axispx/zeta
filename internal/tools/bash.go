@@ -48,6 +48,16 @@ func (bashTool) Parameters() map[string]any {
 				"type":        "integer",
 				"description": "Max runtime in milliseconds (optional, default 120000, max 600000)",
 			},
+			"prefix_rule": map[string]any{
+				"type": "array",
+				"items": map[string]any{
+					"type": "string",
+				},
+				"description": "Optional leading words of `command` that would be enough of a rule to cover it, " +
+					"for example [\"git\", \"pull\"]. Offered as a \"don't ask again\" choice only when it would cover " +
+					"every part of the command and is not a shell or interpreter; otherwise the choice falls back to " +
+					"the first part that needs approval. Omit it rather than guessing.",
+			},
 		},
 		"required": []string{"command"},
 	}

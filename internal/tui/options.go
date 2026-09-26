@@ -16,7 +16,10 @@ import (
 // answer does this).
 type optionRow struct {
 	label string
-	hint  string // description lines under the label
+	// tag is text appended straight after the label, in the label's own style —
+	// a key hint such as "(esc)". It is charged against the truncation budget.
+	tag  string
+	hint string // description lines under the label
 	// labelCursor marks label as the live freeform answer: the text scrolls
 	// from the left and carries a caret, like an input field.
 	labelCursor bool
@@ -189,7 +192,7 @@ func renderOptionRows(rows []optionRow, selected, contentW int, ink styles.Overl
 			room := contentW - inputPromptWidth - lipgloss.Width(prefix) - 1
 			label = prefix + truncateLeft(r.label, room) + optionCaret
 		}
-		b.WriteString(formatAccentRow(label, "", contentW, i == sel, false, ink))
+		b.WriteString(formatAccentRowTagged(label, r.tag, "", contentW, i == sel, false, ink))
 		for _, line := range optionHintLines(r, contentW) {
 			b.WriteByte('\n')
 			b.WriteString(ink.Hint.Width(contentW).Render(indent + line))
@@ -199,7 +202,9 @@ func renderOptionRows(rows []optionRow, selected, contentW int, ink styles.Overl
 }
 
 // optionHintLines wraps a row's hint into the unindented lines painted under its
-// label. Nil when no hint. Indentation is the renderer's business, so wrapped
+// label. Nil when no hint. A hint may be several lines — the always-allow row
+// lists one remembered rule per line — so each is wrapped on its own rather than
+// the block being reflowed. Indentation is the renderer's business, so wrapped
 // widths stay stable.
 func optionHintLines(r optionRow, contentW int) []string {
 	hint := strings.TrimSpace(r.hint)
@@ -207,10 +212,19 @@ func optionHintLines(r optionRow, contentW int) []string {
 		return nil
 	}
 	body := contentW - optionHintIndent
-	if body < 8 {
-		return []string{hint}
+	var out []string
+	for _, line := range strings.Split(hint, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if body < 8 {
+			out = append(out, line)
+			continue
+		}
+		out = append(out, strings.Split(wrapSimple(line, body), "\n")...)
 	}
-	return strings.Split(wrapSimple(hint, body), "\n")
+	return out
 }
 
 // labeledRows builds numbered rows ("1."… at render time) with optional

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/axispx/zeta/internal/permission"
@@ -13,6 +14,12 @@ import (
 
 func bashArgs(cmd string) json.RawMessage {
 	b, _ := json.Marshal(map[string]string{"command": cmd})
+	return b
+}
+
+// bashArgsWithPrefix is a bash call whose model proposed remembering prefix.
+func bashArgsWithPrefix(cmd string, prefix ...string) json.RawMessage {
+	b, _ := json.Marshal(map[string]any{"command": cmd, "prefix_rule": prefix})
 	return b
 }
 
@@ -43,25 +50,27 @@ func TestClassify(t *testing.T) {
 		t.Fatalf(".env.example: %v", g)
 	}
 
-	grants.Grant(tools.Bash)
+	// A session grant is the approved command, not the shell tool.
+	grants.GrantCmd("go test")
 	if g := Classify(empty, &grants, root, tools.Bash, bashArgs("go test")); g != WaitNone {
-		t.Fatalf("bash session-granted: %v", g)
+		t.Fatalf("granted command should run: %v", g)
+	}
+	if g := Classify(empty, &grants, root, tools.Bash, bashArgs("rm -rf /")); g != WaitPermission {
+		t.Fatalf("a different command must still ask: %v", g)
 	}
 	// edit never session-grantable
-	grants.Grant(tools.Edit)
 	if g := Classify(empty, &grants, root, tools.Edit, json.RawMessage(`{"path":"a.go"}`)); g != WaitPermission {
 		t.Fatalf("edit still waits: %v", g)
 	}
 	outside := json.RawMessage(`{"path":"../x.txt"}`)
-	grants.Grant(tools.Read)
 	if g := Classify(empty, &grants, root, tools.Read, outside); g != WaitPermission {
-		t.Fatalf("read class grant must not skip outside read: %v", g)
+		t.Fatalf("a command grant must not skip an outside read: %v", g)
 	}
-	grants.GrantDir(permission.CallFor(root, tools.Read, outside).Dir)
+	grants.GrantDir(permission.CallFor(policy.Policy{}, root, tools.Read, outside).Dir)
 	if g := Classify(empty, &grants, root, tools.Read, outside); g != WaitNone {
 		t.Fatalf("directory grant should skip outside read: %v", g)
 	}
-	envOutside, _ := json.Marshal(map[string]string{"path": filepath.Join(permission.CallFor(root, tools.Read, outside).Dir, ".env.local")})
+	envOutside, _ := json.Marshal(map[string]string{"path": filepath.Join(permission.CallFor(policy.Policy{}, root, tools.Read, outside).Dir, ".env.local")})
 	if g := Classify(empty, &grants, root, tools.Read, envOutside); g != WaitPermission {
 		t.Fatalf("directory grant must not skip .env.*: %v", g)
 	}
@@ -87,7 +96,7 @@ func TestClassifyPolicy(t *testing.T) {
 	}
 
 	// Deny beats a session grant.
-	grants.Grant(tools.Bash)
+	grants.GrantCmd("go test")
 	if g := Classify(deny, &grants, root, tools.Bash, args); g != WaitAutoDeny {
 		t.Fatalf("deny must beat grant: %v", g)
 	}
@@ -133,22 +142,23 @@ func TestDecidePermissionSessionGrantAndDeny(t *testing.T) {
 	var grants permission.Session
 	s := &Session{Grants: &grants, Rules: permission.NewRules(policy.Policy{})}
 
-	bash := permission.CallFor(root, tools.Bash, bashArgs("go test"))
+	bash := permission.CallFor(policy.Policy{}, root, tools.Bash, bashArgs("go test"))
 	reply, err := s.DecidePermission(permission.AllowSession, bash, "")
 	if err != nil || reply.Kind != ReplyRun {
 		t.Fatalf("grant: reply=%+v err=%v", reply, err)
 	}
-	if !grants.Granted(tools.Bash) {
-		t.Fatal("bash should be granted for the session")
+	if !grants.CmdGranted("go test") {
+		t.Fatal("the approved command should be granted for the session")
+	}
+	// The session row must not turn one approval into a shell-wide grant.
+	if grants.CmdGranted("rm -rf /") {
+		t.Fatal("unrelated commands must not be granted")
 	}
 
 	// An outside read grants the directory, not the read class.
-	outside := permission.CallFor(root, tools.Read, json.RawMessage(`{"path":"../x.txt"}`))
+	outside := permission.CallFor(policy.Policy{}, root, tools.Read, json.RawMessage(`{"path":"../x.txt"}`))
 	if _, err := s.DecidePermission(permission.AllowSession, outside, ""); err != nil {
 		t.Fatal(err)
-	}
-	if grants.Granted(tools.Read) {
-		t.Fatal("read class must not be granted")
 	}
 	if !grants.DirGranted(outside) {
 		t.Fatal("outside directory should be granted")
@@ -162,7 +172,7 @@ func TestDecidePermissionSessionGrantAndDeny(t *testing.T) {
 func TestDecidePermissionDenyReason(t *testing.T) {
 	root := t.TempDir()
 	s := &Session{Grants: &permission.Session{}, Rules: permission.NewRules(policy.Policy{})}
-	bash := permission.CallFor(root, tools.Bash, bashArgs("go test"))
+	bash := permission.CallFor(policy.Policy{}, root, tools.Bash, bashArgs("go test"))
 
 	// A typed reason reaches the model instead of the generic denial.
 	r, err := s.DecidePermission(permission.Deny, bash, "use make test instead")
@@ -185,7 +195,7 @@ func TestDecidePermissionAllowAlwaysPersists(t *testing.T) {
 	rules := permission.NewRules(policy.Policy{})
 	s := &Session{Grants: &permission.Session{}, Rules: rules}
 
-	reply, err := s.DecidePermission(permission.AllowAlways, permission.CallFor(root, tools.Bash, bashArgs("go test")), "")
+	reply, err := s.DecidePermission(permission.AllowAlways, permission.CallFor(policy.Policy{}, root, tools.Bash, bashArgs("go test")), "")
 	if err != nil || reply.Kind != ReplyRun {
 		t.Fatalf("reply=%+v err=%v", reply, err)
 	}
@@ -200,6 +210,36 @@ func TestDecidePermissionAllowAlwaysPersists(t *testing.T) {
 	if len(loaded.Rules) != 1 || loaded.Rules[0] != want {
 		t.Fatalf("persisted=%+v", loaded)
 	}
+
+	// A chain persists one rule: the first part that still needs a decision.
+	// `cd src` only reads and `go test ./...` is already covered, so the new
+	// rule is the part in between.
+	reply, err = s.DecidePermission(permission.AllowAlways, permission.CallFor(rules.Policy(), root, tools.Bash, bashArgs("cd src && npm install && go test ./...")), "")
+	if err != nil || reply.Kind != ReplyRun {
+		t.Fatalf("chain reply=%+v err=%v", reply, err)
+	}
+	wantChain := []policy.Rule{
+		want,
+		{Tool: tools.Bash, CommandPrefix: "npm install", Action: policy.ActionAllow},
+	}
+	if got := rules.Policy().Rules; !slices.Equal(got, wantChain) {
+		t.Fatalf("chain rules=%+v", got)
+	}
+	loaded, err = policy.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(loaded.Rules, wantChain) {
+		t.Fatalf("persisted chain=%+v", loaded)
+	}
+
+	// A chain whose parts all run already has nothing to write.
+	if reply, err = s.DecidePermission(permission.AllowAlways, permission.CallFor(rules.Policy(), root, tools.Bash, bashArgs("cd src && go test ./...")), ""); err != nil || reply.Kind != ReplyRun {
+		t.Fatalf("covered chain reply=%+v err=%v", reply, err)
+	}
+	if got := rules.Policy().Rules; !slices.Equal(got, wantChain) {
+		t.Fatalf("covered chain must add nothing: %+v", got)
+	}
 }
 
 func TestDecidePermissionPersistFailureStillAllows(t *testing.T) {
@@ -213,7 +253,7 @@ func TestDecidePermissionPersistFailureStillAllows(t *testing.T) {
 	rules := permission.NewRules(policy.Policy{})
 	s := &Session{Grants: &permission.Session{}, Rules: rules}
 
-	reply, err := s.DecidePermission(permission.AllowAlways, permission.CallFor(root, tools.Bash, bashArgs("go test")), "")
+	reply, err := s.DecidePermission(permission.AllowAlways, permission.CallFor(policy.Policy{}, root, tools.Bash, bashArgs("go test")), "")
 	if err == nil {
 		t.Fatal("expected a persist error")
 	}

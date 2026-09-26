@@ -81,7 +81,9 @@ func (s *Session) DecidePermission(d permission.Decision, call permission.Call, 
 		if call.Match.Tool == tools.Read {
 			s.Grants.GrantDir(call.Dir)
 		} else {
-			s.Grants.Grant(call.Match.Tool)
+			// The session grant is the command that was on screen, not the shell
+			// tool: "this command in this session" must not approve every command.
+			s.Grants.GrantCmd(call.Match.Command)
 		}
 	case permission.AllowAlways:
 		if call.Persist {

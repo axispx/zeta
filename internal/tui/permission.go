@@ -9,6 +9,7 @@ import (
 
 	"github.com/axispx/zeta/internal/harness"
 	"github.com/axispx/zeta/internal/permission"
+	"github.com/axispx/zeta/internal/policy"
 	"github.com/axispx/zeta/internal/styles"
 	"github.com/axispx/zeta/internal/tools"
 )
@@ -19,6 +20,7 @@ const denyReasonPlaceholder = "Type a reason…"
 
 type permOption struct {
 	label  string
+	tag    string // key hint appended to the label, e.g. "(esc)"
 	decide permission.Decision
 }
 
@@ -28,50 +30,69 @@ type permOption struct {
 func permOptions(tool string, a harness.Approval) []permOption {
 	opts := make([]permOption, 0, len(a.Choices))
 	for _, d := range a.Choices {
-		opts = append(opts, permOption{label: permLabel(tool, d, a), decide: d})
+		opts = append(opts, permOption{label: permLabel(tool, d, a), tag: permTag(d), decide: d})
 	}
 	return opts
 }
 
-// permLabel names a decision. The "always allow" row shows the derived rule's
-// scope so the user sees what they are agreeing to.
+// permLabel names a decision. Rows read as answers to the question above them
+// ("Yes, proceed"), and a row that remembers something spells out its scope, so
+// nothing about a grant has to be inferred from the verb.
 func permLabel(tool string, d permission.Decision, a harness.Approval) string {
 	switch d {
 	case permission.AllowAlways:
 		if tool == tools.Read {
-			return "Always allow this file"
+			return "Yes, and don't ask again for this file"
 		}
-		return "Always allow " + codePrefix(a.Call.Rule.CommandPrefix)
+		return "Yes, and don't ask again for commands that start with " + codePrefix(a.Call.Rule.CommandPrefix)
 	case permission.AllowSession:
 		if tool == tools.Read {
-			return "Allow this directory for session"
+			return "Yes, and don't ask again for this directory in this session"
 		}
-		return "Allow for session"
+		return "Yes, and don't ask again for this command in this session"
 	case permission.Deny:
-		return "Deny"
+		return "No, and tell zeta what to do differently"
 	default: // AllowOnce
-		if permission.SessionGrantable(tool) || (tool == tools.Read && !a.Env) {
-			return "Allow once"
-		}
-		return "Allow"
+		return "Yes, proceed"
 	}
 }
 
-// codePrefix renders a command prefix as `code`, trimming overly long commands.
-func codePrefix(prefix string) string {
-	return "`" + truncateRight(prefix, 24) + "`"
+// permTag is the dim key hint appended to a row, or "". Only rows that really do
+// have a key of their own get one: Esc answers the prompt, so it is named on
+// Deny. The other rows deliberately show no letter, because a stray keystroke
+// over an open prompt must never decide it (docs/permissions.md).
+func permTag(d permission.Decision) string {
+	if d == permission.Deny {
+		return " (esc)"
+	}
+	return ""
 }
 
+// codePrefix renders a command prefix as `code`. The prompt row is the only
+// place the rule the user is agreeing to appears, so it is never trimmed here:
+// the row renders at the terminal width and clips to it, which keeps one
+// width-aware limit instead of a second, arbitrary one.
+func codePrefix(prefix string) string {
+	return "`" + prefix + "`"
+}
+
+// permFooter is the key legend under the row list.
+const permFooter = "Press enter to confirm or esc to cancel"
+
 // permissionPrompt is the modal approval surface (replaces the input while open).
-// Diff/command payloads live on the active transcript tool row (Message.Out /
-// label), not in this panel. Decisions go through turnSession.reply (harness-owned).
+// It carries the payload it is asking about — the command or the path — so the
+// decision is answerable from the panel alone; a diff still lives on the active
+// transcript tool row (Message.Out). Decisions go through turnSession.reply
+// (harness-owned).
 type permissionPrompt struct {
 	label string
 	name  string
 	path  string
-	appr  harness.Approval // derived from the tool name, args, and workspace root
-	opts  []permOption     // source of truth for the row list and the decision dispatched for a chosen index
-	list  optionList
+	// command is the bash command under approval, shown as the payload line.
+	command string
+	appr    harness.Approval // derived from the tool name, args, and workspace root
+	opts    []permOption     // source of truth for the row list and the decision dispatched for a chosen index
+	list    optionList
 	// reason is the freeform deny text typed on the last row.
 	reason string
 	// typing is true while the freeform row owns key input.
@@ -80,7 +101,7 @@ type permissionPrompt struct {
 
 func newPermissionPrompt(label, name, path string) *permissionPrompt {
 	p := &permissionPrompt{label: label, name: name, path: path}
-	p.setApproval(harness.ApprovalFor("", name, nil))
+	p.setApproval(harness.ApprovalFor(policy.Policy{}, "", name, nil))
 	return p
 }
 
@@ -89,7 +110,7 @@ func (p *permissionPrompt) setOptions(opts []permOption) {
 	p.opts = opts
 	rows := make([]optionRow, len(opts))
 	for i, o := range opts {
-		rows[i] = optionRow{label: o.label}
+		rows[i] = optionRow{label: o.label, tag: o.tag}
 	}
 	p.list.setRows(rows)
 }
@@ -115,7 +136,7 @@ func (p *permissionPrompt) denySelected() bool {
 }
 
 // syncReason paints the Deny row as the reason field: the typed reason (or a
-// placeholder) with a caret while it owns the keys, and the plain "Deny" label
+// placeholder) with a caret while it owns the keys, and the plain deny label
 // otherwise. Derived state — call it before rendering or hit-testing, the only
 // readers.
 func (p *permissionPrompt) syncReason() {
@@ -124,7 +145,7 @@ func (p *permissionPrompt) syncReason() {
 		return
 	}
 	r := &p.list.rows[i]
-	r.hint, r.labelCursor, r.label = "", p.typing, p.opts[i].label
+	r.labelCursor, r.label = p.typing, p.opts[i].label
 	switch {
 	case strings.TrimSpace(p.reason) != "":
 		r.label = p.reason
@@ -141,9 +162,11 @@ func (p *permissionPrompt) setApproval(a harness.Approval) {
 
 // setArgs derives the approval view of the call — the rule a persist decision
 // writes, whether it is rememberable, and whether the target escapes the
-// workspace.
-func (p *permissionPrompt) setArgs(args json.RawMessage, root string) {
-	p.setApproval(harness.ApprovalFor(root, p.name, args))
+// workspace — and records the payload the panel quotes back. plan is the live
+// policy: it decides which part of a chain a remembered rule would cover.
+func (p *permissionPrompt) setArgs(plan policy.Policy, args json.RawMessage, root string) {
+	p.command = tools.ArgCommand(args)
+	p.setApproval(harness.ApprovalFor(plan, root, p.name, args))
 }
 
 // sendReply delivers the UI's decision to the loop. Non-blocking: on cancel the
@@ -325,10 +348,16 @@ func (m Model) renderPermission(width int) string {
 	_, contentW := overlayWidths(width)
 	ink := m.term.chrome.OverlayInk()
 
-	body := m.renderPermissionTitle(contentW, ink) + p.list.render(contentW, ink)
+	body := m.renderPermissionTitle(contentW, ink) + p.list.render(contentW, ink) +
+		"\n\n" + padPanel(ink.Hint.Width(contentW-panelGutter).Render(permFooter), panelGutter)
 	return renderPanelFrame(m.term.chrome, width, body)
 }
 
+// renderPermissionTitle is the question the rows answer, then the payload it is
+// about — the command or the path. The payload is repeated here rather than left
+// to the transcript row behind the panel: the prompt is the decision surface, so
+// it has to be answerable on its own. A payload ends with a newline, which the
+// row list's own leading newline turns into the blank separator between them.
 func (m Model) renderPermissionTitle(contentW int, ink styles.OverlayInk) string {
 	inner := contentW - panelGutter
 	if inner < 1 {
@@ -338,55 +367,73 @@ func (m Model) renderPermissionTitle(contentW int, ink styles.OverlayInk) string
 	if p == nil {
 		return ""
 	}
+	question, payload := permTitle(p, ink)
+	body := padPanel(ink.Header.Width(inner).Render(question), panelGutter)
+	if payload == "" {
+		return body
+	}
+	return body + "\n\n" + padPanel(ink.Gap.Width(inner).Render(payload), panelGutter) + "\n"
+}
+
+// permTitle splits the prompt heading into the question and the payload it is
+// about. The payload is "" when there is nothing more specific to show than the
+// question itself.
+func permTitle(p *permissionPrompt, ink styles.OverlayInk) (question, payload string) {
 	c, ok := permission.ClassOf(p.name)
 	if !ok {
 		if p.name == tools.Read {
 			if p.appr.Env {
-				line := pathPermissionTitle(ink, "Read ", p.path, p.appr.Call.Outside)
-				return padPanel(ink.Gap.Width(inner).Render(line), panelGutter)
+				return "Would you like to read the following file?", codePath(ink, p.path, p.appr.Call.Outside)
 			}
 			dir := p.appr.Call.Dir
 			if dir == "" {
 				dir = p.path
 			}
-			var line string
 			if dir == "" {
-				line = ink.Header.Render("Access external directory")
-			} else {
-				line = pathPermissionTitle(ink, "Access ", dir, p.appr.Call.Outside)
+				return "Would you like to access an external directory?", ""
 			}
-			return padPanel(ink.Gap.Width(inner).Render(line), panelGutter)
+			return "Would you like to access the following directory?", codePath(ink, dir, p.appr.Call.Outside)
 		}
 		title := strings.TrimSpace(p.label)
 		if title == "" {
 			title = "Allow " + p.name + "?"
 		}
-		return padPanel(ink.Header.Width(inner).Render(title), panelGutter)
+		return title, ""
 	}
-	var line string
 	switch c {
 	case permission.ClassBash:
-		line = ink.Header.Render("Run this ") +
-			ink.Kbd.Render(tools.Bash) +
-			ink.Header.Render(" command?")
+		return "Would you like to run the following command?", codeCommand(ink, p)
 	case permission.ClassEdit:
-		verb := "Edit "
 		if p.name == tools.Write {
-			verb = "Write "
+			return "Would you like to write the following file?", codePath(ink, p.path, p.appr.Call.Outside)
 		}
-		line = pathPermissionTitle(ink, verb, p.path, p.appr.Call.Outside)
+		return "Would you like to make the following edit?", codePath(ink, p.path, p.appr.Call.Outside)
 	}
-	return padPanel(ink.Gap.Width(inner).Render(line), panelGutter)
+	return "", ""
 }
 
-// pathPermissionTitle is "Edit path (outside workspace)" / "Access path" / etc.
-func pathPermissionTitle(ink styles.OverlayInk, verb, path string, outside bool) string {
+// codePath is the payload line for a file or directory, marked when it escapes
+// the workspace. The path is ordinary row text — it is the thing being decided,
+// so it is not dimmed — on the panel fill, so it reads as part of the panel
+// rather than as a band across it.
+func codePath(ink styles.OverlayInk, path string, outside bool) string {
 	if path == "" {
-		return ink.Header.Render(strings.TrimSpace(verb) + " file")
+		return ""
 	}
-	line := ink.Header.Render(verb) + ink.Gap.Render(styles.DiffFile.Render(path))
+	line := ink.Row.Render(path)
 	if outside {
-		line += ink.Gap.Render(styles.OutsideWarn.Render(" (outside workspace)"))
+		line += ink.Warn.Render(" (outside workspace)")
 	}
 	return line
+}
+
+// codeCommand is the payload line for a shell command: the command as it will be
+// run, with a dim `$` prompt marker. The marker is quieter than the command so
+// the eye lands on what is being approved.
+func codeCommand(ink styles.OverlayInk, p *permissionPrompt) string {
+	cmd := p.command
+	if cmd == "" {
+		return ""
+	}
+	return ink.Hint.Render("$ ") + ink.Row.Render(cmd)
 }

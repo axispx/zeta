@@ -164,7 +164,7 @@ func (m *Model) handleTurnToolStart(msg turnToolStartMsg) tea.Cmd {
 		m.openInteractiveTool(msg.name, msg.args)
 	case harness.WaitPermission:
 		p := newPermissionPrompt(label, msg.name, msg.path)
-		p.setArgs(msg.args, m.session.WS.Abs)
+		p.setArgs(m.session.Rules.Policy(), msg.args, m.session.WS.Abs)
 		m.panel.setPerm(p)
 		m.afterPanelChange()
 	}

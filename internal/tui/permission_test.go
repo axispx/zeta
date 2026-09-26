@@ -9,10 +9,13 @@ import (
 
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/axispx/zeta/internal/harness"
 	"github.com/axispx/zeta/internal/permission"
+	"github.com/axispx/zeta/internal/policy"
 	"github.com/axispx/zeta/internal/prompt"
+	"github.com/axispx/zeta/internal/styles"
 	"github.com/axispx/zeta/internal/tools"
 	"github.com/axispx/zeta/internal/workspace"
 )
@@ -59,11 +62,15 @@ func TestHandlePermissionKey(t *testing.T) {
 
 	replies = make(chan harness.Reply, 1)
 	m.panel.perm = newPermissionPrompt("", tools.Bash, "")
-	m.panel.perm.setArgs(bashArgs("echo"), t.TempDir())
+	m.panel.perm.setArgs(policy.Policy{}, bashArgs("echo"), t.TempDir())
 	m.turn.current.reply = replies
 	pressPermRow(t, &m, permission.AllowSession)
-	if !m.session.Grants.Granted(tools.Bash) {
+	if !m.session.Grants.CmdGranted("echo") {
 		t.Fatal("session grant should stick on harness")
+	}
+	// The grant is the command on screen, not every bash command.
+	if m.session.Grants.CmdGranted("rm -rf /") {
+		t.Fatal("session grant must not cover other commands")
 	}
 	if allow := <-replies; allow.Kind == harness.ReplyDeny {
 		t.Fatal("want allow")
@@ -93,7 +100,7 @@ func TestHandlePermissionKeyEditNoSession(t *testing.T) {
 	if m.panel.perm == nil {
 		t.Fatal("perm should remain")
 	}
-	if m.session.Grants.Granted(tools.Edit) {
+	if m.session.Grants.CmdGranted("a.go") {
 		t.Fatal("edit must never receive a session grant")
 	}
 	select {
@@ -106,8 +113,8 @@ func TestHandlePermissionKeyEditNoSession(t *testing.T) {
 	if allow := <-replies; allow.Kind == harness.ReplyDeny {
 		t.Fatal("want allow")
 	}
-	if m.session.Grants.Granted(tools.Edit) || m.session.Grants.Granted(tools.Write) {
-		t.Fatal("allow once must not grant edit/write")
+	if m.session.Grants.CmdGranted("a.go") {
+		t.Fatal("allow once must not grant anything")
 	}
 }
 
@@ -279,8 +286,11 @@ func TestDenyReasonEdges(t *testing.T) {
 func TestDenyReasonRendering(t *testing.T) {
 	m := Model{term: term{width: 80}, panel: panel{perm: newPermissionPrompt("", tools.Edit, "a.go")}}
 	base := stripANSI(m.renderPermission(80))
-	if !strings.Contains(base, "Deny") {
+	if !strings.Contains(base, "No, and tell zeta what to do differently") {
 		t.Fatalf("deny row missing: %q", base)
+	}
+	if !strings.Contains(base, "(esc)") {
+		t.Fatalf("deny row must name the Esc key: %q", base)
 	}
 	if strings.Contains(base, optionCaret) || strings.Contains(base, denyReasonPlaceholder) {
 		t.Fatalf("no field before typing: %q", base)
@@ -312,13 +322,16 @@ func TestPermissionHidesInput(t *testing.T) {
 	m.term.width = 80
 	m.term.height = 24
 	m.panel.perm = newPermissionPrompt("bash echo", tools.Bash, "")
-	m.layout()
-	hAsk := m.transcript.viewport.Height()
+	if m.renderInput() != "" {
+		t.Fatal("an open prompt must replace the input")
+	}
+	// The prompt takes the gap slot above the (hidden) input.
+	if h := m.gapHeight(); h < 6 {
+		t.Fatalf("gapHeight=%d, want the prompt panel", h)
+	}
 	m.panel.perm = nil
-	m.layout()
-	hIdle := m.transcript.viewport.Height()
-	if hAsk <= hIdle {
-		t.Fatalf("hiding input should grow transcript: ask=%d idle=%d", hAsk, hIdle)
+	if m.renderInput() == "" {
+		t.Fatal("input must come back once the prompt closes")
 	}
 }
 
@@ -331,8 +344,12 @@ func TestRenderPermissionVertical(t *testing.T) {
 			perm: newPermissionPrompt("create ashish.md", tools.Edit, "ashish.md")},
 	}
 	out := stripANSI(m.renderPermission(80))
-	if !strings.Contains(out, "Edit ashish.md") {
-		t.Fatalf("missing title: %q", out)
+	if !strings.Contains(out, "Would you like to make the following edit?") {
+		t.Fatalf("missing question: %q", out)
+	}
+	// The target is repeated in the prompt, not left to the transcript row.
+	if !strings.Contains(out, "ashish.md") {
+		t.Fatalf("missing payload: %q", out)
 	}
 	if strings.Contains(out, "Permission required") {
 		t.Fatalf("no eyebrow: %q", out)
@@ -340,12 +357,15 @@ func TestRenderPermissionVertical(t *testing.T) {
 	if strings.Contains(out, "+ hello") || strings.Contains(out, "+hello") {
 		t.Fatalf("diff must not live in the prompt: %q", out)
 	}
-	for _, want := range []string{"Allow", "Deny"} {
+	for _, want := range []string{"Yes, proceed", "No, and tell zeta what to do differently"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("missing %q in %q", want, out)
 		}
 	}
-	if strings.Contains(out, "Allow for session") || strings.Contains(out, "Allow once") {
+	if !strings.Contains(out, permFooter) {
+		t.Fatalf("missing key legend: %q", out)
+	}
+	if strings.Contains(out, "in this session") {
 		t.Fatalf("edit must not offer session grant: %q", out)
 	}
 }
@@ -359,7 +379,7 @@ func TestRenderPermissionBashOptions(t *testing.T) {
 			perm: newPermissionPrompt("bash go test", tools.Bash, "")},
 	}
 	out := stripANSI(m.renderPermission(80))
-	for _, want := range []string{"Allow once", "Allow for session", "Deny"} {
+	for _, want := range []string{"Yes, proceed", "in this session", "No, and tell zeta what to do differently"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("missing %q in %q", want, out)
 		}
@@ -375,10 +395,10 @@ func TestRenderPermissionWrite(t *testing.T) {
 			perm: newPermissionPrompt("write a.txt", tools.Write, "a.txt")},
 	}
 	out := stripANSI(m.renderPermission(80))
-	if !strings.Contains(out, "Write a.txt") {
+	if !strings.Contains(out, "Would you like to write the following file?") || !strings.Contains(out, "a.txt") {
 		t.Fatalf("write title: %q", out)
 	}
-	if strings.Contains(out, "Allow for session") {
+	if strings.Contains(out, "in this session") {
 		t.Fatalf("write must not offer session grant: %q", out)
 	}
 }
@@ -391,12 +411,15 @@ func TestRenderPermissionBash(t *testing.T) {
 		panel: panel{
 			perm: newPermissionPrompt("bash go test", tools.Bash, "")},
 	}
+	m.panel.perm.setArgs(policy.Policy{}, bashArgs("go test"), t.TempDir())
 	out := stripANSI(m.renderPermission(80))
-	if !strings.Contains(out, "Run this ") || !strings.Contains(out, "bash") || !strings.Contains(out, " command?") {
+	if !strings.Contains(out, "Would you like to run the following command?") {
 		t.Fatalf("title: %q", out)
 	}
-	if strings.Contains(out, "go test") {
-		t.Fatalf("command belongs in transcript, not prompt: %q", out)
+	// The prompt quotes the command itself: the panel is the decision surface, so
+	// approving must not depend on a transcript row that may be scrolled away.
+	if !strings.Contains(out, "$ go test") {
+		t.Fatalf("command payload missing: %q", out)
 	}
 }
 
@@ -501,16 +524,16 @@ func TestRenderDeniedEdit(t *testing.T) {
 func TestSessionGrantSkipsPrompt(t *testing.T) {
 	replies := make(chan harness.Reply, 1)
 	m := testModel()
-	m.session.Grants.Grant(tools.Bash)
+	m.session.Grants.GrantCmd("echo")
 	m.turn.current = &turnSession{
 		activeTool: -1,
 		ch:         make(chan harness.Event),
 		reply:      replies,
 		cancel:     func() {},
 	}
-	_ = m.handleTurnToolStart(turnToolStartMsg{name: tools.Bash, label: "bash echo"})
+	_ = m.handleTurnToolStart(turnToolStartMsg{name: tools.Bash, label: "bash echo", args: bashArgs("echo")})
 	if m.panel.perm != nil {
-		t.Fatal("should not open modal when granted")
+		t.Fatal("should not open modal for the granted command")
 	}
 	select {
 	case d := <-replies:
@@ -519,10 +542,27 @@ func TestSessionGrantSkipsPrompt(t *testing.T) {
 	}
 }
 
+// A grant for one command must leave every other command prompting.
+func TestSessionGrantDoesNotCoverOtherCommands(t *testing.T) {
+	replies := make(chan harness.Reply, 1)
+	m := testModel()
+	m.session.Grants.GrantCmd("echo")
+	m.turn.current = &turnSession{
+		activeTool: -1,
+		ch:         make(chan harness.Event),
+		reply:      replies,
+		cancel:     func() {},
+	}
+	_ = m.handleTurnToolStart(turnToolStartMsg{name: tools.Bash, label: "bash rm -rf /", args: bashArgs("rm -rf /")})
+	if m.panel.perm == nil {
+		t.Fatal("an unrelated command must still prompt")
+	}
+}
+
 func TestEditAlwaysPromptsEvenAfterBashGrant(t *testing.T) {
 	replies := make(chan harness.Reply, 1)
 	m := testModel()
-	m.session.Grants.Grant(tools.Bash)
+	m.session.Grants.GrantCmd("echo")
 	m.turn.current = &turnSession{
 		activeTool: -1,
 		ch:         make(chan harness.Event),
@@ -575,12 +615,12 @@ func TestEditOutsideWorkspacePromptFlagsOutside(t *testing.T) {
 
 func TestActiveGrantsSurviveMode(t *testing.T) {
 	m := Model{session: harness.Session{Grants: &permission.Session{}}}
-	m.session.Grants.Grant(tools.Bash)
-	if !m.session.Grants.Granted(tools.Bash) {
+	m.session.Grants.GrantCmd("echo")
+	if !m.session.Grants.CmdGranted("echo") {
 		t.Fatal("session grant should stick")
 	}
 	m.session.Mode = prompt.ModeAsk
-	if !m.session.Grants.Granted(tools.Bash) {
+	if !m.session.Grants.CmdGranted("echo") {
 		t.Fatal("session grant should survive mode switch")
 	}
 }
@@ -624,13 +664,13 @@ func TestEnvReadOpensApproval(t *testing.T) {
 		t.Fatalf("env read must open file prompt: %+v", m.panel.perm)
 	}
 	out := stripANSI(m.renderPermission(80))
-	if !strings.Contains(out, "Read ") || !strings.Contains(out, ".env") {
+	if !strings.Contains(out, "Would you like to read the following file?") || !strings.Contains(out, ".env") {
 		t.Fatalf("title: %q", out)
 	}
-	if strings.Contains(out, "Allow this directory") {
+	if strings.Contains(out, "in this session") {
 		t.Fatalf("env must not offer directory grant: %q", out)
 	}
-	if !strings.Contains(out, "Always allow this file") {
+	if !strings.Contains(out, "Yes, and don't ask again for this file") {
 		t.Fatalf("in-workspace env should persist: %q", out)
 	}
 	select {
@@ -658,13 +698,13 @@ func TestReadOutsideOpensApproval(t *testing.T) {
 		t.Fatalf("outside read must open prompt: %+v", m.panel.perm)
 	}
 	out := stripANSI(m.renderPermission(80))
-	if !strings.Contains(out, "Access ") {
+	if !strings.Contains(out, "Would you like to access the following directory?") {
 		t.Fatalf("title: %q", out)
 	}
 	if !strings.Contains(out, "outside workspace") {
 		t.Fatalf("outside marker: %q", out)
 	}
-	for _, want := range []string{"Allow once", "Allow this directory for session", "Deny"} {
+	for _, want := range []string{"Yes, proceed", "Yes, and don't ask again for this directory in this session", "No, and tell zeta what to do differently"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("missing %q in %q", want, out)
 		}
@@ -700,11 +740,11 @@ func TestReadOutsideSessionGrantSkipsLater(t *testing.T) {
 		args: oneA,
 	})
 	pressPermRow(t, &m, permission.AllowSession)
-	if !m.session.Grants.DirGranted(permission.CallFor(root, tools.Read, oneA)) {
+	if !m.session.Grants.DirGranted(permission.CallFor(policy.Policy{}, root, tools.Read, oneA)) {
 		t.Fatal("directory grant should stick")
 	}
-	if m.session.Grants.Granted(tools.Read) {
-		t.Fatal("must not class-grant read")
+	if m.session.Grants.CmdGranted("a.txt") {
+		t.Fatal("must not command-grant read")
 	}
 	if allow := <-replies; allow.Kind == harness.ReplyDeny {
 		t.Fatal("want allow")
@@ -882,5 +922,68 @@ func TestFinishTurnDeniesOpenApproval(t *testing.T) {
 	}
 	if allow := <-replies; allow.Kind != harness.ReplyDeny {
 		t.Fatalf("abandon should deny")
+	}
+}
+
+// bgSeq extracts the background SGR sequence from rendered output, or "".
+func bgSeq(s string) string {
+	i := strings.Index(s, "[48;")
+	if i < 0 {
+		return ""
+	}
+	j := strings.Index(s[i:], "m")
+	if j < 0 {
+		return ""
+	}
+	return s[i-1 : i+j+1]
+}
+
+// The prompt payload — the command or the path — must be painted on the panel
+// fill. A style without it (the bare diff/text styles) punches the terminal
+// background through the panel and reads as a highlight band across the prompt.
+func TestPermissionPayloadCarriesPanelFill(t *testing.T) {
+	chrome := styles.NewChrome(lipgloss.Color("235"), true)
+	ink := chrome.OverlayInk()
+	fill := bgSeq(ink.Gap.Render("x"))
+	if fill == "" {
+		t.Fatal("test needs a chrome with a panel fill set")
+	}
+	for _, tc := range []struct {
+		name string
+		got  string
+	}{
+		{"command", codeCommand(ink, &permissionPrompt{name: tools.Bash, command: "go test ./..."})},
+		{"path", codePath(ink, "src/a.go", false)},
+		{"path outside", codePath(ink, "/etc/passwd", true)},
+	} {
+		if !strings.Contains(tc.got, fill) {
+			t.Errorf("%s payload must carry the panel fill %q: %q", tc.name, fill, tc.got)
+		}
+	}
+
+	// The payload is ordinary row text: not dimmed, and the `$` marker is quieter
+	// than the command rather than brighter.
+	if got, want := codeCommand(ink, &permissionPrompt{command: "ls"}), ink.Hint.Render("$ ")+ink.Row.Render("ls"); got != want {
+		t.Errorf("command payload = %q, want %q", got, want)
+	}
+	if got, want := codePath(ink, "a.go", true), ink.Row.Render("a.go")+ink.Warn.Render(" (outside workspace)"); got != want {
+		t.Errorf("outside path payload = %q, want %q", got, want)
+	}
+
+	// The key legend is a hint, not content.
+	m := Model{term: term{width: 80, chrome: chrome}, panel: panel{perm: newPermissionPrompt("go test", tools.Bash, "")}}
+	m.panel.perm.setArgs(policy.Policy{}, bashArgs("go test"), t.TempDir())
+	out := m.renderPermission(80)
+	legend := ""
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, permFooter) {
+			legend = line
+		}
+	}
+	if legend == "" {
+		t.Fatalf("missing legend: %q", out)
+	}
+	if !strings.Contains(legend, ink.Hint.Render(permFooter)) {
+		t.Errorf("legend must be dim italic hint text: %q", legend)
 	}
 }
