@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/axispx/zeta/internal/core"
+	"github.com/axispx/zeta/internal/harness"
 )
 
 const (
@@ -14,7 +14,7 @@ const (
 )
 
 // renderUsage is the /usage transcript block for a session's token accounting.
-func renderUsage(u core.Usage) string {
+func renderUsage(u harness.Usage) string {
 	n := strconv.Itoa(u.Responses)
 	label := "responses"
 	if u.Responses == 1 {
@@ -43,7 +43,7 @@ func renderUsage(u core.Usage) string {
 }
 
 // modelUsageLine is "display name  ·  N in · N out [· N cached]".
-func modelUsageLine(m *core.ModelUsage) string {
+func modelUsageLine(m *harness.ModelUsage) string {
 	name := m.Name
 	if name == "" {
 		name = "unknown"

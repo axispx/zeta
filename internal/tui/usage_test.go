@@ -5,12 +5,12 @@ import (
 	"testing"
 
 	"github.com/axispx/zeta/internal/ai"
-	"github.com/axispx/zeta/internal/core"
+	"github.com/axispx/zeta/internal/harness"
 	"github.com/axispx/zeta/internal/session"
 )
 
 func TestSessionUsageRender(t *testing.T) {
-	var u core.Usage
+	var u harness.Usage
 	u.Add("Sonnet", ai.Usage{
 		PromptTokens:     120_000,
 		CompletionTokens: 8_400,
@@ -35,7 +35,7 @@ func TestSessionUsageRender(t *testing.T) {
 		t.Fatalf("single model needs no breakdown:\n%s", out)
 	}
 	// No cache accounting reported: the cached row is hidden, not shown as 0%.
-	var cold core.Usage
+	var cold harness.Usage
 	cold.Add("Sonnet", ai.Usage{PromptTokens: 100, CompletionTokens: 5})
 	if out := renderUsage(cold); strings.Contains(out, "cached") {
 		t.Fatalf("unreported cache must be hidden:\n%s", out)
@@ -43,7 +43,7 @@ func TestSessionUsageRender(t *testing.T) {
 }
 
 func TestSessionUsageRenderByModel(t *testing.T) {
-	var u core.Usage
+	var u harness.Usage
 	u.Add("Sonnet", ai.Usage{PromptTokens: 1000, CompletionTokens: 100, TotalTokens: 1100, CachedTokens: 900, CacheReported: true})
 	u.Add("Grok", ai.Usage{PromptTokens: 2000, CompletionTokens: 200, TotalTokens: 2200, CacheReported: true})
 
@@ -57,7 +57,7 @@ func TestSessionUsageRenderByModel(t *testing.T) {
 		}
 	}
 	// Unknown attribution is labelled, not blank.
-	var unknown core.Usage
+	var unknown harness.Usage
 	unknown.Add("", ai.Usage{PromptTokens: 10, CompletionTokens: 1})
 	unknown.Add("M", ai.Usage{PromptTokens: 10, CompletionTokens: 1})
 	if out := renderUsage(unknown); !strings.Contains(out, "unknown ·") {
@@ -66,7 +66,7 @@ func TestSessionUsageRenderByModel(t *testing.T) {
 }
 
 func TestSessionUsageRenderCacheWrite(t *testing.T) {
-	var u core.Usage
+	var u harness.Usage
 	u.Add("M", ai.Usage{PromptTokens: 1000, CompletionTokens: 100, CacheWriteTokens: 900, CacheReported: true})
 	out := renderUsage(u)
 	if !strings.Contains(out, "cache write") || !strings.Contains(out, "900") {
@@ -140,7 +140,7 @@ func TestHandleTurnAssistantPersistsUsage(t *testing.T) {
 	if recs[0].Model != m.session.Cfg.ModelName() {
 		t.Fatalf("persisted model = %q, want %q", recs[0].Model, m.session.Cfg.ModelName())
 	}
-	if got := core.UsageFromRecords(recs); got.Total != m.session.Usage.Total || got.Input != m.session.Usage.Input {
+	if got := harness.UsageFromRecords(recs); got.Total != m.session.Usage.Total || got.Input != m.session.Usage.Input {
 		t.Fatalf("resumed totals = %+v, want %+v", got, m.session.Usage)
 	}
 }

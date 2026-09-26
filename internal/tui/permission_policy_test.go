@@ -7,8 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/axispx/zeta/internal/agent"
-	"github.com/axispx/zeta/internal/core"
+	"github.com/axispx/zeta/internal/harness"
 	"github.com/axispx/zeta/internal/permission"
 	"github.com/axispx/zeta/internal/policy"
 	"github.com/axispx/zeta/internal/tools"
@@ -19,7 +18,7 @@ func TestPermOptionsOrderAndLabels(t *testing.T) {
 	root := t.TempDir()
 	labelsOf := func(tool string, args json.RawMessage) []string {
 		var labels []string
-		for _, o := range permOptions(tool, core.ApprovalFor(root, tool, args)) {
+		for _, o := range permOptions(tool, harness.ApprovalFor(root, tool, args)) {
 			labels = append(labels, o.label)
 		}
 		return labels
@@ -33,7 +32,7 @@ func TestPermOptionsOrderAndLabels(t *testing.T) {
 	}
 
 	// There is no persistent deny row.
-	for _, o := range permOptions(tools.Bash, core.ApprovalFor(root, tools.Bash, bashArgs("go test"))) {
+	for _, o := range permOptions(tools.Bash, harness.ApprovalFor(root, tools.Bash, bashArgs("go test"))) {
 		if strings.Contains(o.label, "deny ") {
 			t.Fatalf("no persistent deny row: %+v", o)
 		}
@@ -63,10 +62,10 @@ func TestPermOptionsOrderAndLabels(t *testing.T) {
 }
 
 func TestAutoDenyNoPanel(t *testing.T) {
-	replies := make(chan agent.Reply, 1)
+	replies := make(chan harness.Reply, 1)
 	m := testModel()
 	m.session.Rules = permission.NewRules(policy.Policy{Rules: []policy.Rule{{Tool: tools.Bash, Command: "rm -rf /", Action: policy.ActionDeny}}})
-	m.turn.current = &turnSession{activeTool: -1, ch: make(chan agent.Event), reply: replies, cancel: func() {}}
+	m.turn.current = &turnSession{activeTool: -1, ch: make(chan harness.Event), reply: replies, cancel: func() {}}
 
 	_ = m.handleTurnToolStart(turnToolStartMsg{name: tools.Bash, label: "bash rm -rf /", args: bashArgs("rm -rf /")})
 	if m.panel.perm != nil {
@@ -77,7 +76,7 @@ func TestAutoDenyNoPanel(t *testing.T) {
 	}
 	select {
 	case r := <-replies:
-		if r.Kind != agent.ReplyDeny || r.Reason != "denied by permission policy" {
+		if r.Kind != harness.ReplyDeny || r.Reason != "denied by permission policy" {
 			t.Fatalf("reply=%+v", r)
 		}
 	default:
@@ -167,10 +166,10 @@ func TestPromptNoPersistChainedCommand(t *testing.T) {
 func TestPersistAllowWritesRuleAndSkipsSecondPrompt(t *testing.T) {
 	isolateZetaHome(t)
 	root := t.TempDir()
-	replies := make(chan agent.Reply, 1)
+	replies := make(chan harness.Reply, 1)
 	m := testModel()
 	m.session.WS = workspace.Context{Abs: root}
-	m.turn.current = &turnSession{activeTool: -1, ch: make(chan agent.Event), reply: replies, cancel: func() {}}
+	m.turn.current = &turnSession{activeTool: -1, ch: make(chan harness.Event), reply: replies, cancel: func() {}}
 
 	_ = m.handleTurnToolStart(turnToolStartMsg{name: tools.Bash, label: "bash go test", args: bashArgs("go test")})
 	if m.panel.perm == nil || !m.panel.perm.appr.Call.Persist {
@@ -179,7 +178,7 @@ func TestPersistAllowWritesRuleAndSkipsSecondPrompt(t *testing.T) {
 	m.turn.current.activeTool = -1 // reset the open row for the decision
 
 	m.decidePermission(permission.AllowAlways, "")
-	if allow := <-replies; allow.Kind == agent.ReplyDeny {
+	if allow := <-replies; allow.Kind == harness.ReplyDeny {
 		t.Fatal("allow-always should allow the current call")
 	}
 	want := policy.Rule{Tool: tools.Bash, CommandPrefix: "go test", Action: policy.ActionAllow}
@@ -210,11 +209,11 @@ func TestPersistAllowWritesRuleAndSkipsSecondPrompt(t *testing.T) {
 func TestHandWrittenReadDenyAutoDenies(t *testing.T) {
 	isolateZetaHome(t)
 	root := t.TempDir()
-	replies := make(chan agent.Reply, 1)
+	replies := make(chan harness.Reply, 1)
 	m := testModel()
 	m.session.WS = workspace.Context{Abs: root}
 	m.session.Rules = permission.NewRules(policy.Policy{Rules: []policy.Rule{{Tool: tools.Read, Path: ".env", Action: policy.ActionDeny}}})
-	m.turn.current = &turnSession{activeTool: -1, ch: make(chan agent.Event), reply: replies, cancel: func() {}}
+	m.turn.current = &turnSession{activeTool: -1, ch: make(chan harness.Event), reply: replies, cancel: func() {}}
 
 	_ = m.handleTurnToolStart(turnToolStartMsg{name: tools.Read, label: "read .env", path: ".env", args: json.RawMessage(`{"path":".env"}`)})
 	if m.panel.perm != nil {
@@ -222,7 +221,7 @@ func TestHandWrittenReadDenyAutoDenies(t *testing.T) {
 	}
 	select {
 	case r := <-replies:
-		if r.Kind != agent.ReplyDeny || r.Reason != "denied by permission policy" {
+		if r.Kind != harness.ReplyDeny || r.Reason != "denied by permission policy" {
 			t.Fatalf("reply=%+v", r)
 		}
 	default:
@@ -235,11 +234,11 @@ func TestHandWrittenDenyRuleAutoDenies(t *testing.T) {
 	// auto-denies with no panel.
 	isolateZetaHome(t)
 	root := t.TempDir()
-	replies := make(chan agent.Reply, 1)
+	replies := make(chan harness.Reply, 1)
 	m := testModel()
 	m.session.WS = workspace.Context{Abs: root}
 	m.session.Rules = permission.NewRules(policy.Policy{Rules: []policy.Rule{{Tool: tools.Edit, Path: "a.go", Action: policy.ActionDeny}}})
-	m.turn.current = &turnSession{activeTool: -1, ch: make(chan agent.Event), reply: replies, cancel: func() {}}
+	m.turn.current = &turnSession{activeTool: -1, ch: make(chan harness.Event), reply: replies, cancel: func() {}}
 
 	_ = m.handleTurnToolStart(turnToolStartMsg{name: tools.Edit, label: "edit a.go", path: "a.go", args: json.RawMessage(`{"path":"a.go"}`)})
 	if m.panel.perm != nil {
@@ -247,7 +246,7 @@ func TestHandWrittenDenyRuleAutoDenies(t *testing.T) {
 	}
 	select {
 	case r := <-replies:
-		if r.Kind != agent.ReplyDeny || r.Reason != "denied by permission policy" {
+		if r.Kind != harness.ReplyDeny || r.Reason != "denied by permission policy" {
 			t.Fatalf("reply=%+v", r)
 		}
 	default:
@@ -258,15 +257,15 @@ func TestHandWrittenDenyRuleAutoDenies(t *testing.T) {
 func TestPersistRowWritesAllow(t *testing.T) {
 	isolateZetaHome(t)
 	root := t.TempDir()
-	replies := make(chan agent.Reply, 1)
+	replies := make(chan harness.Reply, 1)
 	m := testModel()
 	m.session.WS = workspace.Context{Abs: root}
-	m.turn.current = &turnSession{activeTool: -1, ch: make(chan agent.Event), reply: replies, cancel: func() {}}
+	m.turn.current = &turnSession{activeTool: -1, ch: make(chan harness.Event), reply: replies, cancel: func() {}}
 
 	_ = m.handleTurnToolStart(turnToolStartMsg{name: tools.Bash, label: "bash go test", args: bashArgs("go test")})
 	// Row 2 is "always allow" for a persistable command; it must be confirmed.
 	pressPermRow(t, &m, permission.AllowAlways)
-	if r := <-replies; r.Kind != agent.ReplyRun {
+	if r := <-replies; r.Kind != harness.ReplyRun {
 		t.Fatalf("always-allow should allow this call: %+v", r)
 	}
 	want := policy.Rule{Tool: tools.Bash, CommandPrefix: "go test", Action: policy.ActionAllow}
@@ -281,10 +280,10 @@ func TestPersistRowWritesAllow(t *testing.T) {
 func TestStrayLetterIsInert(t *testing.T) {
 	isolateZetaHome(t)
 	root := t.TempDir()
-	replies := make(chan agent.Reply, 1)
+	replies := make(chan harness.Reply, 1)
 	m := testModel()
 	m.session.WS = workspace.Context{Abs: root}
-	m.turn.current = &turnSession{activeTool: -1, ch: make(chan agent.Event), reply: replies, cancel: func() {}}
+	m.turn.current = &turnSession{activeTool: -1, ch: make(chan harness.Event), reply: replies, cancel: func() {}}
 
 	_ = m.handleTurnToolStart(turnToolStartMsg{name: tools.Edit, label: "edit a.go", path: "a.go", args: json.RawMessage(`{"path":"a.go"}`)})
 	// Letters are not shortcuts: swallowed, no decision, no rule. Typing a

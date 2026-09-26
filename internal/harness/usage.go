@@ -1,4 +1,4 @@
-package core
+package harness
 
 import (
 	"github.com/axispx/zeta/internal/ai"

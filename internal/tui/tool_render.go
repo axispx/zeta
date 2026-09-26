@@ -182,6 +182,10 @@ func renderEditCall(m Message) string {
 		b.WriteString("  ")
 		b.WriteString(styles.DiffDel.Render("-" + strconv.Itoa(dels)))
 	}
+	if note := strings.TrimSpace(m.Note); note != "" {
+		b.WriteByte('\n')
+		b.WriteString(styles.SystemMsg.Render(note))
+	}
 	if colored != "" {
 		b.WriteByte('\n')
 		b.WriteString(colored)

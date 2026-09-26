@@ -7,12 +7,12 @@ import (
 
 	"charm.land/lipgloss/v2"
 
-	"github.com/axispx/zeta/internal/agent"
 	"github.com/axispx/zeta/internal/ai"
+	"github.com/axispx/zeta/internal/harness"
 )
 
-func closedAgentEvents() <-chan agent.Event {
-	ch := make(chan agent.Event)
+func closedAgentEvents() <-chan harness.Event {
+	ch := make(chan harness.Event)
 	close(ch)
 	return ch
 }

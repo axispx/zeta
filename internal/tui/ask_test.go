@@ -8,7 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/axispx/zeta/internal/agent"
+	"github.com/axispx/zeta/internal/harness"
 	"github.com/axispx/zeta/internal/styles"
 	"github.com/axispx/zeta/internal/tools"
 )
@@ -62,7 +62,7 @@ func TestAskPromptFreeformEmptyAnswersOther(t *testing.T) {
 }
 
 func TestHandleAskSubmitSendsResult(t *testing.T) {
-	replies := make(chan agent.Reply, 1)
+	replies := make(chan harness.Reply, 1)
 	m := Model{
 		panel: panel{ask: newAskPrompt(sampleAskArgs())},
 		turn:  turn{current: &turnSession{reply: replies, activeTool: -1, cancel: func() {}}},
@@ -74,7 +74,7 @@ func TestHandleAskSubmitSendsResult(t *testing.T) {
 		t.Fatal("ask should clear")
 	}
 	r := <-replies
-	if r.Kind != agent.ReplyInject || r.Result == "" {
+	if r.Kind != harness.ReplyInject || r.Result == "" {
 		t.Fatalf("%+v", r)
 	}
 	var resp tools.AskUserResponse
@@ -87,7 +87,7 @@ func TestHandleAskSubmitSendsResult(t *testing.T) {
 }
 
 func TestHandleAskKeyNavAndEnter(t *testing.T) {
-	replies := make(chan agent.Reply, 1)
+	replies := make(chan harness.Reply, 1)
 	m := Model{
 		panel: panel{ask: newAskPrompt(sampleAskArgs())},
 		turn:  turn{current: &turnSession{reply: replies, activeTool: -1, cancel: func() {}}},
@@ -423,7 +423,7 @@ func TestHandleAskClickOnDescriptionLine(t *testing.T) {
 }
 
 func TestOpenAskFromToolStart(t *testing.T) {
-	replies := make(chan agent.Reply, 1)
+	replies := make(chan harness.Reply, 1)
 	m := Model{turn: turn{current: &turnSession{reply: replies, activeTool: -1, cancel: func() {}}}}
 	raw, _ := json.Marshal(sampleAskArgs())
 	m.openAskFromToolStart(raw)
@@ -433,17 +433,17 @@ func TestOpenAskFromToolStart(t *testing.T) {
 }
 
 func TestOpenAskInvalidArgsReturnsErrorResult(t *testing.T) {
-	replies := make(chan agent.Reply, 1)
+	replies := make(chan harness.Reply, 1)
 	m := Model{turn: turn{current: &turnSession{reply: replies, activeTool: -1, cancel: func() {}}}}
 	m.openAskFromToolStart(json.RawMessage(`{"questions":[]}`))
 	r := <-replies
-	if r.Kind != agent.ReplyInject || !strings.Contains(r.Result, "error:") {
+	if r.Kind != harness.ReplyInject || !strings.Contains(r.Result, "error:") {
 		t.Fatalf("%+v", r)
 	}
 }
 
 func TestAbandonAskDenies(t *testing.T) {
-	replies := make(chan agent.Reply, 1)
+	replies := make(chan harness.Reply, 1)
 	m := Model{
 		panel: panel{ask: newAskPrompt(sampleAskArgs())},
 		turn:  turn{current: &turnSession{reply: replies, activeTool: -1, cancel: func() {}}},
@@ -453,7 +453,7 @@ func TestAbandonAskDenies(t *testing.T) {
 		t.Fatal("cleared")
 	}
 	r := <-replies
-	if r.Kind != agent.ReplyDeny {
+	if r.Kind != harness.ReplyDeny {
 		t.Fatal("expected deny")
 	}
 }
@@ -471,7 +471,7 @@ func TestMultiQuestionAdvance(t *testing.T) {
 			},
 		},
 	}
-	replies := make(chan agent.Reply, 1)
+	replies := make(chan harness.Reply, 1)
 	m := Model{
 		panel: panel{ask: newAskPrompt(args)},
 		turn:  turn{current: &turnSession{reply: replies, activeTool: -1, cancel: func() {}}},

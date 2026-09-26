@@ -4,8 +4,8 @@
 // and owns the interaction surfaces around the transcript — the composer, the
 // follow-up queue, the input-row panels that gate tool calls (permission, ask,
 // plan), and the picker, config, and overlay views. The session and every
-// decision a turn needs live in internal/core; this package renders that state
-// and reports the user's answer back.
+// decision a turn needs live in internal/harness; this package renders that
+// state and reports the user's answer back.
 package tui
 
 import (
@@ -18,7 +18,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/axispx/zeta/internal/config"
-	"github.com/axispx/zeta/internal/core"
+	"github.com/axispx/zeta/internal/harness"
 	"github.com/axispx/zeta/internal/permission"
 	"github.com/axispx/zeta/internal/policy"
 	"github.com/axispx/zeta/internal/session"
@@ -40,7 +40,7 @@ const (
 
 // Model is the root Bubble Tea model for zeta
 type Model struct {
-	session core.Session
+	session harness.Session
 
 	// Screen regions, top to bottom.
 	transcript transcript
@@ -147,7 +147,7 @@ func New(cfg config.Config, opts Options) (Model, error) {
 	m := Model{
 		transcript: transcript{viewport: vp, mainCache: &mainViewCache{}},
 		composer:   composer{textarea: ta},
-		session: core.Session{
+		session: harness.Session{
 			WS:     ws,
 			Cfg:    cfg,
 			Grants: &permission.Session{},

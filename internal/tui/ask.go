@@ -9,7 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/axispx/zeta/internal/agent"
+	"github.com/axispx/zeta/internal/harness"
 	"github.com/axispx/zeta/internal/styles"
 	"github.com/axispx/zeta/internal/tools"
 )
@@ -132,7 +132,7 @@ func (m *Model) abandonAsk() {
 	if m.panel.ask == nil {
 		return
 	}
-	m.sendReply(agent.DenyTool())
+	m.sendReply(harness.DenyTool())
 	m.panel.clear()
 	m.afterPanelChange()
 }
@@ -155,7 +155,7 @@ func (m *Model) submitAsk() {
 		m.afterPanelChange()
 		return
 	}
-	m.sendReply(agent.InjectResult(tools.FormatAskUserResponse(p.buildResponse())))
+	m.sendReply(harness.InjectResult(tools.FormatAskUserResponse(p.buildResponse())))
 	m.panel.clear()
 	m.afterPanelChange()
 }
@@ -485,7 +485,7 @@ func (m *Model) openAskFromToolStart(argsJSON json.RawMessage) {
 	args, err := tools.ParseAskUserArgs(argsJSON)
 	if err != nil {
 		// Invalid args: inject error result so the model can recover.
-		m.sendReply(agent.InjectResult("error: " + err.Error()))
+		m.sendReply(harness.InjectResult("error: " + err.Error()))
 		return
 	}
 	m.panel.setAsk(newAskPrompt(args))

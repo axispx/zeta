@@ -8,7 +8,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/axispx/zeta/internal/config"
-	"github.com/axispx/zeta/internal/core"
+	"github.com/axispx/zeta/internal/harness"
 	"github.com/axispx/zeta/internal/image"
 	"github.com/axispx/zeta/internal/permission"
 	"github.com/axispx/zeta/internal/search"
@@ -328,7 +328,7 @@ func (m *Model) applySession(sess *session.Session, recs []session.Record, err e
 	} else {
 		m.session.Log = sess
 		m.transcript.messages, m.session.History = loadSession(recs)
-		m.session.SeedTodos(core.TodosFromRecords(recs))
+		m.session.SeedTodos(harness.TodosFromRecords(recs))
 	}
 	// A session boundary is when project instructions are read: /clear and
 	// /resume pick up an edited AGENTS.md, turns in between do not.
@@ -336,7 +336,7 @@ func (m *Model) applySession(sess *session.Session, recs []session.Record, err e
 	m.refreshSessionDiff()
 	m.session.ResetContext()
 	// /resume replays the persisted per-turn accounting; /clear starts at zero.
-	m.session.Usage = core.UsageFromRecords(recs)
+	m.session.Usage = harness.UsageFromRecords(recs)
 	m.session.TitlePending = false
 	m.clearCompactState()
 	m.resetPromptHistory()

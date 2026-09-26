@@ -1,11 +1,10 @@
-package core
+package harness
 
 import (
 	"context"
 	"encoding/json"
 	"strings"
 
-	"github.com/axispx/zeta/internal/agent"
 	"github.com/axispx/zeta/internal/ai"
 	"github.com/axispx/zeta/internal/compact"
 	"github.com/axispx/zeta/internal/config"
@@ -140,18 +139,18 @@ const PolicyDenyReason = "denied by permission policy"
 
 // AutoReply returns the reply the harness sends for a call it settles without
 // the user, if any. WaitAutoDeny is the only such case today.
-func AutoReply(kind WaitKind) (agent.Reply, bool) {
+func AutoReply(kind WaitKind) (Reply, bool) {
 	if kind == WaitAutoDeny {
-		return agent.DenyToolReason(PolicyDenyReason), true
+		return DenyToolReason(PolicyDenyReason), true
 	}
-	return agent.Reply{}, false
+	return Reply{}, false
 }
 
 // Run starts one turn's tool loop over this session's state. Composed here so
 // every client runs the same wiring — this session's tools, root, gate, and
 // request assembly — with d answering gated calls.
-func (s *Session) Run(ctx context.Context, client *ai.Client, d agent.Decider) <-chan agent.Event {
-	cfg := agent.Config{
+func (s *Session) Run(ctx context.Context, client *ai.Client, d Decider) <-chan Event {
+	cfg := Config{
 		Client:  client,
 		Tools:   s.Tools(),
 		Root:    s.WS.Abs,

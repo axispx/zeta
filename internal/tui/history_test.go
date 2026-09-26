@@ -12,7 +12,7 @@ import (
 	"github.com/axispx/zeta/internal/ai"
 	"github.com/axispx/zeta/internal/compact"
 	"github.com/axispx/zeta/internal/config"
-	"github.com/axispx/zeta/internal/core"
+	"github.com/axispx/zeta/internal/harness"
 	"github.com/axispx/zeta/internal/permission"
 	"github.com/axispx/zeta/internal/policy"
 	"github.com/axispx/zeta/internal/session"
@@ -27,7 +27,7 @@ func testModel() Model {
 			height: 24,
 			ready:  true,
 		},
-		session: core.Session{
+		session: harness.Session{
 			Grants: &permission.Session{},
 			Rules:  permission.NewRules(policy.Policy{}),
 		},

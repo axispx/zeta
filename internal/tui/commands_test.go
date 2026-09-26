@@ -9,7 +9,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/axispx/zeta/internal/config"
-	"github.com/axispx/zeta/internal/core"
+	"github.com/axispx/zeta/internal/harness"
 	"github.com/axispx/zeta/internal/styles"
 )
 
@@ -254,7 +254,7 @@ func TestCycleModelReasoning(t *testing.T) {
 		},
 	}
 	m := Model{
-		session:  core.Session{Cfg: cfg},
+		session:  harness.Session{Cfg: cfg},
 		composer: composer{textarea: textarea.New()},
 		overlay: filterOverlay{
 			mode:   overlayModels,
@@ -295,7 +295,7 @@ func TestCycleModelReasoning(t *testing.T) {
 
 func TestRenderModelOverlayShowsEffort(t *testing.T) {
 	m := Model{
-		session: core.Session{Cfg: config.Config{Active: "p/a"}},
+		session: harness.Session{Cfg: config.Config{Active: "p/a"}},
 		overlay: filterOverlay{
 			mode: overlayModels,
 			models: []config.ModelChoice{
@@ -351,7 +351,7 @@ func TestRenderModelOverlayMaxRows(t *testing.T) {
 		}
 	}
 	m := Model{
-		session: core.Session{Cfg: config.Config{Active: "p/a"}},
+		session: harness.Session{Cfg: config.Config{Active: "p/a"}},
 		overlay: filterOverlay{
 			mode:   overlayModels,
 			models: entries,

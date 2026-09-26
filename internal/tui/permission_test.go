@@ -10,8 +10,7 @@ import (
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/axispx/zeta/internal/agent"
-	"github.com/axispx/zeta/internal/core"
+	"github.com/axispx/zeta/internal/harness"
 	"github.com/axispx/zeta/internal/permission"
 	"github.com/axispx/zeta/internal/prompt"
 	"github.com/axispx/zeta/internal/tools"
@@ -44,9 +43,9 @@ func pressPermRow(t *testing.T, m *Model, d permission.Decision) {
 }
 
 func TestHandlePermissionKey(t *testing.T) {
-	replies := make(chan agent.Reply, 1)
+	replies := make(chan harness.Reply, 1)
 	m := Model{
-		session: core.Session{Grants: &permission.Session{}},
+		session: harness.Session{Grants: &permission.Session{}},
 		panel:   panel{perm: newPermissionPrompt("bash echo", tools.Bash, "")},
 		turn:    turn{current: &turnSession{reply: replies, activeTool: -1, cancel: func() {}}},
 	}
@@ -54,11 +53,11 @@ func TestHandlePermissionKey(t *testing.T) {
 	if m.panel.perm != nil {
 		t.Fatal("perm should clear")
 	}
-	if allow := <-replies; allow.Kind == agent.ReplyDeny {
+	if allow := <-replies; allow.Kind == harness.ReplyDeny {
 		t.Fatal("want allow")
 	}
 
-	replies = make(chan agent.Reply, 1)
+	replies = make(chan harness.Reply, 1)
 	m.panel.perm = newPermissionPrompt("", tools.Bash, "")
 	m.panel.perm.setArgs(bashArgs("echo"), t.TempDir())
 	m.turn.current.reply = replies
@@ -66,23 +65,23 @@ func TestHandlePermissionKey(t *testing.T) {
 	if !m.session.Grants.Granted(tools.Bash) {
 		t.Fatal("session grant should stick on harness")
 	}
-	if allow := <-replies; allow.Kind == agent.ReplyDeny {
+	if allow := <-replies; allow.Kind == harness.ReplyDeny {
 		t.Fatal("want allow")
 	}
 
-	replies = make(chan agent.Reply, 1)
+	replies = make(chan harness.Reply, 1)
 	m.panel.perm = newPermissionPrompt("", tools.Bash, "")
 	m.turn.current.reply = replies
 	pressPermRow(t, &m, permission.Deny)
-	if allow := <-replies; allow.Kind != agent.ReplyDeny {
+	if allow := <-replies; allow.Kind != harness.ReplyDeny {
 		t.Fatal("want deny")
 	}
 }
 
 func TestHandlePermissionKeyEditNoSession(t *testing.T) {
-	replies := make(chan agent.Reply, 1)
+	replies := make(chan harness.Reply, 1)
 	m := Model{
-		session: core.Session{Grants: &permission.Session{}},
+		session: harness.Session{Grants: &permission.Session{}},
 		panel:   panel{perm: newPermissionPrompt("", tools.Edit, "a.go")},
 		turn:    turn{current: &turnSession{reply: replies, activeTool: -1, cancel: func() {}}},
 	}
@@ -104,7 +103,7 @@ func TestHandlePermissionKeyEditNoSession(t *testing.T) {
 	}
 
 	pressPermRow(t, &m, permission.AllowOnce)
-	if allow := <-replies; allow.Kind == agent.ReplyDeny {
+	if allow := <-replies; allow.Kind == harness.ReplyDeny {
 		t.Fatal("want allow")
 	}
 	if m.session.Grants.Granted(tools.Edit) || m.session.Grants.Granted(tools.Write) {
@@ -114,9 +113,9 @@ func TestHandlePermissionKeyEditNoSession(t *testing.T) {
 
 func TestHandlePermissionKeyNavEnter(t *testing.T) {
 	// edit has Allow / Deny (2 options)
-	replies := make(chan agent.Reply, 1)
+	replies := make(chan harness.Reply, 1)
 	m := Model{
-		session: core.Session{Grants: &permission.Session{}},
+		session: harness.Session{Grants: &permission.Session{}},
 		panel:   panel{perm: newPermissionPrompt("", tools.Edit, "")},
 		turn:    turn{current: &turnSession{reply: replies, activeTool: -1, cancel: func() {}}},
 	}
@@ -129,11 +128,11 @@ func TestHandlePermissionKeyNavEnter(t *testing.T) {
 	if _, ok := m.handlePermissionKey(tea.KeyPressMsg{Code: tea.KeyEnter, Text: "enter"}); !ok {
 		t.Fatal("enter")
 	}
-	if allow := <-replies; allow.Kind != agent.ReplyDeny {
+	if allow := <-replies; allow.Kind != harness.ReplyDeny {
 		t.Fatal("want deny from selection")
 	}
 
-	replies = make(chan agent.Reply, 1)
+	replies = make(chan harness.Reply, 1)
 	m.panel.perm = newPermissionPrompt("", tools.Edit, "")
 	m.panel.perm.list.selected = 1
 	m.turn.current.reply = replies
@@ -146,7 +145,7 @@ func TestHandlePermissionKeyNavEnter(t *testing.T) {
 	if _, ok := m.handlePermissionKey(tea.KeyPressMsg{Code: tea.KeyEnter, Text: "enter"}); !ok {
 		t.Fatal("enter allow")
 	}
-	if allow := <-replies; allow.Kind == agent.ReplyDeny {
+	if allow := <-replies; allow.Kind == harness.ReplyDeny {
 		t.Fatal("want allow from selection")
 	}
 }
@@ -187,9 +186,9 @@ func selectDenyRow(t *testing.T, m *Model) {
 // TestDenyReasonTypeToFocus: with Deny selected, typing is the denial's reason
 // and never decides; Enter then denies with that reason.
 func TestDenyReasonTypeToFocus(t *testing.T) {
-	replies := make(chan agent.Reply, 1)
+	replies := make(chan harness.Reply, 1)
 	m := Model{
-		session: core.Session{Grants: &permission.Session{}},
+		session: harness.Session{Grants: &permission.Session{}},
 		panel:   panel{perm: newPermissionPrompt("", tools.Edit, "a.go")},
 		turn:    turn{current: &turnSession{reply: replies, activeTool: -1, cancel: func() {}}},
 	}
@@ -222,7 +221,7 @@ func TestDenyReasonTypeToFocus(t *testing.T) {
 	if m.panel.perm != nil {
 		t.Fatal("perm should clear after denying")
 	}
-	if r := <-replies; r.Kind != agent.ReplyDeny || r.Reason != "wrong7" {
+	if r := <-replies; r.Kind != harness.ReplyDeny || r.Reason != "wrong7" {
 		t.Fatalf("reply=%+v", r)
 	}
 }
@@ -230,10 +229,10 @@ func TestDenyReasonTypeToFocus(t *testing.T) {
 // TestDenyReasonEdges: typing elsewhere is still swallowed; an arrow hands the
 // keys back to the list; an empty reason denies plainly.
 func TestDenyReasonEdges(t *testing.T) {
-	newModel := func() (*Model, chan agent.Reply) {
-		replies := make(chan agent.Reply, 1)
+	newModel := func() (*Model, chan harness.Reply) {
+		replies := make(chan harness.Reply, 1)
 		m := &Model{
-			session: core.Session{Grants: &permission.Session{}},
+			session: harness.Session{Grants: &permission.Session{}},
 			panel:   panel{perm: newPermissionPrompt("", tools.Edit, "a.go")},
 			turn:    turn{current: &turnSession{reply: replies, activeTool: -1, cancel: func() {}}},
 		}
@@ -270,7 +269,7 @@ func TestDenyReasonEdges(t *testing.T) {
 	if _, ok := m.handlePermissionKey(tea.KeyPressMsg{Code: tea.KeyEnter, Text: "enter"}); !ok {
 		t.Fatal("enter on the deny row not handled")
 	}
-	if r := <-replies; r.Kind != agent.ReplyDeny || r.Reason != "the user denied this call" {
+	if r := <-replies; r.Kind != harness.ReplyDeny || r.Reason != "the user denied this call" {
 		t.Fatalf("plain deny: %+v", r)
 	}
 }
@@ -403,13 +402,13 @@ func TestRenderPermissionBash(t *testing.T) {
 
 func TestSideEffectToolStartOpensApproval(t *testing.T) {
 	diff := "--- a.txt\n+++ a.txt\n@@ -0,0 +1 @@\n+hi\n"
-	replies := make(chan agent.Reply, 1)
+	replies := make(chan harness.Reply, 1)
 	m := testModel()
 	m.term.width = 80
 	m.term.height = 24
 	m.turn.current = &turnSession{
 		activeTool: -1,
-		ch:         make(chan agent.Event),
+		ch:         make(chan harness.Event),
 		reply:      replies,
 		cancel:     func() {},
 	}
@@ -452,13 +451,13 @@ func TestSideEffectToolStartOpensApproval(t *testing.T) {
 func TestHandlePermissionClick(t *testing.T) {
 	vp := viewport.New()
 	vp.SetHeight(10)
-	replies := make(chan agent.Reply, 1)
+	replies := make(chan harness.Reply, 1)
 	m := Model{
 		term: term{
 			width: 80,
 		},
 		transcript: transcript{viewport: vp},
-		session:    core.Session{Grants: &permission.Session{}},
+		session:    harness.Session{Grants: &permission.Session{}},
 		panel:      panel{perm: newPermissionPrompt("", tools.Bash, "")},
 		turn:       turn{current: &turnSession{reply: replies, activeTool: -1, cancel: func() {}}},
 	}
@@ -466,7 +465,7 @@ func TestHandlePermissionClick(t *testing.T) {
 	if _, ok := m.handlePermissionClick(tea.MouseClickMsg{X: 2, Y: 15, Button: tea.MouseLeft}); !ok {
 		t.Fatal("expected click handled")
 	}
-	if allow := <-replies; allow.Kind != agent.ReplyDeny {
+	if allow := <-replies; allow.Kind != harness.ReplyDeny {
 		t.Fatal("want deny")
 	}
 }
@@ -500,12 +499,12 @@ func TestRenderDeniedEdit(t *testing.T) {
 }
 
 func TestSessionGrantSkipsPrompt(t *testing.T) {
-	replies := make(chan agent.Reply, 1)
+	replies := make(chan harness.Reply, 1)
 	m := testModel()
 	m.session.Grants.Grant(tools.Bash)
 	m.turn.current = &turnSession{
 		activeTool: -1,
-		ch:         make(chan agent.Event),
+		ch:         make(chan harness.Event),
 		reply:      replies,
 		cancel:     func() {},
 	}
@@ -521,12 +520,12 @@ func TestSessionGrantSkipsPrompt(t *testing.T) {
 }
 
 func TestEditAlwaysPromptsEvenAfterBashGrant(t *testing.T) {
-	replies := make(chan agent.Reply, 1)
+	replies := make(chan harness.Reply, 1)
 	m := testModel()
 	m.session.Grants.Grant(tools.Bash)
 	m.turn.current = &turnSession{
 		activeTool: -1,
-		ch:         make(chan agent.Event),
+		ch:         make(chan harness.Event),
 		reply:      replies,
 		cancel:     func() {},
 	}
@@ -542,12 +541,12 @@ func TestEditAlwaysPromptsEvenAfterBashGrant(t *testing.T) {
 }
 
 func TestEditOutsideWorkspacePromptFlagsOutside(t *testing.T) {
-	replies := make(chan agent.Reply, 1)
+	replies := make(chan harness.Reply, 1)
 	m := testModel()
 	m.session.WS = workspace.Context{Abs: t.TempDir()}
 	m.turn.current = &turnSession{
 		activeTool: -1,
-		ch:         make(chan agent.Event),
+		ch:         make(chan harness.Event),
 		reply:      replies,
 		cancel:     func() {},
 	}
@@ -575,7 +574,7 @@ func TestEditOutsideWorkspacePromptFlagsOutside(t *testing.T) {
 }
 
 func TestActiveGrantsSurviveMode(t *testing.T) {
-	m := Model{session: core.Session{Grants: &permission.Session{}}}
+	m := Model{session: harness.Session{Grants: &permission.Session{}}}
 	m.session.Grants.Grant(tools.Bash)
 	if !m.session.Grants.Granted(tools.Bash) {
 		t.Fatal("session grant should stick")
@@ -587,12 +586,12 @@ func TestActiveGrantsSurviveMode(t *testing.T) {
 }
 
 func TestReadToolStartSkipsPrompt(t *testing.T) {
-	replies := make(chan agent.Reply, 1)
+	replies := make(chan harness.Reply, 1)
 	m := testModel()
 	m.session.WS = workspace.Context{Abs: t.TempDir()}
 	m.turn.current = &turnSession{
 		activeTool: -1,
-		ch:         make(chan agent.Event),
+		ch:         make(chan harness.Event),
 		reply:      replies,
 		cancel:     func() {},
 	}
@@ -608,12 +607,12 @@ func TestReadToolStartSkipsPrompt(t *testing.T) {
 }
 
 func TestEnvReadOpensApproval(t *testing.T) {
-	replies := make(chan agent.Reply, 1)
+	replies := make(chan harness.Reply, 1)
 	m := testModel()
 	m.session.WS = workspace.Context{Abs: t.TempDir()}
 	m.turn.current = &turnSession{
 		activeTool: -1,
-		ch:         make(chan agent.Event),
+		ch:         make(chan harness.Event),
 		reply:      replies,
 		cancel:     func() {},
 	}
@@ -642,12 +641,12 @@ func TestEnvReadOpensApproval(t *testing.T) {
 }
 
 func TestReadOutsideOpensApproval(t *testing.T) {
-	replies := make(chan agent.Reply, 1)
+	replies := make(chan harness.Reply, 1)
 	m := testModel()
 	m.session.WS = workspace.Context{Abs: t.TempDir()}
 	m.turn.current = &turnSession{
 		activeTool: -1,
-		ch:         make(chan agent.Event),
+		ch:         make(chan harness.Event),
 		reply:      replies,
 		cancel:     func() {},
 	}
@@ -681,7 +680,7 @@ func TestReadOutsideOpensApproval(t *testing.T) {
 }
 
 func TestReadOutsideSessionGrantSkipsLater(t *testing.T) {
-	replies := make(chan agent.Reply, 1)
+	replies := make(chan harness.Reply, 1)
 	outer := t.TempDir()
 	root := t.TempDir()
 	oneA, _ := json.Marshal(map[string]string{"path": filepath.Join(outer, "one", "a.txt")})
@@ -692,7 +691,7 @@ func TestReadOutsideSessionGrantSkipsLater(t *testing.T) {
 	m.session.WS = workspace.Context{Abs: root}
 	m.turn.current = &turnSession{
 		activeTool: -1,
-		ch:         make(chan agent.Event),
+		ch:         make(chan harness.Event),
 		reply:      replies,
 		cancel:     func() {},
 	}
@@ -707,7 +706,7 @@ func TestReadOutsideSessionGrantSkipsLater(t *testing.T) {
 	if m.session.Grants.Granted(tools.Read) {
 		t.Fatal("must not class-grant read")
 	}
-	if allow := <-replies; allow.Kind == agent.ReplyDeny {
+	if allow := <-replies; allow.Kind == harness.ReplyDeny {
 		t.Fatal("want allow")
 	}
 
@@ -757,13 +756,13 @@ func TestReadOutsideSessionGrantSkipsLater(t *testing.T) {
 }
 
 func TestReadOutsidePromptsInAskMode(t *testing.T) {
-	replies := make(chan agent.Reply, 1)
+	replies := make(chan harness.Reply, 1)
 	m := testModel()
 	m.session.Mode = prompt.ModeAsk
 	m.session.WS = workspace.Context{Abs: t.TempDir()}
 	m.turn.current = &turnSession{
 		activeTool: -1,
-		ch:         make(chan agent.Event),
+		ch:         make(chan harness.Event),
 		reply:      replies,
 		cancel:     func() {},
 	}
@@ -779,9 +778,9 @@ func TestReadOutsidePromptsInAskMode(t *testing.T) {
 // TestHandlePermissionKeySwallowsUnknown: while the prompt owns the input, keys
 // that are not nav / row numbers / Enter are consumed but decide nothing.
 func TestHandlePermissionKeySwallowsUnknown(t *testing.T) {
-	replies := make(chan agent.Reply, 1)
+	replies := make(chan harness.Reply, 1)
 	m := Model{
-		session: core.Session{Grants: &permission.Session{}},
+		session: harness.Session{Grants: &permission.Session{}},
 		panel:   panel{perm: newPermissionPrompt("", tools.Bash, "")},
 		turn:    turn{current: &turnSession{reply: replies, activeTool: -1, cancel: func() {}}},
 	}
@@ -806,7 +805,7 @@ func TestHandlePermissionKeySwallowsUnknown(t *testing.T) {
 	if _, ok := m.handlePermissionKey(tea.KeyPressMsg{Text: "esc"}); !ok {
 		t.Fatal("esc should be handled by the prompt")
 	}
-	if r := <-replies; r.Kind != agent.ReplyDeny {
+	if r := <-replies; r.Kind != harness.ReplyDeny {
 		t.Fatalf("esc should deny: %+v", r)
 	}
 }
@@ -814,14 +813,14 @@ func TestHandlePermissionKeySwallowsUnknown(t *testing.T) {
 // TestPermissionEscDeniesNotCancels: Esc answers the prompt ("no") and leaves
 // the turn running — only Ctrl+C aborts it.
 func TestPermissionEscDeniesNotCancels(t *testing.T) {
-	replies := make(chan agent.Reply, 1)
+	replies := make(chan harness.Reply, 1)
 	cancelled := false
 	m := testModel()
 	m.transcript.messages = []Message{{Role: RoleTool, Text: "edit a.go", Tool: tools.Edit}}
 	m.panel.perm = newPermissionPrompt("", tools.Edit, "a.go")
 	m.turn.current = &turnSession{
 		activeTool: 0,
-		ch:         make(chan agent.Event),
+		ch:         make(chan harness.Event),
 		reply:      replies,
 		cancel:     func() { cancelled = true },
 	}
@@ -834,7 +833,7 @@ func TestPermissionEscDeniesNotCancels(t *testing.T) {
 	if cancelled || m.turn.current == nil {
 		t.Fatal("esc must not cancel the turn")
 	}
-	if r := <-replies; r.Kind != agent.ReplyDeny || r.Reason != "the user denied this call" {
+	if r := <-replies; r.Kind != harness.ReplyDeny || r.Reason != "the user denied this call" {
 		t.Fatalf("reply=%+v", r)
 	}
 	for _, msg := range m.transcript.messages {
@@ -846,9 +845,9 @@ func TestPermissionEscDeniesNotCancels(t *testing.T) {
 
 // TestPermissionEscTakesTypedReason: Esc denies with the reason already typed.
 func TestPermissionEscTakesTypedReason(t *testing.T) {
-	replies := make(chan agent.Reply, 1)
+	replies := make(chan harness.Reply, 1)
 	m := Model{
-		session: core.Session{Grants: &permission.Session{}},
+		session: harness.Session{Grants: &permission.Session{}},
 		panel:   panel{perm: newPermissionPrompt("", tools.Edit, "a.go")},
 		turn:    turn{current: &turnSession{reply: replies, activeTool: -1, cancel: func() {}}},
 	}
@@ -858,19 +857,19 @@ func TestPermissionEscTakesTypedReason(t *testing.T) {
 	if _, ok := m.handlePermissionKey(tea.KeyPressMsg{Code: tea.KeyEscape, Text: "esc"}); !ok {
 		t.Fatal("esc should be consumed")
 	}
-	if r := <-replies; r.Kind != agent.ReplyDeny || r.Reason != "no" {
+	if r := <-replies; r.Kind != harness.ReplyDeny || r.Reason != "no" {
 		t.Fatalf("reply=%+v", r)
 	}
 }
 
 func TestFinishTurnDeniesOpenApproval(t *testing.T) {
-	replies := make(chan agent.Reply, 1)
+	replies := make(chan harness.Reply, 1)
 	m := testModel()
 	m.transcript.messages = []Message{{Role: RoleTool, Text: "edit a.go", Tool: tools.Edit}}
 	m.panel.perm = newPermissionPrompt("", tools.Edit, "")
 	m.turn.current = &turnSession{
 		activeTool: 0,
-		ch:         make(chan agent.Event),
+		ch:         make(chan harness.Event),
 		reply:      replies,
 		cancel:     func() {},
 	}
@@ -881,7 +880,7 @@ func TestFinishTurnDeniesOpenApproval(t *testing.T) {
 	if m.transcript.messages[0].Status != ToolDenied {
 		t.Fatalf("status=%v want denied", m.transcript.messages[0].Status)
 	}
-	if allow := <-replies; allow.Kind != agent.ReplyDeny {
+	if allow := <-replies; allow.Kind != harness.ReplyDeny {
 		t.Fatalf("abandon should deny")
 	}
 }

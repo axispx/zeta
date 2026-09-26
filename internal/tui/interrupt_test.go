@@ -4,9 +4,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/axispx/zeta/internal/agent"
 	"github.com/axispx/zeta/internal/ai"
-	"github.com/axispx/zeta/internal/core"
+	"github.com/axispx/zeta/internal/harness"
 	"github.com/axispx/zeta/internal/image"
 	"github.com/axispx/zeta/internal/session"
 	"github.com/axispx/zeta/internal/tools"
@@ -75,7 +74,7 @@ func TestTryInterruptDismissesCommandOverlay(t *testing.T) {
 }
 
 func TestTryInterruptCancelsCompact(t *testing.T) {
-	m := Model{session: core.Session{Compacting: true}}
+	m := Model{session: harness.Session{Compacting: true}}
 	cancelled := false
 	m.turn.compactCancel = func() { cancelled = true }
 	if !m.tryInterrupt() {
@@ -120,7 +119,7 @@ func TestTryInterruptIdle(t *testing.T) {
 // turn while the prompt is open. tryInterrupt must still reach the turn and
 // abandon the panel with a deny so the agent unblocks.
 func TestTryInterruptWithPermissionPromptCancelsTurn(t *testing.T) {
-	replies := make(chan agent.Reply, 1)
+	replies := make(chan harness.Reply, 1)
 	m := testModel()
 	m.panel.perm = newPermissionPrompt("", tools.Edit, "a.go")
 	cancelled := false
@@ -139,7 +138,7 @@ func TestTryInterruptWithPermissionPromptCancelsTurn(t *testing.T) {
 	if m.panel.perm != nil {
 		t.Fatal("panel should be abandoned")
 	}
-	if r := <-replies; r.Kind != agent.ReplyDeny {
+	if r := <-replies; r.Kind != harness.ReplyDeny {
 		t.Fatalf("abandon should deny: %+v", r)
 	}
 }

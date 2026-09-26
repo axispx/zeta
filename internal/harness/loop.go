@@ -1,4 +1,4 @@
-package agent
+package harness
 
 import (
 	"context"
@@ -17,8 +17,8 @@ const (
 	// KindDelta is streamed assistant text.
 	KindDelta EventKind = iota
 	// KindToolStart is a tool call beginning (Text=label, Name=tool).
-	// Path/Detail carry optional preview for the harness. When Gate asks
-	// for a decision, the agent waits on Decide before running the tool.
+	// Path/Detail carry an optional preview for the shell. When Gate asks
+	// for a decision, the loop waits on Decide before running the tool.
 	// Args is the raw tool JSON (used by interactive tools like ask_user).
 	KindToolStart
 	// KindToolOut is live tool output so far (Text=snapshot, Name=tool). May be dropped if the UI is behind.
@@ -99,8 +99,10 @@ type Request struct {
 	Detail string
 }
 
-// Decider answers gated tool calls. Decide may block a long time — an approval
-// can arrive from another device — and must respect ctx.
+// Decider answers gated tool calls. It is the shell's plug-in point — internal/tui
+// implements it — so it stays an interface even though the loop could call the
+// runtime directly. Decide may block a long time — an approval can arrive from
+// another device — and must respect ctx.
 type Decider interface {
 	Decide(ctx context.Context, req Request) (Reply, error)
 }

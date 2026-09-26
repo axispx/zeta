@@ -7,7 +7,7 @@ import (
 
 // Clone returns a deep copy of the config.
 func (c Config) Clone() Config {
-	out := Config{Active: c.Active}
+	out := Config{Active: c.Active, Defaults: c.Defaults}
 	if len(c.Providers) == 0 {
 		return out
 	}

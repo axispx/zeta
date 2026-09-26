@@ -6,7 +6,7 @@ import (
 	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/axispx/zeta/internal/core"
+	"github.com/axispx/zeta/internal/harness"
 	"github.com/axispx/zeta/internal/skill"
 )
 
@@ -47,7 +47,7 @@ func TestSkillSlashDoesNotCollideWithBuiltins(t *testing.T) {
 func TestSubmitInputSkillWithArgs(t *testing.T) {
 	ta := textarea.New()
 	ta.SetValue("/review focus on stream.go")
-	m := Model{composer: composer{textarea: ta}, session: core.Session{Cfg: testClientCfg()}}
+	m := Model{composer: composer{textarea: ta}, session: harness.Session{Cfg: testClientCfg()}}
 	m.session.ApplyClient()
 	cmd := m.submitInput()
 	_ = cmd
@@ -100,7 +100,7 @@ func TestSubmitInputExactSkillTokenFills(t *testing.T) {
 	// Palette Enter always fills skills (never runs) so args can be added.
 	ta := textarea.New()
 	ta.SetValue("/review")
-	m := Model{composer: composer{textarea: ta}, session: core.Session{Cfg: testClientCfg()}}
+	m := Model{composer: composer{textarea: ta}, session: harness.Session{Cfg: testClientCfg()}}
 	m.session.ApplyClient()
 	_ = m.syncOverlay()
 	if !m.overlay.showing() {

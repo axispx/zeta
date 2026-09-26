@@ -1,4 +1,4 @@
-package core
+package harness
 
 import (
 	"encoding/json"
@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/axispx/zeta/internal/agent"
 	"github.com/axispx/zeta/internal/permission"
 	"github.com/axispx/zeta/internal/policy"
 	"github.com/axispx/zeta/internal/tools"
@@ -136,7 +135,7 @@ func TestDecidePermissionSessionGrantAndDeny(t *testing.T) {
 
 	bash := permission.CallFor(root, tools.Bash, bashArgs("go test"))
 	reply, err := s.DecidePermission(permission.AllowSession, bash, "")
-	if err != nil || reply.Kind != agent.ReplyRun {
+	if err != nil || reply.Kind != ReplyRun {
 		t.Fatalf("grant: reply=%+v err=%v", reply, err)
 	}
 	if !grants.Granted(tools.Bash) {
@@ -155,7 +154,7 @@ func TestDecidePermissionSessionGrantAndDeny(t *testing.T) {
 		t.Fatal("outside directory should be granted")
 	}
 
-	if r, err := s.DecidePermission(permission.Deny, bash, ""); err != nil || r.Kind != agent.ReplyDeny {
+	if r, err := s.DecidePermission(permission.Deny, bash, ""); err != nil || r.Kind != ReplyDeny {
 		t.Fatalf("deny: reply=%+v err=%v", r, err)
 	}
 }
@@ -167,7 +166,7 @@ func TestDecidePermissionDenyReason(t *testing.T) {
 
 	// A typed reason reaches the model instead of the generic denial.
 	r, err := s.DecidePermission(permission.Deny, bash, "use make test instead")
-	if err != nil || r.Kind != agent.ReplyDeny {
+	if err != nil || r.Kind != ReplyDeny {
 		t.Fatalf("reply=%+v err=%v", r, err)
 	}
 	if r.Reason != "use make test instead" {
@@ -187,7 +186,7 @@ func TestDecidePermissionAllowAlwaysPersists(t *testing.T) {
 	s := &Session{Grants: &permission.Session{}, Rules: rules}
 
 	reply, err := s.DecidePermission(permission.AllowAlways, permission.CallFor(root, tools.Bash, bashArgs("go test")), "")
-	if err != nil || reply.Kind != agent.ReplyRun {
+	if err != nil || reply.Kind != ReplyRun {
 		t.Fatalf("reply=%+v err=%v", reply, err)
 	}
 	want := policy.Rule{Tool: tools.Bash, CommandPrefix: "go test", Action: policy.ActionAllow}
@@ -218,7 +217,7 @@ func TestDecidePermissionPersistFailureStillAllows(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected a persist error")
 	}
-	if reply.Kind != agent.ReplyRun {
+	if reply.Kind != ReplyRun {
 		t.Fatalf("decision must survive a failed persist: %+v", reply)
 	}
 	if len(rules.Policy().Rules) != 0 {

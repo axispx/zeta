@@ -1,21 +1,24 @@
-// Package core is the UI-agnostic runtime for zeta.
+// Package harness is the agent harness for zeta: the tool loop (loop.go) and
+// the runtime around it — session state, request assembly, approvals, usage,
+// and the durable write path. It is everything in an agent that isn't the
+// model.
 //
 // It owns every decision the harness must make while a turn runs — whether a
 // tool call needs approval, which kind, and how interactive tools reach the
 // user — and assembles each model request (tool set, system prompt, mode
 // instructions, trailing context) without importing any UI framework. The TUI
-// (and future web/desktop shells) renders core's decisions and reports the
-// outcomes back.
+// (and future web/desktop shells) renders the harness's decisions and reports
+// the outcomes back.
 //
 // The decision vocabulary itself (permission.Decision, permission.Call) already
-// lives outside the UI; core reuses it rather than inventing parallel types.
-package core
+// lives outside the UI; the harness reuses it rather than inventing parallel
+// types.
+package harness
 
 import (
 	"encoding/json"
 	"strings"
 
-	"github.com/axispx/zeta/internal/agent"
 	"github.com/axispx/zeta/internal/permission"
 	"github.com/axispx/zeta/internal/policy"
 	"github.com/axispx/zeta/internal/tools"
@@ -53,9 +56,9 @@ func Classify(rules *permission.Rules, grants *permission.Session, root, name st
 	}
 }
 
-// Gate is the agent-side gate: it waits exactly when the harness will handle
-// the tool start. It closes over the live rules/grants holders, so a mid-turn
-// rule persist is visible to both sides of the decision.
+// Gate is the loop-side gate: it waits exactly when the rest of the harness
+// will handle the tool start. It closes over the live rules/grants holders, so
+// a mid-turn rule persist is visible to both sides of the decision.
 func Gate(rules *permission.Rules, grants *permission.Session, root string) func(string, json.RawMessage) bool {
 	return func(name string, args json.RawMessage) bool {
 		return Classify(rules, grants, root, name, args) != WaitNone
@@ -63,15 +66,15 @@ func Gate(rules *permission.Rules, grants *permission.Session, root string) func
 }
 
 // DecidePermission applies an approval decision to the session and returns the
-// reply the agent is waiting on: it records session grants, persists the rule an
+// reply the loop is waiting on: it records session grants, persists the rule an
 // "always allow" writes, and allows or denies the call. The rule is persisted
-// with policy.Add and swapped in place, so the agent's Gate sees it mid-turn.
+// with policy.Add and swapped in place, so the loop's Gate sees it mid-turn.
 // A rule that cannot be saved is reported but does not change the decision.
 //
 // reason is an optional deny explanation. When set, the model sees it in the
 // tool result ("rejected: <reason>") instead of the generic denial, so it can
 // steer the next attempt. It is ignored for allow decisions.
-func (s *Session) DecidePermission(d permission.Decision, call permission.Call, reason string) (agent.Reply, error) {
+func (s *Session) DecidePermission(d permission.Decision, call permission.Call, reason string) (Reply, error) {
 	var persistErr error
 	switch d {
 	case permission.AllowSession:
@@ -93,14 +96,14 @@ func (s *Session) DecidePermission(d permission.Decision, call permission.Call, 
 	if d == permission.Deny {
 		return denyReply(reason), persistErr
 	}
-	return agent.RunTool(), persistErr
+	return RunTool(), persistErr
 }
 
 // denyReply rejects the call, preferring a user-supplied reason so the model
 // sees why (as "rejected: <reason>") instead of the generic denial.
-func denyReply(reason string) agent.Reply {
+func denyReply(reason string) Reply {
 	if r := strings.TrimSpace(reason); r != "" {
-		return agent.DenyToolReason(r)
+		return DenyToolReason(r)
 	}
-	return agent.DenyTool()
+	return DenyTool()
 }

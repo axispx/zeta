@@ -7,9 +7,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/axispx/zeta/internal/agent"
 	"github.com/axispx/zeta/internal/ai"
-	"github.com/axispx/zeta/internal/core"
+	"github.com/axispx/zeta/internal/harness"
 )
 
 // This file owns the streaming turn: the active turn (turn / turnSession), the
@@ -35,29 +34,30 @@ type streamPaint struct {
 	scheduled bool
 }
 
-// turnDecider delivers harness decisions to the agent over the turn's reply
+// turnDecider delivers the UI's decisions to the loop over the turn's reply
 // channel. Send-only on the turn side, so it takes a bidirectional channel.
-type turnDecider struct{ reply chan agent.Reply }
+type turnDecider struct{ reply chan harness.Reply }
 
-func (d turnDecider) Decide(ctx context.Context, _ agent.Request) (agent.Reply, error) {
+func (d turnDecider) Decide(ctx context.Context, _ harness.Request) (harness.Reply, error) {
 	select {
 	case r := <-d.reply:
 		return r, nil
 	case <-ctx.Done():
-		return agent.Reply{}, ctx.Err()
+		return harness.Reply{}, ctx.Err()
 	}
 }
 
 // turnSession is one in-flight agent turn (stream + tool loop).
 type turnSession struct {
-	id         int // matches turn*Msg.id; drops late events after cancel/replace
+	id         int             // matches turn*Msg.id; drops late events after cancel/replace
+	ctx        context.Context // cancelled with the turn
 	cancel     context.CancelFunc
-	ch         <-chan agent.Event
-	reply      chan<- agent.Reply // harness → agent; one decision per gated start
-	streaming  bool               // true while receiving assistant deltas
-	pending    *agent.Event       // set when coalesce peeks a non-matching event
-	thinking   string             // live reasoning tail; only while thinkingPhase
-	activeTool int                // index of open tool row in Model.transcript.messages; -1 if none
+	ch         <-chan harness.Event
+	reply      chan<- harness.Reply // UI → loop; one decision per gated start
+	streaming  bool                 // true while receiving assistant deltas
+	pending    *harness.Event       // set when coalesce peeks a non-matching event
+	thinking   string               // live reasoning tail; only while thinkingPhase
+	activeTool int                  // index of open tool row in Model.transcript.messages; -1 if none
 }
 
 // thinkingPhase is true before answer deltas or an open tool (pre-answer reasoning).
@@ -179,7 +179,7 @@ func waitTurn(t *turnSession) tea.Cmd {
 	}
 }
 
-func recvTurnEvent(t *turnSession) (agent.Event, bool) {
+func recvTurnEvent(t *turnSession) (harness.Event, bool) {
 	// take the pending event if it exists
 	if t.pending != nil {
 		evt := *t.pending
@@ -191,11 +191,11 @@ func recvTurnEvent(t *turnSession) (agent.Event, bool) {
 	// or prioritize take pending one above
 	evt, ok := <-t.ch
 	if !ok {
-		return agent.Event{}, false
+		return harness.Event{}, false
 	}
 
 	// we only coalesce on delta/reasoning text
-	if evt.Kind != agent.KindDelta && evt.Kind != agent.KindReasoning {
+	if evt.Kind != harness.KindDelta && evt.Kind != harness.KindReasoning {
 		return evt, true
 	}
 
@@ -221,15 +221,15 @@ func recvTurnEvent(t *turnSession) (agent.Event, bool) {
 	}
 }
 
-func turnEventMsg(id int, evt agent.Event) tea.Msg {
+func turnEventMsg(id int, evt harness.Event) tea.Msg {
 	switch evt.Kind {
-	case agent.KindDelta:
+	case harness.KindDelta:
 		return turnDeltaMsg{id: id, text: evt.Text}
-	case agent.KindReasoning:
+	case harness.KindReasoning:
 		return turnReasoningMsg{id: id, text: evt.Text}
-	case agent.KindAssistant:
+	case harness.KindAssistant:
 		return turnAssistantMsg{id: id, message: evt.Message, usage: evt.Usage}
-	case agent.KindToolStart:
+	case harness.KindToolStart:
 		return turnToolStartMsg{
 			id:     id,
 			label:  evt.Text,
@@ -238,25 +238,26 @@ func turnEventMsg(id int, evt agent.Event) tea.Msg {
 			detail: evt.Detail,
 			args:   evt.Args,
 		}
-	case agent.KindToolOut:
+	case harness.KindToolOut:
 		return turnToolOutMsg{id: id, text: evt.Text, name: evt.Name}
-	case agent.KindTool:
+	case harness.KindTool:
 		return turnToolMsg{id: id, label: evt.Text, name: evt.Name, message: evt.Message, denied: evt.Denied}
-	case agent.KindDone:
+	case harness.KindDone:
 		return turnDoneMsg{id: id}
-	case agent.KindErr:
+	case harness.KindErr:
 		return turnErrMsg{id: id, err: evt.Err}
 	default:
 		return turnDoneMsg{id: id}
 	}
 }
 
-func startTurn(id int, client *ai.Client, sess *core.Session) (*turnSession, tea.Cmd) {
+func startTurn(id int, client *ai.Client, sess *harness.Session) (*turnSession, tea.Cmd) {
 	ctx, cancel := context.WithCancel(context.Background())
-	replies := make(chan agent.Reply, 1)
+	replies := make(chan harness.Reply, 1)
 	ch := sess.Run(ctx, client, turnDecider{replies})
 	t := &turnSession{
 		id:         id,
+		ctx:        ctx,
 		cancel:     cancel,
 		ch:         ch,
 		reply:      replies,
@@ -272,7 +273,7 @@ func (t turn) live(id int) bool { return t.current != nil && t.current.id == id 
 
 // start installs a freshly started agent loop as the active turn, allocating
 // the id that turn*Msgs are tagged with.
-func (t *turn) start(client *ai.Client, sess *core.Session) tea.Cmd {
+func (t *turn) start(client *ai.Client, sess *harness.Session) tea.Cmd {
 	t.nextID++
 	cur, cmd := startTurn(t.nextID, client, sess)
 	t.current = cur

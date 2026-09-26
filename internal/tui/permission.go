@@ -7,8 +7,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/axispx/zeta/internal/agent"
-	"github.com/axispx/zeta/internal/core"
+	"github.com/axispx/zeta/internal/harness"
 	"github.com/axispx/zeta/internal/permission"
 	"github.com/axispx/zeta/internal/styles"
 	"github.com/axispx/zeta/internal/tools"
@@ -24,9 +23,9 @@ type permOption struct {
 }
 
 // permOptions maps an approval's choices to rows. The choice set is core policy
-// (core.Approval.Choices); labels are this client's. Row order is the choice
+// (harness.Approval.Choices); labels are this client's. Row order is the choice
 // order, so the digit shortcut for a decision is its position here.
-func permOptions(tool string, a core.Approval) []permOption {
+func permOptions(tool string, a harness.Approval) []permOption {
 	opts := make([]permOption, 0, len(a.Choices))
 	for _, d := range a.Choices {
 		opts = append(opts, permOption{label: permLabel(tool, d, a), decide: d})
@@ -36,7 +35,7 @@ func permOptions(tool string, a core.Approval) []permOption {
 
 // permLabel names a decision. The "always allow" row shows the derived rule's
 // scope so the user sees what they are agreeing to.
-func permLabel(tool string, d permission.Decision, a core.Approval) string {
+func permLabel(tool string, d permission.Decision, a harness.Approval) string {
 	switch d {
 	case permission.AllowAlways:
 		if tool == tools.Read {
@@ -70,8 +69,8 @@ type permissionPrompt struct {
 	label string
 	name  string
 	path  string
-	appr  core.Approval // derived from the tool name, args, and workspace root
-	opts  []permOption  // source of truth for the row list and the decision dispatched for a chosen index
+	appr  harness.Approval // derived from the tool name, args, and workspace root
+	opts  []permOption     // source of truth for the row list and the decision dispatched for a chosen index
 	list  optionList
 	// reason is the freeform deny text typed on the last row.
 	reason string
@@ -81,7 +80,7 @@ type permissionPrompt struct {
 
 func newPermissionPrompt(label, name, path string) *permissionPrompt {
 	p := &permissionPrompt{label: label, name: name, path: path}
-	p.setApproval(core.ApprovalFor("", name, nil))
+	p.setApproval(harness.ApprovalFor("", name, nil))
 	return p
 }
 
@@ -135,7 +134,7 @@ func (p *permissionPrompt) syncReason() {
 }
 
 // setApproval records the derived approval and mirrors its choices into the rows.
-func (p *permissionPrompt) setApproval(a core.Approval) {
+func (p *permissionPrompt) setApproval(a harness.Approval) {
 	p.appr = a
 	p.setOptions(permOptions(p.name, a))
 }
@@ -144,12 +143,12 @@ func (p *permissionPrompt) setApproval(a core.Approval) {
 // writes, whether it is rememberable, and whether the target escapes the
 // workspace.
 func (p *permissionPrompt) setArgs(args json.RawMessage, root string) {
-	p.setApproval(core.ApprovalFor(root, p.name, args))
+	p.setApproval(harness.ApprovalFor(root, p.name, args))
 }
 
-// sendReply delivers a harness decision to the agent. Non-blocking: on cancel the
-// agent may already have taken ctx.Done() and left the buffer free or stale.
-func (m *Model) sendReply(r agent.Reply) {
+// sendReply delivers the UI's decision to the loop. Non-blocking: on cancel the
+// loop may already have taken ctx.Done() and left the buffer free or stale.
+func (m *Model) sendReply(r harness.Reply) {
 	if m.turn.current != nil && m.turn.current.reply != nil {
 		select {
 		case m.turn.current.reply <- r:
@@ -159,7 +158,7 @@ func (m *Model) sendReply(r agent.Reply) {
 }
 
 // decidePermission applies the user's choice to the session and answers the
-// agent. The grant/persist/reply logic is core.Session.DecidePermission; reason
+// harness. The grant/persist/reply logic is harness.Session.DecidePermission; reason
 // is an optional deny explanation the model sees on the rejected tool result.
 func (m *Model) decidePermission(d permission.Decision, reason string) {
 	p := m.panel.perm

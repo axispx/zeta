@@ -1,11 +1,10 @@
-package core
+package harness
 
 import (
 	"context"
 	"reflect"
 	"testing"
 
-	"github.com/axispx/zeta/internal/agent"
 	"github.com/axispx/zeta/internal/ai"
 	"github.com/axispx/zeta/internal/image"
 	"github.com/axispx/zeta/internal/prompt"
@@ -19,7 +18,7 @@ func TestAutoReplyDeniesWaitAutoDeny(t *testing.T) {
 	if !ok {
 		t.Fatal("WaitAutoDeny should settle without the user")
 	}
-	if r.Kind != agent.ReplyDeny || r.Reason != PolicyDenyReason {
+	if r.Kind != ReplyDeny || r.Reason != PolicyDenyReason {
 		t.Fatalf("reply=%+v", r)
 	}
 }

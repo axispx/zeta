@@ -4,8 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/axispx/zeta/internal/agent"
-	"github.com/axispx/zeta/internal/core"
+	"github.com/axispx/zeta/internal/harness"
 	"github.com/axispx/zeta/internal/permission"
 	"github.com/axispx/zeta/internal/policy"
 	"github.com/axispx/zeta/internal/tools"
@@ -24,10 +23,10 @@ func bashArgs(cmd string) json.RawMessage {
 	return b
 }
 
-// TestGateAndHarnessShareLiveRules is the regression guard for a mid-turn rule
-// persist: the agent Gate and the harness must classify against the same rules,
-// or the harness stays silent while the gate blocks forever.
-func TestGateAndHarnessShareLiveRules(t *testing.T) {
+// TestGateAndUIShareLiveRules is the regression guard for a mid-turn rule
+// persist: the loop's gate and the UI must classify against the same rules,
+// or the UI stays silent while the gate blocks forever.
+func TestGateAndUIShareLiveRules(t *testing.T) {
 	isolateZetaHome(t)
 	root := t.TempDir()
 	var grants permission.Session
@@ -37,13 +36,13 @@ func TestGateAndHarnessShareLiveRules(t *testing.T) {
 	m.session.WS = workspace.Context{Abs: root}
 	m.session.Grants = &grants
 	m.session.Rules = rules
-	replies := make(chan agent.Reply, 1)
-	m.turn.current = &turnSession{activeTool: -1, ch: make(chan agent.Event), reply: replies, cancel: func() {}}
+	replies := make(chan harness.Reply, 1)
+	m.turn.current = &turnSession{activeTool: -1, ch: make(chan harness.Event), reply: replies, cancel: func() {}}
 
-	// The exact Gate the agent loop runs with.
-	gate := core.Gate(rules, &grants, root)
+	// The exact Gate the loop runs with.
+	gate := harness.Gate(rules, &grants, root)
 	if !gate(tools.Bash, bashArgs("go test")) {
-		t.Fatal("probe setup: ungated bash must block the agent")
+		t.Fatal("probe setup: ungated bash must block the loop")
 	}
 
 	// Mid-turn: the user presses [p] on the prompt.
@@ -52,21 +51,21 @@ func TestGateAndHarnessShareLiveRules(t *testing.T) {
 		t.Fatal("expected the first prompt")
 	}
 	m.decidePermission(permission.AllowAlways, "")
-	if r := <-replies; r.Kind != agent.ReplyRun {
+	if r := <-replies; r.Kind != harness.ReplyRun {
 		t.Fatalf("allow-always should allow the current call: %+v", r)
 	}
 
-	// Next call: agent and harness must agree (both run, no reply, no panel).
+	// Next call: loop and UI must agree (both run, no reply, no panel).
 	if gate(tools.Bash, bashArgs("go test -v")) {
 		t.Fatal("gate should see the persisted rule")
 	}
 	_ = m.handleTurnToolStart(turnToolStartMsg{name: tools.Bash, label: "bash go test -v", args: bashArgs("go test -v")})
 	if m.panel.perm != nil {
-		t.Fatal("harness must not open a panel for an allowed call")
+		t.Fatal("UI must not open a panel for an allowed call")
 	}
 	select {
 	case r := <-replies:
-		t.Fatalf("no reply expected for a call the agent does not await: %+v", r)
+		t.Fatalf("no reply expected for a call the loop does not await: %+v", r)
 	default:
 	}
 }

@@ -6,7 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/axispx/zeta/internal/core"
+	"github.com/axispx/zeta/internal/harness"
 	"github.com/axispx/zeta/internal/image"
 	"github.com/axispx/zeta/internal/prompt"
 )
@@ -150,19 +150,19 @@ func (m *Model) handleTurnToolStart(msg turnToolStartMsg) tea.Cmd {
 	}
 	m.refreshTranscript()
 
-	// Agent only waits when core.Classify matches Gate — do not send a Reply it isn't awaiting.
-	wait := core.Classify(m.session.Rules, m.session.Grants, m.session.WS.Abs, msg.name, msg.args)
+	// Agent only waits when harness.Classify matches Gate — do not send a Reply it isn't awaiting.
+	wait := harness.Classify(m.session.Rules, m.session.Grants, m.session.WS.Abs, msg.name, msg.args)
 	// Calls the harness settles without the user (policy deny) are answered here.
-	if r, ok := core.AutoReply(wait); ok {
+	if r, ok := harness.AutoReply(wait); ok {
 		m.transcript.messages[m.turn.current.activeTool].Status = ToolDenied
 		m.sendReply(r)
 		m.refreshTranscript()
 		return waitTurn(m.turn.current)
 	}
 	switch wait {
-	case core.WaitInteractive:
+	case harness.WaitInteractive:
 		m.openInteractiveTool(msg.name, msg.args)
-	case core.WaitPermission:
+	case harness.WaitPermission:
 		p := newPermissionPrompt(label, msg.name, msg.path)
 		p.setArgs(msg.args, m.session.WS.Abs)
 		m.panel.setPerm(p)
