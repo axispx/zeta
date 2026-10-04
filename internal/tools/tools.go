@@ -39,6 +39,15 @@ func ArgCommand(raw json.RawMessage) string {
 	return strings.TrimSpace(a.Command)
 }
 
+// ArgWorkdir returns the "workdir" JSON argument for bash, or "".
+func ArgWorkdir(raw json.RawMessage) string {
+	var a struct {
+		Workdir string `json:"workdir"`
+	}
+	_ = json.Unmarshal(raw, &a)
+	return strings.TrimSpace(a.Workdir)
+}
+
 // ArgPrefixRule returns the "prefix_rule" JSON argument for bash, or nil. It is
 // the prefix the model proposed to remember; whether it may be offered is the
 // policy's decision (Policy.RequestedRule), not this accessor's.

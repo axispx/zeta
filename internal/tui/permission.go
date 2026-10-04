@@ -90,9 +90,13 @@ type permissionPrompt struct {
 	path  string
 	// command is the bash command under approval, shown as the payload line.
 	command string
-	appr    harness.Approval // derived from the tool name, args, and workspace root
-	opts    []permOption     // source of truth for the row list and the decision dispatched for a chosen index
-	list    optionList
+	// review is the auto review's one-line account of why this prompt is open
+	// (below the bar, risky label, unavailable), shown under the payload. Empty
+	// when no review ran.
+	review string
+	appr   harness.Approval // derived from the tool name, args, and workspace root
+	opts   []permOption     // source of truth for the row list and the decision dispatched for a chosen index
+	list   optionList
 	// reason is the freeform deny text typed on the last row.
 	reason string
 	// typing is true while the freeform row owns key input.
@@ -372,7 +376,13 @@ func (m Model) renderPermissionTitle(contentW int, ink styles.OverlayInk) string
 	if payload == "" {
 		return body
 	}
-	return body + "\n\n" + padPanel(ink.Gap.Width(inner).Render(payload), panelGutter) + "\n"
+	body += "\n\n" + padPanel(ink.Gap.Width(inner).Render(payload), panelGutter)
+	if p.review != "" {
+		// Set apart from the command by a blank line and dimmed, not italic:
+		// context for the decision, not a second thing to answer.
+		body += "\n\n" + padPanel(ink.Hint.Italic(false).Width(inner).Render(p.review), panelGutter)
+	}
+	return body + "\n"
 }
 
 // permTitle splits the prompt heading into the question and the payload it is

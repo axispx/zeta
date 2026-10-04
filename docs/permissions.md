@@ -90,6 +90,33 @@ The model may propose a **prefix** instead — `["git", "pull"]` for a `git pull
 
 Before a command is judged, a fixed set of wrappers that only run the rest of the command is removed: `timeout`, `time`, `nice`, `nohup`, `stdbuf`, and the builtins `command`, `builtin`, `noglob`. A rule for `go test` therefore covers `timeout 60 go test ./...`, a deny for `rm` still stops `nohup rm x`, and a remembered rule is written for the command that runs, not the wrapper. A wrapper with options zeta does not recognise (`timeout --weird 5 …`, `command -v`) is left as written and asks. `env`, `sudo`, `npx`, `docker exec`, `watch` and `find -exec` are not on the list and keep asking.
 
+## Auto review
+
+Off by default. When on, a shell command that rules and the read-only list did not settle is classified before the prompt, and runs without one only when the classifier is confident it is safe. Everything else gets the prompt exactly as it would without review.
+
+It only ever says yes. It is never asked about a call a `deny` rule rejected, it cannot override a rule, and a risky label, a low-confidence answer, a timeout or an error all fall back to the prompt (each of those shows a one-line reason under the command in the prompt; an approval is silent).
+
+A command is classified by what the worst thing in it would do:
+
+| Label               | Meaning                                                                 |
+| ------------------- | ----------------------------------------------------------------------- |
+| `read_only`         | only reads or prints                                                    |
+| `local_reversible`  | writes inside the project in a way git or a rebuild undoes (builds, formatting, caches) |
+| `local_destructive` | deletes or overwrites files or history in a way that is not easily undone |
+| `external_effect`   | reaches outside the project: network writes, push, publish, install, `sudo` |
+| `runs_unknown_code` | runs code the command text does not show: `curl \| sh`, `eval`, a script  |
+
+`read_only` and `local_reversible` are approved by default (`allow` in the config narrows or widens that). Only the sub-commands no rule covers are put to the classifier, so `go test ./... && make build` asks about `make build` alone.
+
+These never reach the classifier and always prompt, whatever it would say: a command it cannot split (file redirect, here-doc, `$(…)`, subshell), a dotenv secret, and a path outside the workspace.
+
+Two backends, chosen by what is set:
+
+- **Jev** (TypeSafe) when `jev_api_key` is set in the config or `TYPESAFE_API_KEY` is in the environment. It returns a probability per label; a label is approved only at 80% with a 0.5 lead over the next.
+- **The active chat model** otherwise. It has no probabilities, so it must answer with a label and `high` certainty.
+
+Either way the command, its unsettled parts, the git branch and the working directory are sent to that backend. Turn it on only if you are comfortable with that.
+
 ## Remembered rules
 
 **Allow for session** is scoped to the exact command the prompt showed, not to the shell: approving `npm install` in this session does not approve `rm -rf ~`. The row says "this command in this session" and means it. It follows that the session row is not a way to stop being asked about the shell in general — use **remember** for that, one command at a time.

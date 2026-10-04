@@ -17,6 +17,16 @@ import (
 	"github.com/axispx/zeta/internal/styles"
 )
 
+// configTab is the section shown in the presets view.
+type configTab int
+
+const (
+	tabProviders configTab = iota
+	tabSettings
+)
+
+var configTabNames = [...]string{"Providers", "Settings"}
+
 type configView int
 
 const (
@@ -65,6 +75,7 @@ type configDialog struct {
 	saved *config.Config
 
 	view configView
+	tab  configTab
 	listSel
 	focusID     string // provider being connected or edited
 	modelID     string // model being edited
@@ -437,6 +448,9 @@ func (d *configDialog) openPresets() tea.Cmd {
 	d.presetQuery = ""
 	d.listSel.clear()
 	d.form = configForm{}
+	if d.tab == tabSettings {
+		return nil
+	}
 	if len(d.presets) > 0 {
 		d.loading = false
 		return nil

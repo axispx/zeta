@@ -26,7 +26,11 @@ func (d configDialog) renderPanel(chrome styles.Chrome, termW int, dlg Dialog) s
 	case configAuth:
 		body, footer = d.authBody(contentW, chrome, ink)
 	default:
-		body, footer = d.presetsBody(contentW, chrome, ink)
+		if d.tab == tabSettings {
+			body, footer = d.settingsBody(contentW, ink)
+		} else {
+			body, footer = d.presetsBody(contentW, chrome, ink)
+		}
 	}
 	if d.status != "" {
 		body += "\n" + styles.SystemMsg.Render(d.status)
@@ -36,6 +40,52 @@ func (d configDialog) renderPanel(chrome styles.Chrome, termW int, dlg Dialog) s
 
 func configEscTitle(title string, innerW int, ink styles.OverlayInk) string {
 	return formatHintRow("", title, "esc", innerW, ink.Header, ink.Hint, ink.Gap)
+}
+
+// tabsFooter is the presets view's footer: the row hints, then the tab switch.
+func tabsFooter(hints []string, ink styles.OverlayInk) DialogFooter {
+	hints = append(hints, ink.HintKbd("Switch tabs", "shift+tab"))
+	return DialogFooter{Hint: strings.Join(hints, ink.Gap.Render("  "))}
+}
+
+// tabsTitle is the presets view's title row: the tab strip with the active tab
+// highlighted, and the esc hint on the right.
+func (d configDialog) tabsTitle(innerW int, ink styles.OverlayInk) string {
+	var tabs []string
+	for i, name := range configTabNames {
+		if configTab(i) == d.tab {
+			tabs = append(tabs, ink.Selected.Bold(true).Render(name))
+		} else {
+			tabs = append(tabs, ink.Hint.Render(name))
+		}
+	}
+	left := strings.Join(tabs, ink.Gap.Render("  "))
+	hint := ink.Hint.Render("esc")
+	pad := innerW - lipgloss.Width(left) - lipgloss.Width(hint)
+	if pad < 1 {
+		pad = 1
+	}
+	return left + ink.Gap.Render(strings.Repeat(" ", pad)) + hint
+}
+
+func (d configDialog) settingsBody(innerW int, ink styles.OverlayInk) (body string, footer DialogFooter) {
+	rows := settingRows()
+	var hints []string
+	if d.selected < len(rows) && rows[d.selected].key != nil {
+		hints = append(hints, ink.HintKbd(rows[d.selected].keyLabel, "ctrl+k"))
+	}
+	footer = tabsFooter(hints, ink)
+
+	var b strings.Builder
+	b.WriteString(d.tabsTitle(innerW, ink))
+	b.WriteByte('\n')
+	b.WriteString(ink.Hint.Render("Enter to toggle"))
+	b.WriteByte('\n')
+	for i, row := range rows {
+		b.WriteByte('\n')
+		b.WriteString(formatAccentRow(row.name, row.value(d), innerW, i == d.selected, false, ink))
+	}
+	return b.String(), footer
 }
 
 func (d configDialog) presetsBody(innerW int, chrome styles.Chrome, ink styles.OverlayInk) (body string, footer DialogFooter) {
@@ -51,17 +101,15 @@ func (d configDialog) presetsBody(innerW int, chrome styles.Chrome, ink styles.O
 			}
 		}
 	}
-	if len(hints) > 0 {
-		footer = DialogFooter{Hint: strings.Join(hints, ink.Gap.Render("  "))}
-	}
-	title := configEscTitle("Configure providers", innerW, ink)
+	footer = tabsFooter(hints, ink)
+	title := d.tabsTitle(innerW, ink)
 
 	if d.loading {
 		var b strings.Builder
 		b.WriteString(title)
 		b.WriteString("\n\n")
 		b.WriteString(ink.Hint.Render("loading from models.dev…"))
-		return b.String(), DialogFooter{}
+		return b.String(), tabsFooter(nil, ink)
 	}
 
 	var b strings.Builder

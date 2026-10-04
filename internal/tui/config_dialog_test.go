@@ -279,3 +279,56 @@ func TestOpenModelsSyncsCatalogOnce(t *testing.T) {
 		t.Fatal("new catalog model should start disabled")
 	}
 }
+
+func TestAutoReviewToggleAndJevKey(t *testing.T) {
+	t.Setenv("ZETA_HOME", t.TempDir())
+	t.Setenv("TYPESAFE_API_KEY", "")
+	d := configDialog{active: true, presets: []config.Preset{{ID: "x", Name: "X"}}}
+
+	for _, r := range d.connectRows() {
+		if r.name == "Auto review" {
+			t.Fatal("settings leaked into the providers list")
+		}
+	}
+	d.handleKey(tea.KeyPressMsg{Code: tea.KeyTab})
+	if d.tab != tabSettings {
+		t.Fatalf("tab = %v, want settings", d.tab)
+	}
+
+	d.handleKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if !d.draft.Review.Enabled || d.saved == nil || !d.saved.Review.Enabled {
+		t.Fatalf("enter did not enable review: %+v", d.draft.Review)
+	}
+	if !strings.Contains(d.status, "active chat model") {
+		t.Fatalf("status = %q", d.status)
+	}
+	d.handleKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if d.draft.Review.Enabled {
+		t.Fatal("second enter did not disable review")
+	}
+
+	d.handleKey(tea.KeyPressMsg{Code: 'k', Mod: tea.ModCtrl})
+	if !d.isForm() {
+		t.Fatal("ctrl+k did not open the jev key form")
+	}
+	d.form.fields[0].SetValue("jv_abc")
+	d.submitForm()
+	if d.draft.Review.JevAPIKey != "jv_abc" || d.view != configPresets || d.tab != tabSettings {
+		t.Fatalf("jev key = %q view = %v", d.draft.Review.JevAPIKey, d.view)
+	}
+}
+
+func TestConfigTabsSwitchAndKeepQuery(t *testing.T) {
+	d := configDialog{active: true, presets: []config.Preset{{ID: "x", Name: "X"}}, presetQuery: "x"}
+	// A provider search in progress owns tab; it must not switch away.
+	d.handleKey(tea.KeyPressMsg{Code: tea.KeyTab})
+	if d.tab != tabProviders {
+		t.Fatal("tab switched during a search")
+	}
+	d.presetQuery = ""
+	d.handleKey(tea.KeyPressMsg{Code: tea.KeyTab})
+	d.handleKey(tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift})
+	if d.tab != tabProviders {
+		t.Fatalf("shift+tab did not return to providers: %v", d.tab)
+	}
+}

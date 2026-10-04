@@ -7,7 +7,8 @@ import (
 
 // Clone returns a deep copy of the config.
 func (c Config) Clone() Config {
-	out := Config{Active: c.Active, Defaults: c.Defaults}
+	out := Config{Active: c.Active, Defaults: c.Defaults, Review: c.Review}
+	out.Review.Allow = append([]string(nil), c.Review.Allow...)
 	if len(c.Providers) == 0 {
 		return out
 	}
@@ -33,6 +34,14 @@ func (c Config) Clone() Config {
 	}
 	return out
 }
+
+// SetReviewEnabled turns the auto review of shell commands on or off. Does not
+// Save.
+func (c *Config) SetReviewEnabled(enabled bool) { c.Review.Enabled = enabled }
+
+// SetJevAPIKey stores the TypeSafe Jev key; empty clears it so the review falls
+// back to TYPESAFE_API_KEY and then the active chat model. Does not Save.
+func (c *Config) SetJevAPIKey(key string) { c.Review.JevAPIKey = strings.TrimSpace(key) }
 
 // PutProvider adds or replaces a provider by id, including its Models map.
 func (c *Config) PutProvider(id string, p Provider) error {

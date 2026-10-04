@@ -2,7 +2,7 @@
 
 Use **`/config`** in the app. Settings live at `~/.zeta/config.json` (or `$ZETA_HOME/config.json`).
 
-In `/config`:
+`/config` has two tabs, **Providers** and **Settings** (`Tab` / `Shift+Tab` to switch). On Providers:
 
 - **Configured** — turn models on/off for providers you already set up
 - **Providers** — add a catalog provider (API key, then enable models; `Ctrl+A` toggles all)
@@ -32,6 +32,22 @@ Example shape (prefer the UI over hand-editing):
   }
 }
 ```
+
+## Auto review
+
+Optional, off by default; see [Permissions](permissions.md#auto-review) for what it does. Toggle it in `/config` on the **Settings** tab (`Tab` switches tabs; `Enter` toggles Auto review); `Ctrl+K` on that row sets the Jev key. Turning it on says where commands will be sent. Changes apply to the next tool call.
+
+```json
+{
+  "review": {
+    "enabled": true,
+    "jev_api_key": "jv_...",
+    "allow": ["read_only", "local_reversible"]
+  }
+}
+```
+
+`jev_api_key` (or `TYPESAFE_API_KEY`) selects TypeSafe's Jev model; without one the active chat model reviews. `allow` is optional and defaults to the two labels shown.
 
 ## Web search
 

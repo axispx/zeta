@@ -19,7 +19,31 @@ func (d *configDialog) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 	}
 }
 
+// switchTab moves between the presets view's sections. Selection and status
+// reset; the provider search query is kept.
+func (d *configDialog) switchTab(delta int) {
+	n := len(configTabNames)
+	d.tab = configTab((int(d.tab) + delta + n) % n)
+	d.status = ""
+	d.listSel.clear()
+}
+
 func (d *configDialog) handlePresetsKey(msg tea.KeyPressMsg) tea.Cmd {
+	switch msg.String() {
+	case "tab":
+		if d.tab == tabSettings || d.presetQuery == "" {
+			d.switchTab(1)
+			return nil
+		}
+	case "shift+tab":
+		if d.tab == tabSettings || d.presetQuery == "" {
+			d.switchTab(-1)
+			return nil
+		}
+	}
+	if d.tab == tabSettings {
+		return d.handleSettingsKey(msg)
+	}
 	if d.loading {
 		if msg.String() == "esc" {
 			d.clear()
@@ -186,4 +210,29 @@ func (d *configDialog) cancelForm() {
 	default:
 		d.view = configPresets
 	}
+}
+
+func (d *configDialog) handleSettingsKey(msg tea.KeyPressMsg) tea.Cmd {
+	key := msg.String()
+	rows := settingRows()
+	n := len(rows)
+	if d.move(n, key) {
+		d.status = ""
+		return nil
+	}
+	switch key {
+	case "enter":
+		d.status = ""
+		if n > 0 && d.selected < n {
+			rows[d.selected].toggle(d)
+		}
+	case "ctrl+k":
+		d.status = ""
+		if n > 0 && d.selected < n && rows[d.selected].key != nil {
+			rows[d.selected].key(d)
+		}
+	case "esc":
+		d.clear()
+	}
+	return nil
 }

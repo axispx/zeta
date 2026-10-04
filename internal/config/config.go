@@ -19,6 +19,25 @@ type Config struct {
 	// Defaults remembers preferred models (e.g. small build after plan approve).
 	// omitzero, not omitempty: omitempty never omits a struct.
 	Defaults ModeDefaults `json:"defaults,omitzero"`
+	// Review is the optional auto review of shell commands that would otherwise
+	// prompt. Off unless Enabled.
+	Review ReviewConfig `json:"review,omitzero"`
+}
+
+// ReviewConfig controls the auto review of shell commands. A command a rule or
+// the read-only list does not settle is classified, and approved without a
+// prompt only when the classifier is confident it is safe; everything else
+// still asks.
+type ReviewConfig struct {
+	Enabled bool `json:"enabled,omitempty"`
+	// JevAPIKey selects TypeSafe's Jev model as the classifier. Empty falls back
+	// to the TYPESAFE_API_KEY environment variable, and then to the active chat
+	// model. Commands are sent to whichever backend answers.
+	JevAPIKey string `json:"jev_api_key,omitempty"`
+	// Allow lists the labels approved without a prompt: read_only,
+	// local_reversible, local_destructive, external_effect, runs_unknown_code.
+	// Empty means read_only and local_reversible.
+	Allow []string `json:"allow,omitempty"`
 }
 
 // ModeDefaults holds optional preferred model ids (provider/model).

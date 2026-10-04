@@ -6,6 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/axispx/zeta/internal/classifier"
 	"github.com/axispx/zeta/internal/harness"
 	"github.com/axispx/zeta/internal/image"
 	"github.com/axispx/zeta/internal/prompt"
@@ -49,6 +50,11 @@ func (m *Model) dispatchTurnMsg(msg tea.Msg) (tea.Cmd, bool) {
 			return nil, true
 		}
 		return m.handleTurnTool(msg), true
+	case reviewDoneMsg:
+		if !m.turn.live(msg.id) {
+			return nil, true
+		}
+		return m.handleReviewDone(msg), true
 	case turnDoneMsg:
 		if !m.turn.live(msg.id) {
 			return nil, true
@@ -163,12 +169,67 @@ func (m *Model) handleTurnToolStart(msg turnToolStartMsg) tea.Cmd {
 	case harness.WaitInteractive:
 		m.openInteractiveTool(msg.name, msg.args)
 	case harness.WaitPermission:
-		p := newPermissionPrompt(label, msg.name, msg.path)
-		p.setArgs(m.session.Rules.Policy(), msg.args, m.session.WS.Abs)
-		m.panel.setPerm(p)
-		m.afterPanelChange()
+		// A command the reviewer may settle waits for its verdict before the
+		// prompt opens, so an approved one never flashes a prompt.
+		if review := m.startReview(msg); review != nil {
+			return tea.Batch(review, waitTurn(m.turn.current))
+		}
+		m.openPermission(label, msg, "")
 	}
 	return waitTurn(m.turn.current)
+}
+
+// openPermission shows the approval prompt for a gated tool start. review is
+// the auto review's account of why it is asking, or "" when none ran.
+func (m *Model) openPermission(label string, msg turnToolStartMsg, review string) {
+	p := newPermissionPrompt(label, msg.name, msg.path)
+	p.review = review
+	p.setArgs(m.session.Rules.Policy(), msg.args, m.session.WS.Abs)
+	m.panel.setPerm(p)
+	m.afterPanelChange()
+}
+
+// reviewDoneMsg carries the reviewer's verdict for the tool start that asked.
+// id is the turn it belongs to, so a verdict for a cancelled turn is dropped.
+type reviewDoneMsg struct {
+	id      int
+	start   turnToolStartMsg
+	verdict classifier.Verdict
+}
+
+// startReview begins the auto review of a gated shell command, or returns nil
+// when review is off or this call is not one the reviewer may see.
+func (m *Model) startReview(msg turnToolStartMsg) tea.Cmd {
+	rv := m.session.Reviewer()
+	if rv == nil {
+		return nil
+	}
+	req, ok := m.session.ReviewRequest(msg.name, msg.args)
+	if !ok {
+		return nil
+	}
+	id := m.turn.current.id
+	return func() tea.Msg {
+		return reviewDoneMsg{id: id, start: msg, verdict: rv.Review(context.Background(), req)}
+	}
+}
+
+// handleReviewDone runs an approved command, and otherwise opens the prompt the
+// call would have had without a review. The loop is blocked on the reply either
+// way, so exactly one of the two answers it.
+func (m *Model) handleReviewDone(msg reviewDoneMsg) tea.Cmd {
+	// An approval is silent. Anything else shows why it is asking inside the
+	// prompt, so the prompt is never mistaken for "review is off".
+	if msg.verdict.Approved {
+		m.sendReply(harness.RunTool())
+		return nil
+	}
+	label := msg.start.label
+	if label == "" {
+		label = msg.start.name
+	}
+	m.openPermission(label, msg.start, msg.verdict.Summary())
+	return nil
 }
 
 func (m *Model) handleTurnToolOut(msg turnToolOutMsg) tea.Cmd {

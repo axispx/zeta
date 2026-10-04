@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -439,5 +440,84 @@ func submitEditModel(d *configDialog, vals []string) error {
 	}
 	d.status = "saved · " + mid
 	d.enterModels()
+	return nil
+}
+
+// settingRow is one entry on the Settings tab.
+type settingRow struct {
+	name   string
+	value  func(configDialog) string
+	toggle func(*configDialog)
+	// key, when set, is the ctrl+k action; keyLabel is its footer hint.
+	key      func(*configDialog)
+	keyLabel string
+}
+
+func settingRows() []settingRow {
+	return []settingRow{{
+		name: "Auto review",
+		value: func(d configDialog) string {
+			if d.draft.Review.Enabled {
+				return "on"
+			}
+			return "off"
+		},
+		toggle:   (*configDialog).toggleReview,
+		key:      (*configDialog).openJevKeyForm,
+		keyLabel: "Jev key",
+	}}
+}
+
+func (d *configDialog) toggleReview() {
+	on := !d.draft.Review.Enabled
+	if err := d.mutate(func(c *config.Config) error {
+		c.SetReviewEnabled(on)
+		return nil
+	}); err != nil {
+		d.status = err.Error()
+		return
+	}
+	if on {
+		d.status = "auto review on · " + d.reviewBackend()
+	} else {
+		d.status = "auto review off"
+	}
+}
+
+// reviewBackend names where reviewed commands are sent, so turning the setting
+// on states the consequence.
+func (d *configDialog) reviewBackend() string {
+	if d.draft.Review.JevAPIKey != "" || os.Getenv("TYPESAFE_API_KEY") != "" {
+		return "commands go to TypeSafe Jev"
+	}
+	return "commands go to the active chat model"
+}
+
+func (d *configDialog) openJevKeyForm() {
+	placeholder := "TypeSafe Jev API key (empty clears)"
+	if d.draft.Review.JevAPIKey != "" {
+		placeholder = "leave blank to clear"
+	}
+	d.startForm("Auto review · Jev key", []string{"API Key"}, []textinput.Model{
+		newFormInput(placeholder, true),
+	}, backPresets, submitJevKey)
+}
+
+func submitJevKey(d *configDialog, vals []string) error {
+	key := strings.TrimSpace(vals[0])
+	if err := d.mutate(func(c *config.Config) error {
+		c.SetJevAPIKey(key)
+		return nil
+	}); err != nil {
+		return err
+	}
+	d.view = configPresets
+	d.form = configForm{}
+	d.listSel.clear()
+	if key == "" {
+		d.status = "jev key cleared · " + d.reviewBackend()
+	} else {
+		d.status = "jev key saved"
+	}
 	return nil
 }
