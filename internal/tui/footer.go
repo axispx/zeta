@@ -13,32 +13,32 @@ import (
 	"github.com/axispx/zeta/internal/workspace"
 )
 
-// footerRows is the fixed height of the input footer (usage/model + path/stats).
+// footerRows is the fixed height of the input footer (path/stats + usage/model).
 const footerRows = 2
 
 // inputFooter is two rows under the input box:
 //
-//	model · effort · %                          mode
 //	cwd · branch                                +N -M
+//	model · effort · %                          mode
 func inputFooter(width int, ws workspace.Context, cfg config.Config, mode prompt.Mode, contextTokens int64, diff lineStats) string {
 	if width < 1 {
 		return ""
 	}
-	top := footerTopRow(width, cfg, mode, contextTokens)
-	bot := footerBottomRow(width, ws, diff)
+	top := footerPathRow(width, ws, diff)
+	bot := footerUsageRow(width, cfg, mode, contextTokens)
 	return lipgloss.JoinVertical(lipgloss.Left, top, bot)
 }
 
-// footerTopRow is model · effort · % · tokens (left) and mode (right).
-func footerTopRow(width int, cfg config.Config, mode prompt.Mode, contextTokens int64) string {
+// footerUsageRow is model · effort · % · tokens (left) and mode (right).
+func footerUsageRow(width int, cfg config.Config, mode prompt.Mode, contextTokens int64) string {
 	right := modeStyle(mode).Render(mode.Label())
 	leftMax := footerLeftBudget(width, right)
 	left := footerUsageModel(contextTokens, cfg.ContextWindow(), cfg.ModelName(), cfg.ActiveReasoningEffort(), leftMax)
 	return footerSplitRow(width, left, right)
 }
 
-// footerBottomRow is path · branch (left) and +N -M (right).
-func footerBottomRow(width int, ws workspace.Context, diff lineStats) string {
+// footerPathRow is path · branch (left) and +N -M (right).
+func footerPathRow(width int, ws workspace.Context, diff lineStats) string {
 	right := formatDiffStats(diff)
 	leftMax := footerLeftBudget(width, right)
 	left := styles.SystemMsg.Render(footerPathLabel(ws.Cwd, ws.Branch, leftMax))

@@ -39,45 +39,45 @@ func TestInputFooterLayout(t *testing.T) {
 	if len(lines) != footerRows {
 		t.Fatalf("footer rows = %d, want %d:\n%s", len(lines), footerRows, plain)
 	}
-	// Row 0: model · % left, mode right.
-	if !strings.HasPrefix(strings.TrimLeft(lines[0], " "), "Test GPT-4") {
-		t.Fatalf("top should start with model: %q", lines[0])
+	// Row 0: path left, diff stats right.
+	if !strings.Contains(lines[0], "proj") {
+		t.Fatalf("top missing cwd: %q", lines[0])
 	}
-	if !strings.Contains(lines[0], "18%") {
-		t.Fatalf("top missing usage: %q", lines[0])
+	if !strings.Contains(lines[0], "main") {
+		t.Fatalf("top missing branch: %q", lines[0])
 	}
-	if strings.Contains(lines[0], "18.0k") {
-		t.Fatalf("top should not show token count: %q", lines[0])
+	if !strings.Contains(lines[0], "+12") || !strings.Contains(lines[0], "-3") {
+		t.Fatalf("top missing diff stats: %q", lines[0])
 	}
-	if !strings.Contains(lines[0], "Test GPT-4") {
-		t.Fatalf("top missing model: %q", lines[0])
+	if strings.Contains(lines[0], "18.0k") || strings.Contains(lines[0], "GPT-4") {
+		t.Fatalf("top should be path/stats only: %q", lines[0])
 	}
-	if !strings.HasSuffix(strings.TrimRight(lines[0], " "), "Plan") {
-		t.Fatalf("top should end with mode: %q", lines[0])
+	if i, j := strings.Index(lines[0], "proj"), strings.Index(lines[0], "+12"); i < 0 || j < 0 || i > j {
+		t.Fatalf("path should precede stats: %q", lines[0])
 	}
-	if strings.Contains(lines[0], "proj") || strings.Contains(lines[0], "+12") {
-		t.Fatalf("top should be usage/model/mode only: %q", lines[0])
+	// Row 1: model · % left, mode right.
+	if !strings.HasPrefix(strings.TrimLeft(lines[1], " "), "Test GPT-4") {
+		t.Fatalf("bottom should start with model: %q", lines[1])
+	}
+	if !strings.Contains(lines[1], "18%") {
+		t.Fatalf("bottom missing usage: %q", lines[1])
+	}
+	if strings.Contains(lines[1], "18.0k") {
+		t.Fatalf("bottom should not show token count: %q", lines[1])
+	}
+	if !strings.Contains(lines[1], "Test GPT-4") {
+		t.Fatalf("bottom missing model: %q", lines[1])
+	}
+	if !strings.HasSuffix(strings.TrimRight(lines[1], " "), "Plan") {
+		t.Fatalf("bottom should end with mode: %q", lines[1])
+	}
+	if strings.Contains(lines[1], "proj") || strings.Contains(lines[1], "+12") {
+		t.Fatalf("bottom should be usage/model/mode only: %q", lines[1])
 	}
 	// model · % on the left.
-	mi, pi := strings.Index(lines[0], "Test GPT-4"), strings.Index(lines[0], "18%")
+	mi, pi := strings.Index(lines[1], "Test GPT-4"), strings.Index(lines[1], "18%")
 	if mi < 0 || pi < 0 || mi > pi {
-		t.Fatalf("want model then %%: %q", lines[0])
-	}
-	// Row 1: path left, diff stats right.
-	if !strings.Contains(lines[1], "proj") {
-		t.Fatalf("bottom missing cwd: %q", lines[1])
-	}
-	if !strings.Contains(lines[1], "main") {
-		t.Fatalf("bottom missing branch: %q", lines[1])
-	}
-	if !strings.Contains(lines[1], "+12") || !strings.Contains(lines[1], "-3") {
-		t.Fatalf("bottom missing diff stats: %q", lines[1])
-	}
-	if strings.Contains(lines[1], "18.0k") || strings.Contains(lines[1], "GPT-4") {
-		t.Fatalf("bottom should be path/stats only: %q", lines[1])
-	}
-	if i, j := strings.Index(lines[1], "proj"), strings.Index(lines[1], "+12"); i < 0 || j < 0 || i > j {
-		t.Fatalf("path should precede stats: %q", lines[1])
+		t.Fatalf("want model then %%: %q", lines[1])
 	}
 }
 
@@ -88,12 +88,12 @@ func TestInputFooterShowsReasoningEffort(t *testing.T) {
 	cfg.Providers["test"].Models["gpt-4"] = md
 	out := stripANSI(inputFooter(80, workspace.Context{Cwd: "~/proj"}, cfg, prompt.ModeBuild, 0, lineStats{}))
 	lines := strings.Split(out, "\n")
-	if !strings.Contains(lines[0], "Test GPT-4") || !strings.Contains(lines[0], "High") {
-		t.Fatalf("top missing model/effort: %q", lines[0])
+	if !strings.Contains(lines[1], "Test GPT-4") || !strings.Contains(lines[1], "High") {
+		t.Fatalf("bottom missing model/effort: %q", lines[1])
 	}
-	mi, ei := strings.Index(lines[0], "Test GPT-4"), strings.Index(lines[0], "High")
+	mi, ei := strings.Index(lines[1], "Test GPT-4"), strings.Index(lines[1], "High")
 	if mi < 0 || ei < 0 || mi > ei {
-		t.Fatalf("want model then effort: %q", lines[0])
+		t.Fatalf("want model then effort: %q", lines[1])
 	}
 }
 
@@ -108,14 +108,14 @@ func TestInputFooterHidesEmptyDiff(t *testing.T) {
 	if len(lines) != footerRows {
 		t.Fatalf("rows = %d: %q", len(lines), out)
 	}
-	if !strings.Contains(lines[0], "Build") {
-		t.Fatalf("top missing mode: %q", lines[0])
+	if !strings.Contains(lines[0], "proj") {
+		t.Fatalf("top missing path: %q", lines[0])
 	}
-	if !strings.Contains(lines[0], "Test GPT-4") {
-		t.Fatalf("top missing model when no usage: %q", lines[0])
+	if !strings.Contains(lines[1], "Build") {
+		t.Fatalf("bottom missing mode: %q", lines[1])
 	}
-	if !strings.Contains(lines[1], "proj") {
-		t.Fatalf("bottom missing path: %q", lines[1])
+	if !strings.Contains(lines[1], "Test GPT-4") {
+		t.Fatalf("bottom missing model when no usage: %q", lines[1])
 	}
 }
 
@@ -234,7 +234,7 @@ func TestFooterBottomRespectsWidth(t *testing.T) {
 		Cwd:    "~/Developer/axispx/very/deep/project",
 		Branch: "feature/long-name",
 	}
-	out := stripANSI(footerBottomRow(30, ws, lineStats{added: 12, deleted: 3}))
+	out := stripANSI(footerPathRow(30, ws, lineStats{added: 12, deleted: 3}))
 	if w := lipgloss.Width(out); w > 30 {
 		t.Fatalf("bottom width %d > 30: %q", w, out)
 	}
