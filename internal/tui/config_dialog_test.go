@@ -295,26 +295,54 @@ func TestAutoReviewToggleAndJevKey(t *testing.T) {
 		t.Fatalf("tab = %v, want settings", d.tab)
 	}
 
+	// Turning it on asks where commands go before enabling anything.
 	d.handleKey(tea.KeyPressMsg{Code: tea.KeyEnter})
-	if !d.draft.Review.Enabled || d.saved == nil || !d.saved.Review.Enabled {
-		t.Fatalf("enter did not enable review: %+v", d.draft.Review)
+	if d.view != configReview {
+		t.Fatalf("view = %v, want the backend chooser", d.view)
+	}
+	if d.draft.Review.Enabled {
+		t.Fatal("chooser should not enable review before a choice")
+	}
+	d.handleKey(tea.KeyPressMsg{Code: tea.KeyDown}) // "Active model" is the second row.
+	d.handleKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if !d.draft.Review.Enabled || d.draft.Review.Backend != config.ReviewBackendModel {
+		t.Fatalf("review = %+v", d.draft.Review)
+	}
+	if d.saved == nil || !d.saved.Review.Enabled || d.saved.Review.Backend != config.ReviewBackendModel {
+		t.Fatalf("choice not saved: %+v", d.saved)
 	}
 	if !strings.Contains(d.status, "active chat model") {
 		t.Fatalf("status = %q", d.status)
 	}
+
+	// Enter on an enabled row turns it off.
 	d.handleKey(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if d.draft.Review.Enabled {
 		t.Fatal("second enter did not disable review")
 	}
 
-	d.handleKey(tea.KeyPressMsg{Code: 'k', Mod: tea.ModCtrl})
+	// Choosing Jev with no key asks for the key.
+	d.handleKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if d.view != configReview {
+		t.Fatalf("view = %v, want the backend chooser", d.view)
+	}
+	d.handleKey(tea.KeyPressMsg{Code: tea.KeyEnter}) // "Jev" is the first row.
 	if !d.isForm() {
-		t.Fatal("ctrl+k did not open the jev key form")
+		t.Fatal("choosing Jev with no key should open the key form")
+	}
+	if !d.draft.Review.Enabled || d.draft.Review.Backend != config.ReviewBackendJev {
+		t.Fatalf("review = %+v", d.draft.Review)
 	}
 	d.form.fields[0].SetValue("jv_abc")
 	d.submitForm()
 	if d.draft.Review.JevAPIKey != "jv_abc" || d.view != configPresets || d.tab != tabSettings {
 		t.Fatalf("jev key = %q view = %v", d.draft.Review.JevAPIKey, d.view)
+	}
+
+	// ctrl+k opens the key form directly.
+	d.handleKey(tea.KeyPressMsg{Code: 'k', Mod: tea.ModCtrl})
+	if !d.isForm() {
+		t.Fatal("ctrl+k did not open the jev key form")
 	}
 }
 

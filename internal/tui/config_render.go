@@ -25,6 +25,8 @@ func (d configDialog) renderPanel(chrome styles.Chrome, termW int, dlg Dialog) s
 		body, footer = d.modelsBody(contentW, chrome, ink)
 	case configAuth:
 		body, footer = d.authBody(contentW, chrome, ink)
+	case configReview:
+		body, footer = d.reviewBody(contentW, ink)
 	default:
 		if d.tab == tabSettings {
 			body, footer = d.settingsBody(contentW, ink)
@@ -229,6 +231,23 @@ func (d configDialog) modelsBody(innerW int, chrome styles.Chrome, ink styles.Ov
 		}
 	}
 	return b.String(), footer
+}
+
+// reviewBody is the auto review backend chooser shown when review is turned on.
+func (d configDialog) reviewBody(innerW int, ink styles.OverlayInk) (body string, footer DialogFooter) {
+	var b strings.Builder
+	b.WriteString(configEscTitle("Auto review", innerW, ink))
+	b.WriteByte('\n')
+	b.WriteString(ink.Hint.Render("Send commands to:"))
+	rows := reviewBackendRows()
+	for i, row := range rows {
+		b.WriteByte('\n')
+		if i == 0 {
+			b.WriteByte('\n')
+		}
+		b.WriteString(formatAccentRow(row.name, row.hint, innerW, i == d.selected, false, ink))
+	}
+	return b.String(), DialogFooter{}
 }
 
 func (d configDialog) authBody(innerW int, chrome styles.Chrome, ink styles.OverlayInk) (body string, footer DialogFooter) {

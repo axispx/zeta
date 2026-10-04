@@ -165,7 +165,7 @@ func renderPanelFrame(chrome styles.Chrome, width int, body string) string {
 	panel := lipgloss.NewStyle().
 		MarginBottom(styles.InputMarginB).
 		Render(chrome.OverlayPanel().
-			Padding(1, styles.OverlayPadRight, 1, 0).
+			Padding(1, styles.OverlayPadRight, 0, 0).
 			Width(innerW).
 			Render(body))
 	rule := lipgloss.NewStyle().Foreground(styles.Dim).Render(strings.Repeat("─", max(width, 1)))

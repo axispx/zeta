@@ -28,11 +28,20 @@ type Config struct {
 // the read-only list does not settle is classified, and approved without a
 // prompt only when the classifier is confident it is safe; everything else
 // still asks.
+// Review backend ids stored in ReviewConfig.Backend.
+const (
+	ReviewBackendJev   = "jev"
+	ReviewBackendModel = "model"
+)
+
 type ReviewConfig struct {
 	Enabled bool `json:"enabled,omitempty"`
-	// JevAPIKey selects TypeSafe's Jev model as the classifier. Empty falls back
-	// to the TYPESAFE_API_KEY environment variable, and then to the active chat
-	// model. Commands are sent to whichever backend answers.
+	// Backend names where reviewed commands are sent: ReviewBackendJev or
+	// ReviewBackendModel. Empty resolves automatically — Jev when a key is set,
+	// otherwise the active chat model.
+	Backend string `json:"backend,omitempty"`
+	// JevAPIKey is the TypeSafe Jev key, used when Backend is ReviewBackendJev.
+	// Empty falls back to the TYPESAFE_API_KEY environment variable.
 	JevAPIKey string `json:"jev_api_key,omitempty"`
 	// Allow lists the labels approved without a prompt: read_only,
 	// local_reversible, local_destructive, external_effect, runs_unknown_code.

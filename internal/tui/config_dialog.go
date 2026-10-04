@@ -34,6 +34,7 @@ const (
 	configModels
 	configFormView
 	configAuth
+	configReview
 )
 
 type formBack int

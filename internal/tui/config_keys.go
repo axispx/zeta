@@ -14,6 +14,8 @@ func (d *configDialog) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		return d.handleModelsKey(msg)
 	case configAuth:
 		return d.handleAuthKey(msg)
+	case configReview:
+		return d.handleReviewKey(msg)
 	default:
 		return d.handlePresetsKey(msg)
 	}
@@ -210,6 +212,30 @@ func (d *configDialog) cancelForm() {
 	default:
 		d.view = configPresets
 	}
+}
+
+func (d *configDialog) handleReviewKey(msg tea.KeyPressMsg) tea.Cmd {
+	key := msg.String()
+	rows := reviewBackendRows()
+	n := len(rows)
+	if d.move(n, key) {
+		d.status = ""
+		return nil
+	}
+	switch key {
+	case "enter":
+		d.status = ""
+		if n == 0 || d.selected >= n {
+			return nil
+		}
+		d.activateReviewBackend(rows[d.selected])
+		return nil
+	case "esc":
+		d.status = ""
+		d.view = configPresets
+		d.listSel.clear()
+	}
+	return nil
 }
 
 func (d *configDialog) handleSettingsKey(msg tea.KeyPressMsg) tea.Cmd {

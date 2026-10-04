@@ -39,8 +39,12 @@ func (c Config) Clone() Config {
 // Save.
 func (c *Config) SetReviewEnabled(enabled bool) { c.Review.Enabled = enabled }
 
+// SetReviewBackend names the review backend (ReviewBackendJev or
+// ReviewBackendModel); empty resolves automatically. Does not Save.
+func (c *Config) SetReviewBackend(backend string) { c.Review.Backend = strings.TrimSpace(backend) }
+
 // SetJevAPIKey stores the TypeSafe Jev key; empty clears it so the review falls
-// back to TYPESAFE_API_KEY and then the active chat model. Does not Save.
+// back to TYPESAFE_API_KEY. Does not Save.
 func (c *Config) SetJevAPIKey(key string) { c.Review.JevAPIKey = strings.TrimSpace(key) }
 
 // PutProvider adds or replaces a provider by id, including its Models map.

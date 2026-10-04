@@ -35,19 +35,20 @@ Example shape (prefer the UI over hand-editing):
 
 ## Auto review
 
-Optional, off by default; see [Permissions](permissions.md#auto-review) for what it does. Toggle it in `/config` on the **Settings** tab (`Tab` switches tabs; `Enter` toggles Auto review); `Ctrl+K` on that row sets the Jev key. Turning it on says where commands will be sent. Changes apply to the next tool call.
+Optional, off by default; see [Permissions](permissions.md#auto-review) for what it does. Toggle it in `/config` on the **Settings** tab (`Tab` switches tabs; `Enter` toggles Auto review). Turning it on first asks where commands go — **Jev** or the **Active model** — and choosing Jev prompts for its key when none is set; `Ctrl+K` on the row sets the key directly. Changes apply to the next tool call.
 
 ```json
 {
   "review": {
     "enabled": true,
+    "backend": "jev",
     "jev_api_key": "jv_...",
     "allow": ["read_only", "local_reversible"]
   }
 }
 ```
 
-`jev_api_key` (or `TYPESAFE_API_KEY`) selects TypeSafe's Jev model; without one the active chat model reviews. `allow` is optional and defaults to the two labels shown.
+`backend` is `jev` or `model`; it names where reviewed commands are sent. `jev_api_key` (or `TYPESAFE_API_KEY`) is the Jev key. `allow` is optional and defaults to the two labels shown.
 
 ## Web search
 

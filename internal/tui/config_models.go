@@ -457,10 +457,10 @@ func settingRows() []settingRow {
 	return []settingRow{{
 		name: "Auto review",
 		value: func(d configDialog) string {
-			if d.draft.Review.Enabled {
-				return "on"
+			if !d.draft.Review.Enabled {
+				return "off"
 			}
-			return "off"
+			return "on · " + d.reviewBackendName()
 		},
 		toggle:   (*configDialog).toggleReview,
 		key:      (*configDialog).openJevKeyForm,
@@ -468,29 +468,100 @@ func settingRows() []settingRow {
 	}}
 }
 
+// toggleReview turns review off, or opens the backend chooser to turn it on.
 func (d *configDialog) toggleReview() {
-	on := !d.draft.Review.Enabled
+	if d.draft.Review.Enabled {
+		if err := d.mutate(func(c *config.Config) error {
+			c.SetReviewEnabled(false)
+			return nil
+		}); err != nil {
+			d.status = err.Error()
+			return
+		}
+		d.status = "auto review off"
+		return
+	}
+	d.openReviewBackend()
+}
+
+// reviewBackendKind is one choice in the auto review backend chooser.
+type reviewBackendKind int
+
+const (
+	reviewChoiceJev reviewBackendKind = iota
+	reviewChoiceModel
+)
+
+type reviewBackendRow struct {
+	kind reviewBackendKind
+	name string
+	hint string
+}
+
+func reviewBackendRows() []reviewBackendRow {
+	return []reviewBackendRow{
+		{reviewChoiceJev, "Jev", "TypeSafe's classifier"},
+		{reviewChoiceModel, "Active model", "Your selected AI model"},
+	}
+}
+
+func (d *configDialog) openReviewBackend() {
+	d.status = ""
+	d.view = configReview
+	d.form = configForm{}
+	d.listSel.clear()
+}
+
+func (d *configDialog) activateReviewBackend(row reviewBackendRow) {
+	backend := config.ReviewBackendModel
+	if row.kind == reviewChoiceJev {
+		backend = config.ReviewBackendJev
+	}
 	if err := d.mutate(func(c *config.Config) error {
-		c.SetReviewEnabled(on)
+		c.SetReviewEnabled(true)
+		c.SetReviewBackend(backend)
 		return nil
 	}); err != nil {
 		d.status = err.Error()
 		return
 	}
-	if on {
-		d.status = "auto review on · " + d.reviewBackend()
-	} else {
-		d.status = "auto review off"
+	if row.kind == reviewChoiceJev && !d.hasJevKey() {
+		d.openJevKeyForm()
+		return
 	}
+	d.view = configPresets
+	d.listSel.clear()
+	d.status = "auto review on · " + d.reviewBackend()
+}
+
+// hasJevKey reports whether a Jev key is available from the config or the
+// environment.
+func (d *configDialog) hasJevKey() bool {
+	return d.draft.Review.JevAPIKey != "" || os.Getenv("TYPESAFE_API_KEY") != ""
 }
 
 // reviewBackend names where reviewed commands are sent, so turning the setting
 // on states the consequence.
 func (d *configDialog) reviewBackend() string {
-	if d.draft.Review.JevAPIKey != "" || os.Getenv("TYPESAFE_API_KEY") != "" {
+	if d.reviewBackendName() == "Jev" {
 		return "commands go to TypeSafe Jev"
 	}
 	return "commands go to the active chat model"
+}
+
+// reviewBackendName is the short backend label: the explicit choice when set,
+// otherwise what the available credentials resolve to.
+func (d *configDialog) reviewBackendName() string {
+	switch d.draft.Review.Backend {
+	case config.ReviewBackendJev:
+		return "Jev"
+	case config.ReviewBackendModel:
+		return "Active model"
+	}
+	if d.hasJevKey() {
+		return "Jev"
+	}
+	return "Active model"
 }
 
 func (d *configDialog) openJevKeyForm() {
