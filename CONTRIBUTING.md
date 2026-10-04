@@ -73,7 +73,7 @@ var mySkillMD string
 Rebuild picks up embeds. Every bundled skill is:
 
 - listed in the system prompt catalog
-- loadable by the model via the `skill` tool (build and ask/plan)
+- loadable by the model via the `skill` tool (build and plan)
 
 Optional `Slash: "/name"` also registers a palette entry (`command.skill`).
 Palette Enter/Tab always fills `"/name "` into the input (never runs) so the

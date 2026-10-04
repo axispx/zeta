@@ -9,12 +9,12 @@ import (
 	"github.com/axispx/zeta/internal/workspace"
 )
 
-// ToolsForMode is the tool set a turn runs with: read-only in ask/plan, full in
+// ToolsForMode is the tool set a turn runs with: read-only in plan, full in
 // every other mode.
 func ToolsForMode(mode prompt.Mode, store *todo.Store) []tools.Tool {
 	env := tools.Env{Todos: store}
 	switch mode {
-	case prompt.ModeAsk, prompt.ModePlan:
+	case prompt.ModePlan:
 		return tools.ForMode(false, env)
 	default:
 		return tools.ForMode(true, env)

@@ -39,7 +39,7 @@ func TestCompactPrefixMatchesTurnPrefix(t *testing.T) {
 	if _, err := store.Replace([]todo.Item{{ID: "1", Subject: "A", Status: todo.Pending}}); err != nil {
 		t.Fatal(err)
 	}
-	for _, mode := range []prompt.Mode{prompt.ModeBuild, prompt.ModeAsk, prompt.ModePlan} {
+	for _, mode := range []prompt.Mode{prompt.ModeBuild, prompt.ModePlan} {
 		s := &Session{Mode: mode, Todos: store}
 		got := s.CompactPrefix()
 		wantMsgs := RequestPrefix(s.WS, s.Mode)

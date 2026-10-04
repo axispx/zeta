@@ -50,7 +50,6 @@ func TestAssistantPersistsFramePlan(t *testing.T) {
 	}{
 		{prompt.ModePlan, true},
 		{prompt.ModeBuild, false},
-		{prompt.ModeAsk, false},
 	} {
 		t.Run(tc.mode.String(), func(t *testing.T) {
 			sess, err := session.New(proj)

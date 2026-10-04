@@ -7,7 +7,7 @@
 | `Enter`                                | Send (busy: queue text; empty+queue: send now) |
 | `↑` / `↓` or `Ctrl+P` / `Ctrl+N`       | Prompt history                              |
 | `Ctrl+Q`                               | Manage follow-ups (`↑`/`↓`, Enter send, `e` edit, `d` remove) |
-| `Shift+Tab`                            | Cycle mode (build → ask → plan)             |
+| `Shift+Tab`                            | Cycle mode (build → plan)                   |
 | `Shift+Enter` / `Ctrl+J` / `Alt+Enter` | Newline                                     |
 | `@`                                    | File mention picker (gitignore-aware; Tab/Enter insert) |
 | `Tab` (in `/model`)                    | Cycle the model's reasoning levels (off → its supported values) |

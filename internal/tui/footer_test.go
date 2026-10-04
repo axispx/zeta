@@ -283,7 +283,6 @@ func TestModeStyle(t *testing.T) {
 		style lipgloss.Style
 	}{
 		{prompt.ModeBuild, styles.StyleModeBuild},
-		{prompt.ModeAsk, styles.StyleModeAsk},
 		{prompt.ModePlan, styles.StyleModePlan},
 	}
 	for _, tt := range tests {

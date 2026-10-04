@@ -6,7 +6,7 @@ Use any OpenAI-compatible provider — OpenAI, xAI, DeepSeek, Kimi, and more, pl
 
 ## Features
 
-- **Build / Ask / Plan** — implement with tools, read-only Q&A, or plan first then approve into Build
+- **Build / Plan** — implement with tools, or plan first then approve into Build
 - **Permission prompts** — shell (read-only commands excepted), file changes, and reads outside the workspace ask before running
 - **Local sessions** — chat history stays on your machine; resume anytime with `/resume`
 - **Auto-compaction** — long chats summarize older context when the model window fills up
@@ -36,7 +36,6 @@ Cycle modes with **Shift+Tab**.
 | Mode      | What it does                                                                                                                                                    |
 | --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Build** | Writes code and runs commands. Shell, file edits, and outside-workspace reads ask first.                                                                |
-| **Ask**   | Questions only — reads the codebase, no edits. Outside-workspace reads still prompt.                                                                    |
 | **Plan**  | Plans without changing files. When ready: approve, revise, or discard. Approve picks a build model, clears context, switches to Build, and starts implementing. |
 
 ## Commands

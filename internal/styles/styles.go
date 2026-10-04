@@ -79,9 +79,8 @@ var (
 	Selection = lipgloss.NewStyle().
 			Reverse(true)
 
-	// Footer mode accents (Build / Ask / Plan). Mapping from mode → style lives in tui.
+	// Footer mode accents (Build / Plan). Mapping from mode → style lives in tui.
 	StyleModeBuild = lipgloss.NewStyle().Bold(true).Foreground(Blue)
-	StyleModeAsk   = lipgloss.NewStyle().Bold(true).Foreground(Green)
 	StyleModePlan  = lipgloss.NewStyle().Bold(true).Foreground(Yellow)
 
 	// PlanFrame is the yellow left border for proposed-plan bodies in the transcript.

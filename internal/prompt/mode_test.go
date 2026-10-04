@@ -12,8 +12,7 @@ func TestModeNext(t *testing.T) {
 		in, want Mode
 	}{
 		{ModeBuild, ModePlan},
-		{ModePlan, ModeAsk},
-		{ModeAsk, ModeBuild},
+		{ModePlan, ModeBuild},
 	}
 	for _, tt := range tests {
 		if got := tt.in.Next(); got != tt.want {
@@ -29,7 +28,6 @@ func TestModeStringAndLabel(t *testing.T) {
 		wantLabel  string
 	}{
 		{ModeBuild, "build", "Build"},
-		{ModeAsk, "ask", "Ask"},
 		{ModePlan, "plan", "Plan"},
 	}
 	for _, tt := range tests {
@@ -44,7 +42,7 @@ func TestModeStringAndLabel(t *testing.T) {
 
 func TestSystemExcludesMode(t *testing.T) {
 	s := System(workspace.Context{})
-	for _, needle := range []string{"<agent_mode>", "Mode: Build", "Mode: Ask", "Mode: Plan"} {
+	for _, needle := range []string{"<agent_mode>", "Mode: Build", "Mode: Plan"} {
 		if strings.Contains(s, needle) {
 			t.Errorf("System() unexpectedly contains %q", needle)
 		}
@@ -69,7 +67,7 @@ func TestSystemOmitsAgentsMDWhenEmpty(t *testing.T) {
 }
 
 func TestModeInstructions(t *testing.T) {
-	for _, mode := range []Mode{ModeBuild, ModeAsk, ModePlan} {
+	for _, mode := range []Mode{ModeBuild, ModePlan} {
 		s := mode.Instructions()
 		if !strings.HasPrefix(s, "\n<agent_mode>\n") {
 			t.Errorf("%v.Instructions() missing leading newline and <agent_mode> open tag", mode)

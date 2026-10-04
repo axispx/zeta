@@ -11,13 +11,11 @@ type Mode int
 const (
 	ModeBuild Mode = iota
 	ModePlan
-	ModeAsk
 )
 
 var modeNames = [...]string{
 	ModeBuild: "build",
 	ModePlan:  "plan",
-	ModeAsk:   "ask",
 }
 
 func (m Mode) valid() bool {
@@ -38,7 +36,7 @@ func (m Mode) Label() string {
 	return strings.ToUpper(s[:1]) + s[1:]
 }
 
-// Next cycles Build → Plan → Ask → Build.
+// Next cycles Build → Plan → Build.
 func (m Mode) Next() Mode {
 	if !m.valid() {
 		return ModeBuild
@@ -52,8 +50,6 @@ func (m Mode) Next() Mode {
 func (m Mode) Instructions() string {
 	var body string
 	switch m {
-	case ModeAsk:
-		body = modeAskMD
 	case ModePlan:
 		body = modePlanMD
 	default:

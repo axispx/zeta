@@ -619,7 +619,7 @@ func TestActiveGrantsSurviveMode(t *testing.T) {
 	if !m.session.Grants.CmdGranted("echo") {
 		t.Fatal("session grant should stick")
 	}
-	m.session.Mode = prompt.ModeAsk
+	m.session.Mode = prompt.ModePlan
 	if !m.session.Grants.CmdGranted("echo") {
 		t.Fatal("session grant should survive mode switch")
 	}
@@ -795,10 +795,10 @@ func TestReadOutsideSessionGrantSkipsLater(t *testing.T) {
 	}
 }
 
-func TestReadOutsidePromptsInAskMode(t *testing.T) {
+func TestReadOutsidePromptsInPlanMode(t *testing.T) {
 	replies := make(chan harness.Reply, 1)
 	m := testModel()
-	m.session.Mode = prompt.ModeAsk
+	m.session.Mode = prompt.ModePlan
 	m.session.WS = workspace.Context{Abs: t.TempDir()}
 	m.turn.current = &turnSession{
 		activeTool: -1,
@@ -811,7 +811,7 @@ func TestReadOutsidePromptsInAskMode(t *testing.T) {
 		args: json.RawMessage(`{"path":"../x.txt"}`),
 	})
 	if m.panel.perm == nil {
-		t.Fatal("ask mode must still prompt outside reads")
+		t.Fatal("plan mode must still prompt outside reads")
 	}
 }
 

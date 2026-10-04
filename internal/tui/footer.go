@@ -210,8 +210,6 @@ func formatTokenCount(n int64) string {
 
 func modeStyle(m prompt.Mode) lipgloss.Style {
 	switch m {
-	case prompt.ModeAsk:
-		return styles.StyleModeAsk
 	case prompt.ModePlan:
 		return styles.StyleModePlan
 	default:
