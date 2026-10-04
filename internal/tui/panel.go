@@ -159,7 +159,7 @@ func (m Model) renderPanel(width int) string {
 }
 
 // renderPanelFrame wraps option-list body in the shared panel chrome
-// (blank spacer + margin + overlay panel padding). Used by permission/ask/plan.
+// (top rule + margin + overlay panel padding). Used by permission/ask/plan.
 func renderPanelFrame(chrome styles.Chrome, width int, body string) string {
 	innerW, _ := overlayWidths(width)
 	panel := lipgloss.NewStyle().
@@ -168,7 +168,8 @@ func renderPanelFrame(chrome styles.Chrome, width int, body string) string {
 			Padding(1, styles.OverlayPadRight, 1, 0).
 			Width(innerW).
 			Render(body))
-	return lipgloss.JoinVertical(lipgloss.Left, "", panel)
+	rule := lipgloss.NewStyle().Foreground(styles.Dim).Render(strings.Repeat("─", max(width, 1)))
+	return lipgloss.JoinVertical(lipgloss.Left, rule, panel)
 }
 
 // padPanel indents multi-line body text so it aligns with the prompt column.
@@ -213,7 +214,7 @@ func optionLineAt(x, y, viewportH, termW int) int {
 	if x < 0 || x >= termW {
 		return -1
 	}
-	// blank spacer + OverlayPanel top pad; gap starts right after the transcript.
+	// top rule + OverlayPanel top pad; gap starts right after the transcript.
 	return y - viewportH - 1 - 1
 }
 

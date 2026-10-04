@@ -50,6 +50,10 @@ func (m Model) View() tea.View {
 			surface = pinOverlayBottom(surface, ov)
 		}
 	}
+	if m.inputBlocked() {
+		// A panel owns the bottom: no input box, no footer.
+		return m.programView(surface)
+	}
 	return m.programView(stackMainChrome(surface, m.renderInput(), m.renderFooter()))
 }
 

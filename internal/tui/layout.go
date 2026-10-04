@@ -15,10 +15,10 @@ func (m *Model) layout() {
 
 	inputH := max(m.composer.textarea.Height(), inputMinHeight)
 
-	// gap + footer; input chrome is hidden while a panel replaces it.
-	chromeH := m.gapHeight() + footerRows
+	// gap [+ footer + input]; both are hidden while a panel replaces them.
+	chromeH := m.gapHeight()
 	if !m.inputBlocked() {
-		chromeH += inputH + styles.InputChromeV + styles.InputMarginB
+		chromeH += footerRows + inputH + styles.InputChromeV + styles.InputMarginB
 	}
 	th := max(m.term.height-chromeH, minTranscriptH)
 
