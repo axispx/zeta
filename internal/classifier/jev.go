@@ -102,19 +102,16 @@ func (j Jev) Classify(ctx context.Context, req Request) (Result, error) {
 	if !Known(label) {
 		return Result{}, fmt.Errorf("jev: unknown label %q", ans.Choice)
 	}
-	prob, ok := ans.Probabilities[ans.Choice]
-	if !ok {
+	if _, ok := ans.Probabilities[ans.Choice]; !ok {
 		return Result{}, fmt.Errorf("jev: no probability for %q", ans.Choice)
 	}
-	// The lead over the runner-up: a label that wins 0.55 to 0.45 is not a
-	// confident answer even at 0.55.
-	runnerUp := 0.0
+	probs := make(map[Label]float64, len(ans.Probabilities))
 	for l, p := range ans.Probabilities {
-		if l != ans.Choice && p > runnerUp {
-			runnerUp = p
+		if Known(Label(l)) {
+			probs[Label(l)] = p
 		}
 	}
-	return Result{Label: label, Probability: prob, Margin: prob - runnerUp}, nil
+	return Result{Label: label, Probs: probs}, nil
 }
 
 func truncate(s string, n int) string {

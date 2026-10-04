@@ -63,7 +63,7 @@ func TestReviewVerdicts(t *testing.T) {
 	// Approved: the loop is told to run, and no prompt opens.
 	m, replies := reviewModel(t)
 	m.handleReviewDone(reviewDoneMsg{id: 1, start: start, verdict: classifier.Verdict{
-		Approved: true, Result: classifier.Result{Label: classifier.LocalReversible, Probability: 0.95, Source: "jev"},
+		Approved: true, Result: classifier.Result{Label: classifier.LocalReversible, Source: "jev"},
 	}})
 	if r := <-replies; r.Kind != harness.ReplyRun {
 		t.Fatalf("approved review should run the call: %+v", r)
@@ -79,13 +79,13 @@ func TestReviewVerdicts(t *testing.T) {
 	m, replies = reviewModel(t)
 	rows := len(m.transcript.messages)
 	m.handleReviewDone(reviewDoneMsg{id: 1, start: start, verdict: classifier.Verdict{
-		Result: classifier.Result{Label: classifier.LocalReversible, Probability: 0.76, Source: "jev"},
-		Why:    "not sure enough",
+		Result:  classifier.Result{Label: classifier.ReadOnly, Source: "jev"},
+		Concern: classifier.RunsUnknownCode,
 	}})
 	if m.panel.perm == nil {
 		t.Fatal("a refused review falls back to the prompt")
 	}
-	const want = "Auto review: builds inside the project, undoable (not sure enough)"
+	const want = "Auto review: runs code it can't see"
 	if m.panel.perm.review != want {
 		t.Fatalf("prompt review line = %q", m.panel.perm.review)
 	}

@@ -104,18 +104,21 @@ A command is classified by what the worst thing in it would do:
 | `local_reversible`  | writes inside the project in a way git or a rebuild undoes (builds, formatting, caches) |
 | `local_destructive` | deletes or overwrites files or history in a way that is not easily undone |
 | `external_effect`   | reaches outside the project: network writes, push, publish, install, `sudo` |
+| `sends_data_out`    | sends files, secrets or the environment off the machine: `curl -d @file`, `nc`, `scp` of keys |
 | `runs_unknown_code` | runs code the command text does not show: `curl \| sh`, `eval`, a script  |
 
 `read_only` and `local_reversible` are approved by default (`allow` in the config narrows or widens that). Only the sub-commands no rule covers are put to the classifier, so `go test ./... && make build` asks about `make build` alone.
 
 These never reach the classifier and always prompt, whatever it would say: a command it cannot split (file redirect, here-doc, `$(…)`, subshell), a dotenv secret, and a path outside the workspace.
 
-Two backends, chosen by what is set:
+Two backends, chosen when you turn the setting on (or by `backend` in the config):
 
-- **Jev** (TypeSafe) when `jev_api_key` is set in the config or `TYPESAFE_API_KEY` is in the environment. It returns a probability per label; a label is approved only at 80% with a 0.5 lead over the next.
-- **The active chat model** otherwise. It has no probabilities, so it must answer with a label and `high` certainty.
+- **Jev** (TypeSafe) — needs `jev_api_key` in the config or `TYPESAFE_API_KEY` in the environment; choosing it without a key prompts for one. It returns a probability per label; a command is approved when the allowed labels together reach 80%, so a command split between `read_only` and `local_reversible` still passes.
+- **Active model** — the model you are chatting with. It has no probabilities, so it must answer with a label and `high` certainty.
 
-Either way the command, its unsettled parts, the git branch and the working directory are sent to that backend. Turn it on only if you are comfortable with that.
+With `backend` unset, Jev answers when a key is set and the active chat model otherwise.
+
+Either way the command, its unsettled parts, the git branch, the working directory and your latest message (capped at 1000 characters) are sent to that backend. Your message is the only text treated as trusted: a command that goes beyond what it asked for is pushed toward a riskier label. Turn it on only if you are comfortable with that.
 
 ## Remembered rules
 

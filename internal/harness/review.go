@@ -2,7 +2,9 @@ package harness
 
 import (
 	"encoding/json"
+	"strings"
 
+	"github.com/axispx/zeta/internal/ai"
 	"github.com/axispx/zeta/internal/classifier"
 	"github.com/axispx/zeta/internal/policy"
 	"github.com/axispx/zeta/internal/tools"
@@ -45,5 +47,18 @@ func (s *Session) ReviewRequest(name string, args json.RawMessage) (classifier.R
 		Pending: pending,
 		Workdir: tools.ArgWorkdir(args),
 		Branch:  s.WS.Branch,
+
+		UserRequest: s.lastUserText(),
 	}, true
+}
+
+// lastUserText is the user's latest message, the only statement of intent the
+// reviewer may trust.
+func (s *Session) lastUserText() string {
+	for i := len(s.History) - 1; i >= 0; i-- {
+		if m := s.History[i]; m.Role == ai.RoleUser && strings.TrimSpace(m.Text) != "" {
+			return m.Text
+		}
+	}
+	return ""
 }

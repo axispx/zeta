@@ -25,6 +25,14 @@ func (f *fakeBackend) Classify(_ context.Context, req Request) (Result, error) {
 	return f.res, f.err
 }
 
+func probs(top Label, p float64, rest ...any) Result {
+	m := map[Label]float64{top: p}
+	for i := 0; i+1 < len(rest); i += 2 {
+		m[rest[i].(Label)] = rest[i+1].(float64)
+	}
+	return Result{Label: top, Probs: m}
+}
+
 func TestReviewApproval(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -32,16 +40,18 @@ func TestReviewApproval(t *testing.T) {
 		allow []Label
 		want  bool
 	}{
-		{"read only, sure", Result{Label: ReadOnly, Probability: 0.97, Margin: 0.9}, nil, true},
-		{"reversible, sure", Result{Label: LocalReversible, Probability: 0.95, Margin: 0.8}, nil, true},
-		{"destructive never by default", Result{Label: LocalDestructive, Probability: 0.99, Margin: 0.99}, nil, false},
-		{"external", Result{Label: ExternalEffect, Probability: 0.99, Margin: 0.99}, nil, false},
-		{"unknown code", Result{Label: RunsUnknownCode, Probability: 0.99, Margin: 0.99}, nil, false},
-		{"at the bar", Result{Label: ReadOnly, Probability: 0.8, Margin: 0.6}, nil, true},
-		{"not sure enough", Result{Label: ReadOnly, Probability: 0.79, Margin: 0.6}, nil, false},
-		{"thin margin", Result{Label: ReadOnly, Probability: 0.95, Margin: 0.2}, nil, false},
-		{"narrowed allow list", Result{Label: LocalReversible, Probability: 0.99, Margin: 0.99}, []Label{ReadOnly}, false},
-		{"widened allow list", Result{Label: ExternalEffect, Probability: 0.99, Margin: 0.99}, []Label{ExternalEffect}, true},
+		{"read only, sure", probs(ReadOnly, 0.97), nil, true},
+		{"reversible, sure", probs(LocalReversible, 0.95), nil, true},
+		{"destructive never by default", probs(LocalDestructive, 0.99), nil, false},
+		{"external", probs(ExternalEffect, 0.99), nil, false},
+		{"sends data out", probs(SendsDataOut, 0.99), nil, false},
+		{"unknown code", probs(RunsUnknownCode, 0.99), nil, false},
+		{"at the bar", probs(ReadOnly, 0.8), nil, true},
+		{"under the bar", probs(ReadOnly, 0.79), nil, false},
+		{"split between safe labels", probs(ReadOnly, 0.5, LocalReversible, 0.4), nil, true},
+		{"split with a risky label", probs(ReadOnly, 0.5, LocalReversible, 0.2, ExternalEffect, 0.3), nil, false},
+		{"narrowed allow list", probs(LocalReversible, 0.99), []Label{ReadOnly}, false},
+		{"widened allow list", probs(ExternalEffect, 0.99), []Label{ExternalEffect}, true},
 	}
 	for _, tc := range cases {
 		r := &Reviewer{Backend: &fakeBackend{res: tc.res}, Allow: tc.allow}
@@ -52,7 +62,7 @@ func TestReviewApproval(t *testing.T) {
 }
 
 func TestReviewNeverApprovesOnError(t *testing.T) {
-	r := &Reviewer{Backend: &fakeBackend{err: errors.New("boom"), res: Result{Label: ReadOnly, Probability: 1, Margin: 1}}}
+	r := &Reviewer{Backend: &fakeBackend{err: errors.New("boom"), res: probs(ReadOnly, 1)}}
 	v := r.Review(context.Background(), Request{Command: "ls"})
 	if v.Approved || v.Err == nil {
 		t.Fatalf("error must not approve: %+v", v)
@@ -64,18 +74,19 @@ func TestReviewNeverApprovesOnError(t *testing.T) {
 
 func TestVerdictSaysWhyItAsks(t *testing.T) {
 	for _, tc := range []struct {
+		name string
 		res  Result
 		want string
 	}{
-		{Result{Label: LocalReversible, Probability: 0.76, Margin: 0.5, Source: "jev"}, "Auto review: builds inside the project, undoable (not sure enough)"},
-		{Result{Label: ExternalEffect, Probability: 0.97, Margin: 0.9, Source: "jev"}, "Auto review: reaches outside the project"},
-		{Result{Label: LocalDestructive, Probability: 0.9, Margin: 0.8, Source: "jev"}, "Auto review: may delete or overwrite files"},
-		{Result{Label: ReadOnly, Probability: 0.85, Margin: 0.1, Source: "jev"}, "Auto review: only reads (not sure enough)"},
-		{Result{Label: ReadOnly, Probability: 0.97, Margin: 0.9, Source: "jev"}, "Auto review: only reads"},
+		{"risky top label", probs(ExternalEffect, 0.97), "Auto review: reaches outside the project"},
+		{"data out", probs(SendsDataOut, 0.9), "Auto review: may send files or secrets out"},
+		{"safe on top, risk underneath", probs(ReadOnly, 0.6, RunsUnknownCode, 0.3, LocalDestructive, 0.1), "Auto review: runs code it can't see"},
+		{"safe split, no risk", probs(ReadOnly, 0.4, LocalReversible, 0.3), "Auto review: no confident verdict"},
+		{"chat model, low certainty", Result{Label: ReadOnly}, "Auto review: no confident verdict"},
 	} {
 		v := (&Reviewer{Backend: &fakeBackend{res: tc.res}}).Review(context.Background(), Request{Command: "x"})
 		if v.Summary() != tc.want {
-			t.Errorf("summary = %q, want %q", v.Summary(), tc.want)
+			t.Errorf("%s: summary = %q, want %q", tc.name, v.Summary(), tc.want)
 		}
 	}
 	for _, l := range labels {
@@ -116,7 +127,7 @@ func TestJevRequestAndReply(t *testing.T) {
 		auth = r.Header.Get("Authorization")
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		_, _ = w.Write([]byte(`{"model":"jev-1.13.0","answers":{"risk":{"type":"choice","choice":"local_reversible","confidence":0.9,` +
-			`"probabilities":{"read_only":0.05,"local_reversible":0.93,"local_destructive":0.01,"external_effect":0.01,"runs_unknown_code":0}}},"usage":{"input_tokens":1,"output_tokens":1}}`))
+			`"probabilities":{"read_only":0.05,"local_reversible":0.93,"local_destructive":0.01,"external_effect":0.01,"sends_data_out":0,"runs_unknown_code":0}}},"usage":{"input_tokens":1,"output_tokens":1}}`))
 	}))
 	defer srv.Close()
 
@@ -124,7 +135,7 @@ func TestJevRequestAndReply(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Label != LocalReversible || res.Probability != 0.93 || res.Margin < 0.87 || res.Margin > 0.89 {
+	if res.Label != LocalReversible || res.Probs[LocalReversible] != 0.93 || res.Probs[ReadOnly] != 0.05 {
 		t.Fatalf("result = %+v", res)
 	}
 	if auth != "Bearer k" {
@@ -136,6 +147,20 @@ func TestJevRequestAndReply(t *testing.T) {
 	}
 	if !strings.Contains(body.State, `needs_decision: "make build"`) {
 		t.Errorf("state = %q", body.State)
+	}
+}
+
+func TestFactsCarryUserRequest(t *testing.T) {
+	facts := Request{Command: "ls", UserRequest: "  fix the \"parser\"\nthen test  "}.Facts()
+	if !strings.Contains(facts, `user_request: "fix the \"parser\"\nthen test"`) {
+		t.Errorf("facts:\n%s", facts)
+	}
+	long := Request{Command: "ls", UserRequest: strings.Repeat("a", 5000)}.Facts()
+	if len(long) > 1300 {
+		t.Errorf("user request not capped: %d bytes", len(long))
+	}
+	if strings.Contains(Request{Command: "ls"}.Facts(), "user_request") {
+		t.Error("empty request must be omitted")
 	}
 }
 
@@ -176,8 +201,8 @@ func TestModelBackend(t *testing.T) {
 		want      Result
 		wantError bool
 	}{
-		{`{"label":"read_only","certainty":"high"}`, Result{Label: ReadOnly, Probability: 1, Margin: 1}, false},
-		{"```json\n{\"label\": \"local_reversible\", \"certainty\": \"HIGH\"}\n```", Result{Label: LocalReversible, Probability: 1, Margin: 1}, false},
+		{`{"label":"read_only","certainty":"high"}`, probs(ReadOnly, 1), false},
+		{"```json\n{\"label\": \"local_reversible\", \"certainty\": \"HIGH\"}\n```", probs(LocalReversible, 1), false},
 		{`{"label":"read_only","certainty":"low"}`, Result{Label: ReadOnly}, false},
 		{`{"label":"read_only"}`, Result{Label: ReadOnly}, false},
 		{`{"label":"safe","certainty":"high"}`, Result{}, true},
@@ -186,7 +211,7 @@ func TestModelBackend(t *testing.T) {
 	for _, tc := range cases {
 		c := &fakeCompleter{reply: tc.reply}
 		res, err := Model{Client: c}.Classify(context.Background(), Request{Command: "ls", Pending: []string{"ls"}})
-		if (err != nil) != tc.wantError || res != tc.want {
+		if (err != nil) != tc.wantError || res.Label != tc.want.Label || res.Probs[res.Label] != tc.want.Probs[tc.want.Label] {
 			t.Errorf("reply %q: got %+v, %v", tc.reply, res, err)
 		}
 		if len(c.msgs) != 2 || !strings.Contains(c.msgs[1].Text, "<command_facts>") || !strings.Contains(c.msgs[0].Text, "untrusted") {
@@ -223,5 +248,16 @@ func TestNewPicksBackend(t *testing.T) {
 	}
 	if len(r.Allow) != 1 || r.Allow[0] != ReadOnly {
 		t.Errorf("allow = %v", r.Allow)
+	}
+	// An explicit backend overrides what the credentials would resolve to.
+	if r := New(config.ReviewConfig{Enabled: true, Backend: config.ReviewBackendModel}, client); r == nil || r.Backend.Name() != "model" {
+		t.Errorf("explicit model backend should ignore the env key, got %+v", r)
+	}
+	if r := New(config.ReviewConfig{Enabled: true, Backend: config.ReviewBackendJev}, client); r == nil || r.Backend.Name() != "jev" {
+		t.Errorf("explicit jev backend should use the env key, got %+v", r)
+	}
+	t.Setenv("TYPESAFE_API_KEY", "")
+	if r := New(config.ReviewConfig{Enabled: true, Backend: config.ReviewBackendJev}, client); r != nil {
+		t.Errorf("explicit jev backend without a key has nothing to review with, got %+v", r)
 	}
 }
