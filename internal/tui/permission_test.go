@@ -942,7 +942,7 @@ func bgSeq(s string) string {
 // fill. A style without it (the bare diff/text styles) punches the terminal
 // background through the panel and reads as a highlight band across the prompt.
 func TestPermissionPayloadCarriesPanelFill(t *testing.T) {
-	chrome := styles.NewChrome(lipgloss.Color("235"), true)
+	chrome := styles.Chrome{Input: lipgloss.Color("235")}
 	ink := chrome.OverlayInk()
 	fill := bgSeq(ink.Gap.Render("x"))
 	if fill == "" {

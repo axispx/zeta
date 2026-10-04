@@ -23,7 +23,6 @@ type composer struct {
 }
 
 // applyTextareaStyles sets textarea chrome; bg nil skips panel fill (pre-BackgroundColorMsg).
-// Empty input dims the focused prompt arrow.
 func applyTextareaStyles(ta *textarea.Model, bg color.Color) {
 	ts := textarea.DefaultStyles(true)
 	base := lipgloss.NewStyle()
@@ -34,9 +33,10 @@ func applyTextareaStyles(ta *textarea.Model, bg color.Color) {
 		prompt = prompt.Background(bg)
 		ph = ph.Background(bg)
 	}
+	// Dim like the input rules until there is text; then the active color.
 	focusedPrompt := prompt
 	if ta.Value() == "" {
-		focusedPrompt = prompt.Faint(true)
+		focusedPrompt = prompt.Foreground(styles.Dim)
 	}
 	ts.Focused.Base = base
 	ts.Focused.Text = base
@@ -47,12 +47,12 @@ func applyTextareaStyles(ta *textarea.Model, bg color.Color) {
 	ts.Blurred.Text = base
 	ts.Blurred.CursorLine = base
 	ts.Blurred.Placeholder = ph
-	ts.Blurred.Prompt = prompt.Faint(true)
+	ts.Blurred.Prompt = prompt.Foreground(styles.Dim)
 	ts.Cursor.Color = styles.White
 	ts.Cursor.Blink = false
 	ta.SetStyles(ts)
 }
 
 func (m *Model) syncTextareaStyles() {
-	applyTextareaStyles(&m.composer.textarea, m.term.chrome.Input)
+	applyTextareaStyles(&m.composer.textarea, nil)
 }

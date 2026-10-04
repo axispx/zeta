@@ -9,7 +9,6 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/axispx/zeta/internal/harness"
-	"github.com/axispx/zeta/internal/styles"
 	"github.com/axispx/zeta/internal/tools"
 )
 
@@ -414,7 +413,7 @@ func TestHandleAskClickOnDescriptionLine(t *testing.T) {
 	titleH := m.askTitleH()
 	// Rows are label · description, so row 1's description is line 3.
 	y := m.transcript.viewport.Height() + 2 + titleH + 3
-	if _, ok := m.handleAskClick(tea.MouseClickMsg{X: styles.InputMarginH + 1, Y: y, Button: tea.MouseLeft}); !ok {
+	if _, ok := m.handleAskClick(tea.MouseClickMsg{X: 1, Y: y, Button: tea.MouseLeft}); !ok {
 		t.Fatal("expected click handled")
 	}
 	if m.panel.ask.lists[0].selected != 1 {

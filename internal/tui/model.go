@@ -29,10 +29,11 @@ import (
 
 const (
 	inputMinHeight   = 1
-	inputMaxHeight   = 8   // visible rows; grows then scrolls
-	inputMaxContent  = 500 // total visual lines before input is blocked
-	inputPrompt      = "→ "
-	inputPromptWidth = 2 // lipgloss width of inputPrompt
+	inputMaxHeight   = 8    // visible rows; grows then scrolls
+	inputMaxContent  = 500  // total visual lines before input is blocked
+	inputPrompt      = "→ " // list selection pointer
+	composerPrompt   = "❯ " // composer glyph; same width as inputPrompt
+	inputPromptWidth = 2    // lipgloss width of inputPrompt
 	minTermW         = 20
 	minTranscriptH   = 3
 	minInputInnerW   = 10
@@ -127,7 +128,7 @@ func New(cfg config.Config, opts Options) (Model, error) {
 	// keep the same gutter width so text stays aligned.
 	ta.SetPromptFunc(inputPromptWidth, func(info textarea.PromptInfo) string {
 		if info.LineNumber == 0 {
-			return inputPrompt
+			return composerPrompt
 		}
 		return ""
 	})
@@ -184,7 +185,7 @@ func New(cfg config.Config, opts Options) (Model, error) {
 
 func (m *Model) applyPanels(termBg color.Color, dark bool) {
 	m.term.chrome = styles.NewChrome(termBg, dark)
-	applyTextareaStyles(&m.composer.textarea, m.term.chrome.Input)
+	applyTextareaStyles(&m.composer.textarea, nil)
 	// User bubbles bake chrome into the prefix; rebuild on theme change.
 	m.transcript.invalidate()
 }
@@ -272,6 +273,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.MouseClickMsg:
+		if m.handleJumpClick(msg) {
+			return m, nil
+		}
 		if cmd, ok := m.handlePanelClick(msg); ok {
 			m.selection.sel.clear()
 			return m, cmd

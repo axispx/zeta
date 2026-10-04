@@ -6,8 +6,6 @@ import (
 
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
-
-	"github.com/axispx/zeta/internal/styles"
 )
 
 func TestExtractSelectionSingleLine(t *testing.T) {
@@ -31,17 +29,6 @@ func TestExtractSelectionStripsANSI(t *testing.T) {
 	content := "\x1b[32mgreen\x1b[0m text"
 	got := extractSelectionString(content, selPos{0, 0}, selPos{0, 4})
 	if got != "green" {
-		t.Fatalf("got %q", got)
-	}
-}
-
-func TestExtractSelectionNoScrollbarChars(t *testing.T) {
-	content := "line one\nline two"
-	got := extractSelectionString(content, selPos{0, 0}, selPos{1, 7})
-	if strings.ContainsAny(got, "│█") {
-		t.Fatalf("scrollbar leaked: %q", got)
-	}
-	if got != "line one\nline two" {
 		t.Fatalf("got %q", got)
 	}
 }
@@ -70,35 +57,6 @@ func TestHighlightSelection(t *testing.T) {
 	}
 }
 
-func TestTranscriptPosRejectsScrollbar(t *testing.T) {
-	m := Model{
-		term: term{
-			ready: true,
-			width: 40,
-		},
-		transcript: transcript{
-			contentW:      37,
-			showScrollbar: true,
-			messages:      []Message{{Role: RoleUser, Text: "hi"}},
-			viewport:      viewport.New(),
-		},
-	}
-	m.transcript.viewport.SetWidth(m.transcript.contentW)
-	m.transcript.viewport.SetHeight(10)
-	m.transcript.viewport.SetContent(strings.Repeat("x", 50) + "\n" + strings.Repeat("y\n", 20))
-
-	if _, ok := m.transcriptPos(39, 0, false); ok {
-		t.Fatal("scrollbar column should miss")
-	}
-	p, ok := m.transcriptPos(styles.ContentInset, 0, false)
-	if !ok {
-		t.Fatal("content should hit")
-	}
-	if p.col != 0 || p.line != 0 {
-		t.Fatalf("pos %+v", p)
-	}
-}
-
 func TestTranscriptPosAppliesYOffset(t *testing.T) {
 	m := Model{
 		term: term{
@@ -116,7 +74,7 @@ func TestTranscriptPosAppliesYOffset(t *testing.T) {
 	m.transcript.viewport.SetContent(strings.Repeat("line\n", 30))
 	m.transcript.viewport.SetYOffset(10)
 
-	p, ok := m.transcriptPos(styles.ContentInset, 2, false)
+	p, ok := m.transcriptPos(0, 2, false)
 	if !ok {
 		t.Fatal("expected hit")
 	}
@@ -132,17 +90,16 @@ func TestTranscriptPosClamp(t *testing.T) {
 			width: 40,
 		},
 		transcript: transcript{
-			contentW:      37,
-			showScrollbar: true,
-			messages:      []Message{{Role: RoleUser, Text: "hi"}},
-			viewport:      viewport.New(),
+			contentW: 37,
+			messages: []Message{{Role: RoleUser, Text: "hi"}},
+			viewport: viewport.New(),
 		},
 	}
 	m.transcript.viewport.SetWidth(m.transcript.contentW)
 	m.transcript.viewport.SetHeight(10)
 	m.transcript.viewport.SetContent("hello")
 
-	p, ok := m.transcriptPos(39, 0, true) // scrollbar col → clamp to last content cell
+	p, ok := m.transcriptPos(39, 0, true) // past content → clamp to last content cell
 	if !ok {
 		t.Fatal("clamp should hit")
 	}

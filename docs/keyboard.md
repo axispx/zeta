@@ -14,7 +14,7 @@
 | `Esc`                                  | Cancel edit / leave queue / cancel turn (queue kept); denies an open permission prompt |
 | `Ctrl+C`                               | Leave edit/focus → interrupt → clear queue → quit |
 | Mouse / `PgUp` / `PgDn`                | Scroll                                      |
-| Drag transcript                        | Select text and copy on release (no scrollbar) |
+| Drag transcript                        | Select text and copy on release |
 
 ## Follow-up queue
 
@@ -57,4 +57,4 @@ plan panels `Esc` cancels as usual.
 
 If `Shift+Enter` is remapped (common in iTerm), remove that binding or use `Ctrl+J` / `Alt+Enter` for newlines.
 
-**Copy:** drag in the transcript to select (the scrollbar is not included); releasing the mouse copies to the clipboard. Leaving the terminal mid-drag counts as release.
+**Copy:** drag in the transcript to select; releasing the mouse copies to the clipboard. Leaving the terminal mid-drag counts as release.

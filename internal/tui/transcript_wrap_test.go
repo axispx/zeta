@@ -116,7 +116,7 @@ func TestTranscriptRowsDoNotSoftWrap(t *testing.T) {
 // display rows.
 func TestTranscriptWrapReportedWidth(t *testing.T) {
 	cases := []struct {
-		termW   int // terminal width; contentW = termW - 2 when no scrollbar
+		termW   int // terminal width;
 		lines   int // content lines after lipgloss wrapping
 		display int // display rows the viewport must show
 	}{
@@ -127,9 +127,6 @@ func TestTranscriptWrapReportedWidth(t *testing.T) {
 	}
 	for _, tc := range cases {
 		m := transcriptAt(tc.termW, wrapRows())
-		if m.transcript.showScrollbar {
-			t.Fatalf("terminal width %d: expected no scrollbar for this fixture", tc.termW)
-		}
 		content := m.transcript.viewport.GetContent()
 		if got := strings.Count(content, "\n") + 1; got != tc.lines {
 			t.Errorf("terminal width %d: %d content lines, want %d", tc.termW, got, tc.lines)

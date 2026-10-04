@@ -17,8 +17,7 @@ const (
 	WhiteANSI  = "15" // bright white
 
 	// Panel lift from terminal bg (Charm Lighten/Darken).
-	// Input is subtler; user bubbles are more elevated.
-	inputPanelLift  = 0.08
+	// Only user bubbles are lifted; panels and overlays use the terminal bg.
 	promptPanelLift = 0.14
 
 	// OverlayPadRight matches OverlayPanel's right padding (lipgloss Width includes it).
@@ -70,10 +69,6 @@ var (
 	// Transcript horizontal padding must match ContentInset used in layout.
 	Transcript = lipgloss.NewStyle().
 			Padding(0, ContentInset)
-
-	ScrollThumb = lipgloss.NewStyle().
-			Foreground(Dim).
-			Faint(true)
 
 	// Selection highlights drag-selected transcript cells (app-level copy).
 	Selection = lipgloss.NewStyle().
@@ -136,21 +131,19 @@ type Chrome struct {
 // NewChrome derives panel fills from the live terminal background.
 func NewChrome(termBg color.Color, dark bool) Chrome {
 	return Chrome{
-		Input:  PanelFromTerminal(termBg, dark, inputPanelLift),
 		Prompt: PanelFromTerminal(termBg, dark, promptPanelLift),
 	}
 }
 
 func (c Chrome) InputBox() lipgloss.Style {
-	s := lipgloss.NewStyle().Padding(1, 1)
-	if c.Input != nil {
-		s = s.Background(c.Input)
-	}
-	return s
+	return lipgloss.NewStyle().
+		Border(lipgloss.NormalBorder(), true, false).
+		BorderForeground(Dim).
+		PaddingRight(1)
 }
 
 func (c Chrome) UserMsg() lipgloss.Style {
-	s := lipgloss.NewStyle().Padding(1, 1)
+	s := lipgloss.NewStyle().Padding(0, 1)
 	if c.Prompt != nil {
 		s = s.Background(c.Prompt)
 	}
@@ -257,11 +250,11 @@ const ContentInset = 1
 //	textarea    = style.Width - InputChromeH
 //	rendered H  = textarea H + InputChromeV
 const (
-	InputPadV      = 2 // top + bottom (1 each)
+	InputPadV      = 2 // top + bottom rule (1 each)
 	InputPadH      = 2 // left + right (1 each)
 	InputChromeH   = InputPadH
 	InputChromeV   = InputPadV
 	InputMarginH   = 1 // columns of empty space each side
-	InputMarginB   = 1 // rows below input before footer
+	InputMarginB   = 0 // rows below input before footer
 	GapBeforeInput = 1
 )

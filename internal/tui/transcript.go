@@ -30,14 +30,13 @@ import (
 // transcript is the scrollable conversation surface: the rendered message
 // list, the viewport that scrolls it, and the memos that keep repaints cheap.
 type transcript struct {
-	messages      []Message
-	viewport      viewport.Model
-	contentW      int // wrap width for transcript lines (matches styles.Transcript inset).
-	showScrollbar bool
-	sessionDiff   lineStats       // memo of sessionDiff(messages); refreshSessionDiff only
-	tx            transcriptCache // frozen settled transcript; tail re-renders only
-	mainCache     *mainViewCache  // memo of mainView() for transcript + gap; invalidated on transcript change
-	paint         streamPaint     // throttled live redraw; gen survives turn boundaries
+	messages    []Message
+	viewport    viewport.Model
+	contentW    int             // viewport width: full region, user bubbles fill it.
+	sessionDiff lineStats       // memo of sessionDiff(messages); refreshSessionDiff only
+	tx          transcriptCache // frozen settled transcript; tail re-renders only
+	mainCache   *mainViewCache  // memo of mainView() for transcript + gap; invalidated on transcript change
+	paint       streamPaint     // throttled live redraw; gen survives turn boundaries
 }
 
 // selection is app-level transcript drag selection plus its copy flash.
@@ -79,7 +78,7 @@ func (t *transcript) setContent(chrome styles.Chrome, turn *turnSession) {
 	var b strings.Builder
 	b.WriteString(joinBlocks(t.tx.prefix, t.renderMessages(t.tx.frozen, len(t.messages), chrome, turn)))
 	if turn != nil && turn.thinking != "" {
-		writeThinkingTail(&b, turn.thinking, t.contentW)
+		writeThinkingTail(&b, turn.thinking, t.textW())
 	}
 	if t.contentW > 0 {
 		t.viewport.SetContentLines(wrapContentLines(b.String(), t.contentW))
@@ -161,14 +160,18 @@ func (t *transcript) renderMessages(start, end int, chrome styles.Chrome, turn *
 		}
 
 		if run := toolRunAt(t.messages, i); run != nil {
-			b.WriteString(renderToolGroup(run, t.contentW, top))
+			b.WriteString(indentLines(renderToolGroup(run, t.textW(), top), styles.ContentInset))
 			i += len(run)
 			continue
 		}
 
 		msg := &t.messages[i]
 		live := streaming && atEnd && i == len(t.messages)-1 && msg.Role == RoleAgent
-		b.WriteString(msg.render(t.contentW, top, userMsg, live))
+		if msg.Role == RoleUser {
+			b.WriteString(msg.render(t.contentW, top, userMsg, live))
+		} else {
+			b.WriteString(indentLines(msg.render(t.textW(), top, userMsg, live), styles.ContentInset))
+		}
 		i++
 	}
 	return b.String()
@@ -191,7 +194,7 @@ func (t *transcript) buildTranscriptFull(chrome styles.Chrome, turn *turnSession
 	var b strings.Builder
 	b.WriteString(t.renderMessages(0, len(t.messages), chrome, turn))
 	if turn != nil && turn.thinking != "" {
-		writeThinkingTail(&b, turn.thinking, t.contentW)
+		writeThinkingTail(&b, turn.thinking, t.textW())
 	}
 	return b.String()
 }
@@ -247,7 +250,7 @@ func renderThinkingTail(text string, width int) string {
 
 // writeThinkingTail appends the live reasoning tail into the transcript builder.
 func writeThinkingTail(b *strings.Builder, text string, width int) {
-	tail := renderThinkingTail(text, width)
+	tail := indentLines(renderThinkingTail(text, width), styles.ContentInset)
 	if tail == "" {
 		return
 	}
@@ -270,7 +273,6 @@ type mainViewCache struct {
 
 type mainViewKey struct {
 	yOff, w, h               int
-	bar                      bool
 	empty                    bool
 	sel                      bool
 	aLine, aCol, hLine, hCol int
@@ -289,7 +291,6 @@ func (t transcript) mainViewKey(sel transcriptSel) mainViewKey {
 		yOff:  t.viewport.YOffset(),
 		w:     t.viewport.Width(),
 		h:     t.viewport.Height(),
-		bar:   t.showScrollbar,
 		empty: len(t.messages) == 0,
 	}
 	if sel.has() {
@@ -317,8 +318,7 @@ func (t *transcript) rejectEdgeScroll(msg tea.MouseWheelMsg) bool {
 }
 
 // mainView paints the transcript region: the banner when there is nothing to
-// show, otherwise the viewport with the drag selection highlighted and the
-// scrollbar beside it.
+// show, otherwise the viewport with the drag selection highlighted.
 func (t *transcript) mainView(sel transcriptSel) string {
 	w := t.viewport.Width()
 	h := t.viewport.Height()
@@ -345,16 +345,10 @@ func (t *transcript) mainView(sel transcriptSel) string {
 		}
 	}
 
-	body := styles.Transcript.Render(inner)
-	out := body
-	if t.showScrollbar {
-		bar := renderScrollbar(h, t.viewport.TotalLineCount(), t.viewport.YOffset())
-		out = lipgloss.JoinHorizontal(lipgloss.Top, body, bar)
-	}
 	if t.mainCache != nil {
-		*t.mainCache = mainViewCache{text: out, key: key}
+		*t.mainCache = mainViewCache{text: inner, key: key}
 	}
-	return out
+	return inner
 }
 
 // mainView paints the transcript region with the current drag selection.
@@ -375,14 +369,13 @@ const (
 
 // selPos is a cell in transcript display-line space (not terminal coords).
 // Line is an absolute display line (viewport YOffset + row). Col is a cell
-// column within the content width (after ContentInset; scrollbar excluded).
+// column within the content width (after ContentInset).
 type selPos struct {
 	line int
 	col  int
 }
 
 // transcriptSel is an in-progress drag over the transcript body.
-// The scrollbar is never part of the range — it is a sibling column in mainView.
 // Selection exists only while dragging; mouse-up copies and clears.
 type transcriptSel struct {
 	dragging bool
@@ -429,8 +422,8 @@ func (s transcriptSel) normalized() (start, end selPos) {
 }
 
 // transcriptPos maps terminal (x,y) into display-line space.
-// clamp=false: miss for scrollbar, pad, outside viewport rows, empty transcript.
-// clamp=true: project onto the content grid (drag extend past edges / scrollbar).
+// clamp=false: miss for pad, outside viewport rows, empty transcript.
+// clamp=true: project onto the content grid (drag extend past edges).
 func (m *Model) transcriptPos(x, y int, clamp bool) (selPos, bool) {
 	if !m.term.ready || len(m.transcript.messages) == 0 {
 		return selPos{}, false
@@ -455,19 +448,12 @@ func (m *Model) transcriptPos(x, y int, clamp bool) (selPos, bool) {
 		return selPos{}, false
 	}
 
-	regionW := m.term.width
-	if m.transcript.showScrollbar {
-		regionW -= scrollbarWidth
-	}
-	if regionW < 1 {
+	if m.term.width < 1 {
 		return selPos{}, false
 	}
 
-	col := x - styles.ContentInset
+	col := x
 	if !clamp {
-		if m.transcript.showScrollbar && x >= regionW {
-			return selPos{}, false
-		}
 		if col < 0 || col >= m.transcript.contentW {
 			return selPos{}, false
 		}
@@ -478,9 +464,6 @@ func (m *Model) transcriptPos(x, y int, clamp bool) (selPos, bool) {
 		col = 0
 	}
 	if m.transcript.contentW > 0 && col >= m.transcript.contentW {
-		col = m.transcript.contentW - 1
-	}
-	if m.transcript.showScrollbar && x >= regionW && m.transcript.contentW > 0 {
 		col = m.transcript.contentW - 1
 	}
 	return selPos{line: m.transcript.viewport.YOffset() + row, col: col}, true
@@ -658,7 +641,7 @@ func selCols(lineW, li int, start, end selPos) (from, to int, ok bool) {
 }
 
 // extractSelection returns plain text for the inclusive cell range [start, end]
-// over display lines. Scrollbar glyphs are never present in these lines.
+// over display lines.
 func extractSelection(lines []string, start, end selPos) string {
 	if len(lines) == 0 {
 		return ""
@@ -713,4 +696,25 @@ func highlightSelection(frame string, yOffset int, start, end selPos) string {
 		lines[i] = lipgloss.StyleRanges(lines[i], lipgloss.NewRange(from, to, styles.Selection))
 	}
 	return strings.Join(lines, "\n")
+}
+
+// indentLines prefixes every non-empty line with n spaces.
+func indentLines(s string, n int) string {
+	if s == "" || n <= 0 {
+		return s
+	}
+	pad := strings.Repeat(" ", n)
+	lines := strings.Split(s, "\n")
+	for i, l := range lines {
+		if l != "" {
+			lines[i] = pad + l
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+// textW is the wrap width for everything but user bubbles: contentW minus the
+// inset on each side.
+func (t *transcript) textW() int {
+	return max(t.contentW-2*styles.ContentInset, 1)
 }

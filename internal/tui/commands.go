@@ -734,7 +734,7 @@ func (m Model) renderModelOverlay(width int) string {
 
 // overlayWidths returns panel total width and content width (excludes right pad).
 func overlayWidths(termW int) (innerW, contentW int) {
-	innerW = termW - 2*styles.InputMarginH
+	innerW = termW
 	if innerW < 1 {
 		innerW = 1
 	}
@@ -747,7 +747,5 @@ func overlayWidths(termW int) (innerW, contentW int) {
 
 // paintOverlay fills the list with panel chrome so it doesn't blend into the transcript.
 func (m Model) paintOverlay(body string, innerW int) string {
-	return lipgloss.NewStyle().
-		Margin(0, styles.InputMarginH).
-		Render(m.term.chrome.OverlayPanel().Width(innerW).Render(body))
+	return m.term.chrome.OverlayPanel().Width(innerW).Render(body)
 }

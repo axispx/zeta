@@ -51,8 +51,6 @@ func NewDialog(chrome styles.Chrome) Dialog {
 	}
 	if chrome.Input != nil {
 		d.ScrimBG = lipgloss.Darken(chrome.Input, dialogScrimDarken)
-	} else {
-		d.ScrimBG = lipgloss.Color("0")
 	}
 	return d
 }

@@ -301,7 +301,6 @@ func TestRejectEdgeScrollUpdateNoMove(t *testing.T) {
 func TestMainViewCacheHitOnSameOffset(t *testing.T) {
 	m := overflowViewport(t)
 	m.transcript.messages = []Message{{Role: RoleSystem, Text: "x"}}
-	m.transcript.showScrollbar = true
 	m.transcript.viewport.GotoTop()
 
 	first := m.mainView()
@@ -430,8 +429,8 @@ func TestRepaintTranscriptResumesStickAfterScroll(t *testing.T) {
 		{Role: RoleUser, Text: "go"},
 	}
 	m.repaintTranscript()
-	if !m.transcript.showScrollbar {
-		t.Fatal("expected overflow scrollbar")
+	if m.transcript.viewport.TotalLineCount() <= m.transcript.viewport.Height() {
+		t.Fatal("expected overflowing transcript")
 	}
 	if !m.transcript.viewport.AtBottom() {
 		t.Fatal("expected initial stick-to-bottom")
@@ -453,9 +452,6 @@ func TestRepaintTranscriptResumesStickAfterScroll(t *testing.T) {
 		}
 		if got := m.transcript.viewport.YOffset(); got != wantOff {
 			t.Fatalf("delta %d YOffset=%d, want %d", i, got, wantOff)
-		}
-		if !m.transcript.showScrollbar {
-			t.Fatalf("delta %d dropped scrollbar", i)
 		}
 	}
 

@@ -552,7 +552,7 @@ func (m Model) renderQueueFollowups(width int) string {
 	}
 	top := renderFollowUpsTopLine(innerW, styles.FollowUpsHeader.Render(topTitle), border)
 	box := lipgloss.NewStyle().
-		Margin(0, styles.InputMarginH, styles.InputMarginB, styles.InputMarginH).
+		MarginBottom(styles.InputMarginB).
 		Render(lipgloss.JoinVertical(lipgloss.Left, top, body))
 	return lipgloss.JoinVertical(lipgloss.Left, "", box)
 }

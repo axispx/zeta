@@ -163,7 +163,7 @@ func (m Model) renderPanel(width int) string {
 func renderPanelFrame(chrome styles.Chrome, width int, body string) string {
 	innerW, _ := overlayWidths(width)
 	panel := lipgloss.NewStyle().
-		Margin(0, styles.InputMarginH, styles.InputMarginB, styles.InputMarginH).
+		MarginBottom(styles.InputMarginB).
 		Render(chrome.OverlayPanel().
 			Padding(1, styles.OverlayPadRight, 1, 0).
 			Width(innerW).
@@ -210,7 +210,7 @@ func optionLineAt(x, y, viewportH, termW int) int {
 	if termW < 1 {
 		return -1
 	}
-	if x < styles.InputMarginH || x >= termW-styles.InputMarginH {
+	if x < 0 || x >= termW {
 		return -1
 	}
 	// blank spacer + OverlayPanel top pad; gap starts right after the transcript.

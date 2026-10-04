@@ -68,10 +68,18 @@ func (m *Message) renderBody(width int, userMsg lipgloss.Style, live bool) strin
 	switch m.Role {
 	case RoleUser:
 		s := userMsg
-		if width > 0 {
-			s = s.Width(width)
+		if width <= 0 {
+			return s.Render(composerPrompt + m.Text)
 		}
-		return s.Render(m.Text)
+		// Dim glyph in its own column so wrapped lines hang under the text.
+		piece := lipgloss.NewStyle()
+		if bg := userMsg.GetBackground(); bg != nil {
+			piece = piece.Background(bg)
+		}
+		innerW := max(width-userMsg.GetHorizontalFrameSize()-inputPromptWidth, 1)
+		glyph := piece.Foreground(styles.Dim).Width(inputPromptWidth).Render(composerPrompt)
+		text := piece.Width(innerW).Render(m.Text)
+		return s.Width(width).Render(lipgloss.JoinHorizontal(lipgloss.Top, glyph, text))
 	case RoleAgent:
 		return m.renderAgent(width, live)
 	case RoleTool:

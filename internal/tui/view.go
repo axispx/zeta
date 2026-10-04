@@ -44,7 +44,7 @@ func (m Model) View() tea.View {
 	// rows (covered only where the list overlaps).
 	// layout() already sized the transcript for gapHeight().
 	// Empty gap ("") is still one JoinVertical row (idle blank spacer).
-	surface := lipgloss.JoinVertical(lipgloss.Left, m.mainView(), m.gapContent())
+	surface := m.withJumpButton(lipgloss.JoinVertical(lipgloss.Left, m.mainView(), m.gapContent()))
 	if m.filterOverlayOpen() {
 		if ov := m.renderOverlay(m.term.width); ov != "" {
 			surface = pinOverlayBottom(surface, ov)
@@ -80,12 +80,12 @@ func (m Model) renderInput() string {
 	if m.inputBlocked() {
 		return ""
 	}
-	inputW := max(m.term.width-2*styles.InputMarginH, minInputInnerW+styles.InputChromeH)
+	inputW := max(m.term.width, minInputInnerW+styles.InputChromeH)
 	inputH := max(m.composer.textarea.Height(), inputMinHeight)
 
 	input := m.term.chrome.InputBox().Width(inputW).Height(inputH + styles.InputPadV).Render(m.composer.textarea.View())
 	return lipgloss.NewStyle().
-		Margin(0, styles.InputMarginH, styles.InputMarginB, styles.InputMarginH).
+		MarginBottom(styles.InputMarginB).
 		Render(input)
 }
 
