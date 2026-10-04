@@ -261,6 +261,14 @@ func crossesProtectedPath(words []string) bool {
 	return false
 }
 
+// ProtectedPath reports whether a sub-command names a dotenv secret or a path
+// outside the workspace — the reads a human always sees, whatever else approves
+// the command.
+func ProtectedPath(command string) bool {
+	words := strings.Fields(command)
+	return len(words) > 0 && crossesProtectedPath(words)
+}
+
 // escapesWorkspace reports whether arg names a path that leaves the workspace:
 // absolute, home-relative, or climbing with `..`.
 func escapesWorkspace(arg string) bool {

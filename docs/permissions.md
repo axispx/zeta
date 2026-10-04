@@ -72,7 +72,11 @@ The agent often runs several commands in one call (`cd src && go test ./...`). z
 
 So a `go test` rule never approves `go test && rm -rf /`, in either direction: the tail is not carried by the head's allow, and a deny on any part stops the chain. A chain that only reads — `cat go.mod; ls cmd internal; head -30 Makefile` — never prompts at all.
 
-Redirects (`>`, `>>`, `<`, `<<`), command substitution (`$(…)`, backticks), subshells, and unbalanced quotes cannot be split: the whole call is matched as one string and prompts as one unit. That is deliberately conservative — a redirect is where a command can name a path the prompt never showed, so `cat go.mod 2>/dev/null | head -20` prompts on the full string rather than on `cat` and `head`.
+A redirect that names no file is dropped before the command is judged: `2>&1`, `>&2`, `2>&-`, and anything aimed at `/dev/null` (`2>/dev/null`, `&>/dev/null`, `</dev/null`). So `cat go.mod 2>/dev/null | head -20` is `cat go.mod` and `head -20`, and runs with no prompt.
+
+Anything else cannot be split: a redirect to a real file (`>`, `>>`, `<`), here-docs, command substitution (`$(…)`, backticks), subshells, and unbalanced quotes. The whole call is matched as one string and prompts as one unit. That is deliberately conservative — a redirect to a file is where a command can name a path the prompt never showed, so `go test ./... > out.txt` prompts on the full string rather than on `go test`.
+
+Nesting is only ever used to deny. A `deny` rule also fires on a command hidden inside one of those unsplittable forms — `echo "$(git clean -f)"`, `(cd /tmp && git clean -f)`, a `for` body — but an `allow` rule never looks inside them, so `echo $(go test)` still asks.
 
 A remembered rule matches a sub-command from its first word, so it also covers that command with different arguments: remembering `go test ./...` covers `go test ./... -run TestFoo`. It never covers a different chain — that is what the per-sub-command evaluation above is for.
 
@@ -81,6 +85,10 @@ A remembered rule matches a sub-command from its first word, so it also covers t
 One grant per prompt is deliberate: the row can always name the whole rule on a single line, and approving it never blesses a part of the command that was not on screen.
 
 The model may propose a **prefix** instead — `["git", "pull"]` for a `git pull …` call — which the row shows as ``commands that start with `git pull` ``. A proposal is only offered when it covers the whole call and is not a shell, interpreter, or runner: a rule for `bash`, `python`, `npm run`, or `rm` alone would stand for whatever follows it, so those are refused and the part rule above is offered instead.
+
+## Wrappers
+
+Before a command is judged, a fixed set of wrappers that only run the rest of the command is removed: `timeout`, `time`, `nice`, `nohup`, `stdbuf`, and the builtins `command`, `builtin`, `noglob`. A rule for `go test` therefore covers `timeout 60 go test ./...`, a deny for `rm` still stops `nohup rm x`, and a remembered rule is written for the command that runs, not the wrapper. A wrapper with options zeta does not recognise (`timeout --weird 5 …`, `command -v`) is left as written and asks. `env`, `sudo`, `npx`, `docker exec`, `watch` and `find -exec` are not on the list and keep asking.
 
 ## Remembered rules
 

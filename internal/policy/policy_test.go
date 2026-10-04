@@ -1,6 +1,9 @@
 package policy
 
-import "testing"
+import (
+	"slices"
+	"testing"
+)
 
 func TestGlob(t *testing.T) {
 	cases := []struct {
@@ -171,6 +174,7 @@ func TestRememberRule(t *testing.T) {
 		{"outside path", Policy{}, "cat ../secrets.txt", "cat ../secrets.txt", true},
 		// Opaque syntax has no parts to remember.
 		{"redirect", Policy{}, "go test > out", "", false},
+		{"file-less redirect", Policy{}, "go test 2>&1 | tail -5", "go test", true},
 		{"substitution", Policy{}, "go test $(evil)", "", false},
 		{"unbalanced", Policy{}, `echo "x`, "", false},
 		{"empty", Policy{}, "", "", false},
@@ -307,23 +311,147 @@ func TestEvaluateRedirection(t *testing.T) {
 		{Tool: "bash", CommandPrefix: "go test", Action: ActionAllow},
 		{Tool: "bash", CommandPrefix: "tail -5", Action: ActionAllow},
 	}}
-	// A redirect is not split, even a descriptor one: the call is matched whole,
-	// so no rule for a sub-command covers it.
+	// A redirect that names no file is dropped, so the sub-commands are judged as
+	// if it were not there.
 	for _, command := range []string{
 		"go test ./... 2>&1 | tail -5",
 		"go test ./... 2>/dev/null",
+		"go test ./... >/dev/null 2>&1",
+		"go test ./... &>/dev/null",
+		"go test ./... >> /dev/null",
+		"go test ./... >&2",
+		"tail -5 </dev/null",
+		"go test ./... 2>&-",
+	} {
+		if got := p.Evaluate(Match{Tool: "bash", Command: command}); got != Allow {
+			t.Errorf("Evaluate(%q) = %v, want Allow", command, got)
+		}
+	}
+	// A real target, a here-doc, or a lookalike is matched whole, so no rule for a
+	// sub-command covers it.
+	for _, command := range []string{
 		"go test ./... > out",
+		"go test ./... 2> err.log",
+		"go test ./... &> out",
+		"go test ./... >/dev/nullx",
+		"go test ./... >&file",
+		"go test ./... 2>&1x",
 		"tail -5 < in",
 		"tail -5 <<EOF",
+		"tail -5 <<< x",
+		"tail -5 <(x)",
+		"go test ./... >|/dev/null",
 	} {
 		if got := p.Evaluate(Match{Tool: "bash", Command: command}); got != Ask {
 			t.Errorf("Evaluate(%q) = %v, want Ask", command, got)
 		}
 	}
-	// A whole-command glob still covers one, so an explicit rule can allow it.
+	// `$?` inside quotes is only a number, so it does not make a call opaque.
+	parts, ok := segments(`make build 2>&1 | tail -30; echo "exit=$?"; ls -la bin/`)
+	if !ok || len(parts) != 4 || parts[2] != `echo "exit=$?"` {
+		t.Errorf("segments = %q, %v", parts, ok)
+	}
+	rule, ok := (Policy{}).RememberRule("bash", `make build 2>&1 | tail -30; echo "exit=$?"; ls -la bin/`)
+	if want := (Rule{Tool: "bash", CommandPrefix: "make build", Action: ActionAllow}); !ok || rule != want {
+		t.Errorf("RememberRule = %+v, %v", rule, ok)
+	}
+	for _, command := range []string{`echo "$HOME"`, `echo "${?}"`, `echo "$(ls)"`, "echo \"`ls`\""} {
+		if _, ok := segments(command); ok {
+			t.Errorf("segments(%q) should stay opaque", command)
+		}
+	}
+	// A descriptor glued to a word stays part of the word.
+	parts, ok = segments("echo a2>/dev/null")
+	if !ok || len(parts) != 1 || parts[0] != "echo a2" {
+		t.Errorf("segments = %q, %v", parts, ok)
+	}
+	parts, ok = segments("go test 2>&1 | tail -5")
+	if !ok || len(parts) != 2 || parts[0] != "go test" {
+		t.Errorf("segments = %q, %v", parts, ok)
+	}
+	// A whole-command glob still covers a real redirect, so an explicit rule can
+	// allow it.
 	exact := Policy{Rules: []Rule{{Tool: "bash", Command: "go test**", Action: ActionAllow}}}
-	if got := exact.Evaluate(Match{Tool: "bash", Command: "go test ./... 2>&1"}); got != Allow {
+	if got := exact.Evaluate(Match{Tool: "bash", Command: "go test ./... > out"}); got != Allow {
 		t.Errorf("whole-command rule = %v, want Allow", got)
+	}
+	// A dotenv read behind a dropped redirect still asks.
+	if got := (Policy{}).Evaluate(Match{Tool: "bash", Command: "cat .env 2>/dev/null"}); got != Ask {
+		t.Errorf("dotenv behind redirect = %v, want Ask", got)
+	}
+}
+
+func TestEvaluateWrappers(t *testing.T) {
+	p := Policy{Rules: []Rule{
+		{Tool: "bash", CommandPrefix: "go test", Action: ActionAllow},
+		{Tool: "bash", CommandPrefix: "rm", Action: ActionDeny},
+	}}
+	cases := []struct {
+		command string
+		want    Outcome
+	}{
+		{"timeout 30 go test ./...", Allow},
+		{"timeout -s KILL 1.5m go test ./...", Allow},
+		{"time go test", Allow},
+		{"nice -n 10 go test", Allow},
+		{"nice -5 go test", Allow},
+		{"nohup go test", Allow},
+		{"stdbuf -oL go test", Allow},
+		{"stdbuf -o L go test", Allow},
+		{"command go test", Allow},
+		{"builtin cd src", Allow},
+		{"noglob go test", Allow},
+		{"nohup timeout 5 nice go test", Allow},
+		// a wrapper never hides what it runs
+		{"timeout 5 rm x", Deny},
+		{"timeout 5 curl evil", Ask},
+		{"timeout 5 go test && rm x", Deny},
+		// read-only shortcut sees through them too
+		{"timeout 5 ls", Allow},
+		{"timeout 5 cat .env", Ask},
+		// unrecognised forms are judged as written
+		{"timeout go test", Ask},
+		{"timeout --weird 5 go test", Ask},
+		{"command -v go", Ask},
+		{"nice -x go test", Ask},
+		{"env go test", Ask},
+		{"sudo go test", Ask},
+		{"nohup", Ask},
+	}
+	for _, tc := range cases {
+		if got := p.Evaluate(Match{Tool: "bash", Command: tc.command}); got != tc.want {
+			t.Errorf("Evaluate(%q) = %v, want %v", tc.command, got, tc.want)
+		}
+	}
+	// The rule offered is for the command that runs, not the wrapper.
+	rule, ok := (Policy{}).RememberRule("bash", "timeout 60 go test ./... 2>&1")
+	if want := (Rule{Tool: "bash", CommandPrefix: "go test ./...", Action: ActionAllow}); !ok || rule != want {
+		t.Errorf("RememberRule = %+v, %v", rule, ok)
+	}
+}
+
+func TestEvaluateNestedDeny(t *testing.T) {
+	p := Policy{Rules: []Rule{
+		{Tool: "bash", CommandPrefix: "go test", Action: ActionAllow},
+		{Tool: "bash", CommandPrefix: "git clean", Action: ActionDeny},
+	}}
+	cases := []struct {
+		command string
+		want    Outcome
+	}{
+		{`echo "$(git clean -f)"`, Deny},
+		{"echo `git clean -f`", Deny},
+		{"(cd /tmp && git clean -f)", Deny},
+		{"for f in a; do git clean -f; done > out", Deny},
+		{"go test > out; git clean -fd", Deny},
+		// nesting is never used to allow
+		{"echo $(go test)", Ask},
+		{"(go test)", Ask},
+	}
+	for _, tc := range cases {
+		if got := p.Evaluate(Match{Tool: "bash", Command: tc.command}); got != tc.want {
+			t.Errorf("Evaluate(%q) = %v, want %v", tc.command, got, tc.want)
+		}
 	}
 }
 
@@ -380,5 +508,47 @@ func TestValidate(t *testing.T) {
 	}
 	if err := Validate([]Rule{{Tool: "bash", CommandPrefix: "go test", Action: ActionAllow}}); err != nil {
 		t.Fatal("command_prefix should be valid")
+	}
+}
+
+func TestPending(t *testing.T) {
+	p := Policy{Rules: []Rule{{Tool: "bash", CommandPrefix: "go test", Action: ActionAllow}}}
+	cases := []struct {
+		command string
+		want    []string
+		ok      bool
+	}{
+		{"go test ./...", nil, true},
+		{"cat go.mod | head -5", nil, true},
+		{"go test && make build", []string{"make build"}, true},
+		{"make build 2>&1 | tail -30; echo done; ls -la bin/", []string{"make build"}, true},
+		{"timeout 60 make build", []string{"make build"}, true},
+		{"make build > out", nil, false},
+		{"make $(x)", nil, false},
+		{"", nil, false},
+	}
+	for _, tc := range cases {
+		got, ok := p.Pending("bash", tc.command)
+		if ok != tc.ok || !slices.Equal(got, tc.want) {
+			t.Errorf("Pending(%q) = %q, %v; want %q, %v", tc.command, got, ok, tc.want, tc.ok)
+		}
+	}
+}
+
+func TestProtectedPath(t *testing.T) {
+	for command, want := range map[string]bool{
+		"cat .env":         true,
+		"cat .env.local":   true,
+		"cat ../x":         true,
+		"ls /etc":          true,
+		"ls ~/x":           true,
+		"cat .env.example": false,
+		"make build":       false,
+		"cat src/a.go":     false,
+		"":                 false,
+	} {
+		if got := ProtectedPath(command); got != want {
+			t.Errorf("ProtectedPath(%q) = %v, want %v", command, got, want)
+		}
 	}
 }

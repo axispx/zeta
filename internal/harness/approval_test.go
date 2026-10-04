@@ -103,7 +103,7 @@ func TestApprovalForPersistRule(t *testing.T) {
 		t.Fatalf("banned prefix must fall back: %+v", banned.Call)
 	}
 
-	// A redirect is matched and prompted as one opaque command, so there is no
+	// A file-less redirect is dropped: nothing here needs approval, so there is no
 	// rule to write for it.
 	redirected := ApprovalFor(plan, root, tools.Bash, bashArgs("cat go.mod 2>/dev/null | head -20"))
 	if redirected.Call.Persist {

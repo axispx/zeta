@@ -36,14 +36,15 @@ type Rule struct {
 }
 
 // opaqueMeta are the shell characters segments cannot reason about textually:
-// redirection, command substitution, subshells, and brace groups. `$` and
-// backticks expand even inside double quotes, so they count there too. The
-// separators (`;`, `&`, `|`, newlines) have their own cases.
+// command substitution, subshells, and brace groups. `$` and backticks expand
+// even inside double quotes, so they count there too. The separators (`;`, `&`,
+// `|`, newlines) and redirection (`<`, `>`) have their own cases.
 //
-// Redirection is opaque on purpose, even `2>/dev/null`: a redirect is where a
-// command can name a path the prompt never showed, so a call that contains one
-// is matched and prompted whole rather than split.
-const opaqueMeta = "<>$`(){}"
+// A redirect that names no file (`2>&1`, `>/dev/null`) is dropped; any other is
+// opaque on purpose: a redirect is where a command can name a path the prompt
+// never showed, so a call that contains one is matched and prompted whole rather
+// than split.
+const opaqueMeta = "$`(){}"
 
 // segments splits command on its top-level separators — `;`, `&&`, `||`, `|`,
 // `|&`, `&`, and newlines — returning the trimmed sub-commands a shell would
@@ -73,7 +74,7 @@ func segments(command string) ([]string, bool) {
 		if s == "" {
 			return false
 		}
-		segs = append(segs, s)
+		segs = append(segs, stripWrappers(s))
 		return true
 	}
 	for i := 0; i < len(command); i++ {
@@ -104,7 +105,23 @@ func segments(command string) ([]string, bool) {
 			if !flush() {
 				return nil, false
 			}
+		case '<', '>':
+			end, ok := fileless(command, i)
+			if !ok {
+				return nil, false
+			}
+			dropDescriptor(&cur)
+			i = end - 1
 		case '&', '|':
+			if c == '&' && i+1 < len(command) && command[i+1] == '>' {
+				// `&>` redirects both streams; it is a redirect, not a separator.
+				end, ok := fileless(command, i)
+				if !ok {
+					return nil, false
+				}
+				i = end - 1
+				break
+			}
 			if !flush() {
 				return nil, false
 			}
@@ -131,9 +148,93 @@ func segments(command string) ([]string, bool) {
 	return segs, true
 }
 
+// fileless reports the index just past the redirect starting at s[i] (`<`, `>`
+// or the `&` of `&>`) when it names no file: a descriptor duplicate or close
+// (`2>&1`, `>&2`, `<&-`) or the null device (`>/dev/null`, `2>>/dev/null`,
+// `</dev/null`). ok is false for anything else — a real target, a here-doc, a
+// process substitution — which stays opaque.
+func fileless(s string, i int) (end int, ok bool) {
+	j := i
+	if s[j] == '&' { // `&>`: both streams, never a duplicate
+		j++
+		if j >= len(s) || s[j] != '>' {
+			return 0, false
+		}
+		j++
+		if j < len(s) && s[j] == '>' {
+			j++
+		}
+		return nullTarget(s, j)
+	}
+	op := s[j]
+	j++
+	if op == '<' && j < len(s) && s[j] == '<' { // here-doc / here-string
+		return 0, false
+	}
+	if op == '>' && j < len(s) && s[j] == '>' {
+		j++
+	}
+	if j < len(s) && s[j] == '&' { // `>&N`, `<&N`, `>&-`
+		k := j + 1
+		if k < len(s) && s[k] == '-' {
+			k++
+		} else {
+			start := k
+			for k < len(s) && s[k] >= '0' && s[k] <= '9' {
+				k++
+			}
+			if k == start {
+				return 0, false
+			}
+		}
+		return redirectEnd(s, k)
+	}
+	return nullTarget(s, j)
+}
+
+// nullTarget accepts `/dev/null` as the redirect target starting at s[j],
+// after optional blanks.
+func nullTarget(s string, j int) (int, bool) {
+	for j < len(s) && (s[j] == ' ' || s[j] == '\t') {
+		j++
+	}
+	const null = "/dev/null"
+	if !strings.HasPrefix(s[j:], null) {
+		return 0, false
+	}
+	return redirectEnd(s, j+len(null))
+}
+
+// redirectEnd checks that a redirect's target ends at s[k], so `/dev/nullx` or
+// `>&1x` is not mistaken for a file-less one.
+func redirectEnd(s string, k int) (int, bool) {
+	if k < len(s) && !strings.ContainsRune(" \t\r\n;&|", rune(s[k])) {
+		return 0, false
+	}
+	return k, true
+}
+
+// dropDescriptor removes a file-descriptor number that stands alone at the end
+// of cur (the `2` of `cmd 2>&1`), so it does not stay behind as an argument.
+// Digits glued to a word (`a2>/dev/null`) belong to that word.
+func dropDescriptor(cur *strings.Builder) {
+	s := cur.String()
+	j := len(s)
+	for j > 0 && s[j-1] >= '0' && s[j-1] <= '9' {
+		j--
+	}
+	if j == len(s) || (j > 0 && s[j-1] != ' ' && s[j-1] != '\t') {
+		return
+	}
+	cur.Reset()
+	cur.WriteString(s[:j])
+}
+
 // doubleQuoted returns the index just past the closing quote of the
 // double-quoted string starting at start. ok is false when it is unterminated
-// or contains expansion syntax, which a prefix match cannot see through.
+// or contains expansion syntax, which a prefix match cannot see through. `$?`
+// is the one expansion allowed: the last exit status is a number, so it can
+// neither run a command nor name a path.
 func doubleQuoted(s string, start int) (int, bool) {
 	for i := start + 1; i < len(s); i++ {
 		switch s[i] {
@@ -141,7 +242,13 @@ func doubleQuoted(s string, start int) (int, bool) {
 			i++ // the escaped byte is literal, including a quote
 		case '"':
 			return i + 1, true
-		case '$', '`':
+		case '$':
+			if i+1 < len(s) && s[i+1] == '?' {
+				i++
+				continue
+			}
+			return 0, false
+		case '`':
 			return 0, false
 		}
 	}
@@ -179,6 +286,24 @@ func (p Policy) partOutcome(tool, part string) Outcome {
 		return Allow
 	}
 	return Ask
+}
+
+// Pending returns the sub-commands of command that still need a decision: the
+// parts no rule covers and that do not only read, in order. ok is false when
+// command cannot be split (file redirect, substitution, subshell), because then
+// there are no parts to name. An empty result with ok true means every part
+// already runs.
+func (p Policy) Pending(tool, command string) (parts []string, ok bool) {
+	all, ok := segments(strings.TrimSpace(command))
+	if !ok {
+		return nil, false
+	}
+	for _, part := range all {
+		if p.partOutcome(tool, part) == Ask {
+			parts = append(parts, part)
+		}
+	}
+	return parts, true
 }
 
 // RememberRule returns the rule a persisted allow writes for command: the first
@@ -319,6 +444,9 @@ type Match struct {
 func (p Policy) Evaluate(m Match) Outcome {
 	parts, ok := segments(m.Command)
 	if !ok {
+		if p.nestedDenied(m) {
+			return Deny
+		}
 		return p.evaluateOne(m)
 	}
 	out := Allow
@@ -331,6 +459,50 @@ func (p Policy) Evaluate(m Match) Outcome {
 		}
 	}
 	return out
+}
+
+// nestedDenied reports whether a deny rule matches a command hiding inside one
+// that cannot be split — `echo "$(git clean -f)"`, `(rm x)`, `ls > out; rm x`.
+// The string is cut at every shell metacharacter, so it over-reads: a deny may
+// fire on text a shell would not run, never the reverse. Nesting is only ever
+// used to deny; an allow rule never looks inside it.
+func (p Policy) nestedDenied(m Match) bool {
+	if m.Command == "" {
+		return false
+	}
+	pieces := strings.FieldsFunc(m.Command, func(r rune) bool {
+		return strings.ContainsRune(";&|\n\r$`(){}<>", r)
+	})
+	for _, piece := range pieces {
+		piece = stripWrappers(stripKeywords(strings.Trim(piece, " \t\"'")))
+		if piece == "" {
+			continue
+		}
+		for _, r := range p.Rules {
+			if r.Action == ActionDeny && r.matches(Match{Tool: m.Tool, Command: piece}) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// stripKeywords drops the control-flow words that can open a piece of a nested
+// command (`do git clean`, `then rm x`), so the command after them is what a
+// deny rule sees.
+func stripKeywords(piece string) string {
+	for {
+		word, rest, ok := nextWord(piece)
+		if !ok {
+			return piece
+		}
+		switch word {
+		case "do", "then", "else", "elif", "if", "while", "until", "!":
+			piece = strings.TrimLeft(rest, " \t")
+		default:
+			return piece
+		}
+	}
 }
 
 // evaluateOne applies the rules to one command string.

@@ -151,8 +151,12 @@ func TestClassifyChainedCommand(t *testing.T) {
 	if got := Classify(rules, &none, root, tools.Bash, cmd("cd src; go test ./...")); got != policy.Allow {
 		t.Fatalf("covered chain with `;`, got %v", got)
 	}
-	// A redirect keeps the call opaque, so no sub-command rule covers it.
-	if got := Classify(rules, &none, root, tools.Bash, cmd("go test ./... 2>&1")); got != policy.Ask {
+	// A file-less redirect is dropped, so the sub-command rule still covers it.
+	if got := Classify(rules, &none, root, tools.Bash, cmd("go test ./... 2>&1")); got != policy.Allow {
+		t.Fatalf("file-less redirect, got %v", got)
+	}
+	// A redirect to a file keeps the call opaque, so no sub-command rule covers it.
+	if got := Classify(rules, &none, root, tools.Bash, cmd("go test ./... > out")); got != policy.Ask {
 		t.Fatalf("redirected call, got %v", got)
 	}
 	// One unapproved part is enough to ask.
