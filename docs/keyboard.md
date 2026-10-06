@@ -4,21 +4,27 @@
 
 | Key                                    | Action                                      |
 | -------------------------------------- | ------------------------------------------- |
-| `Enter`                                | Send (busy: queue text; empty+queue: send now) |
+| `Enter`                                | Send (busy: steer the running turn) |
+| `Tab`                                  | Busy: queue the text as a follow-up for after the turn |
+| `Alt+↑` / `Alt+↓`                      | Copy queued follow-ups into the input, newest first / back toward newest |
 | `↑` / `↓` or `Ctrl+P` / `Ctrl+N`       | Prompt history                              |
-| `Ctrl+Q`                               | Manage follow-ups (`↑`/`↓`, Enter send, `e` edit, `d` remove) |
 | `Shift+Tab`                            | Cycle mode (build → plan)                   |
 | `Shift+Enter` / `Ctrl+J` / `Alt+Enter` | Newline                                     |
 | `@`                                    | File mention picker (gitignore-aware; Tab/Enter insert) |
 | `Tab` (in `/model`)                    | Cycle the model's reasoning levels (off → its supported values) |
-| `Esc`                                  | Cancel edit / leave queue / cancel turn (queue kept); denies an open permission prompt |
-| `Ctrl+C`                               | Leave edit/focus → interrupt → clear queue → quit |
+| `Esc`                                  | Busy: interrupt and send pending steers, else cancel the turn (queued follow-ups return to the input); denies an open permission prompt |
+| `Ctrl+C`                               | Interrupt → clear queue → quit |
 | Mouse / `PgUp` / `PgDn`                | Scroll                                      |
 | Drag transcript                        | Select text and copy on release |
 
 ## Follow-up queue
 
-While the agent is working, `Enter` with text queues a follow-up. Empty `Enter` (or queue-focus Enter on an item) interrupts the current turn and sends that follow-up immediately. Open the queue with `Ctrl+Q` (`↑`/`↓` move, Enter send selected, `e` edit, `d` remove, Esc back). Queued items also drain one at a time when a turn finishes on its own (unless you are editing the next item or typing a draft). `Esc` cancels an edit, leaves queue focus, or cancels the turn (queue kept). `Ctrl+C` leaves edit/queue focus first, then runs the interrupt ladder (dismiss overlays, cancel turn), then clears any remaining follow-ups, then quits.
+While the agent is working there are two ways to add a message:
+
+- **Steer** — `Enter`. The message joins the running turn at its next tool boundary (or right after the model's final answer), so the agent sees it without stopping. Until then it is listed above the input under **Steering**. `Esc` interrupts the turn and sends the oldest pending steer right away; any others stay pending.
+- **Queue** — `Tab`. Listed under **Queued**. The message waits and starts its own turn once this one ends; queued messages go out one at a time, oldest first. `Alt+↑` copies the newest queued message into the input (again for older ones; `Alt+↓` goes back toward newer and then empties the input) without removing it; sending the copy adds it at the bottom of the queue.
+
+`Esc` with nothing steered cancels the turn and moves any steers and queued messages back into the input, one per line, above a draft already there. A steer the agent never picked up before the turn ended is sent as the next turn. A skill command (`/review …`) is queued rather than steered. `Ctrl+C` interrupts, then clears any remaining queued follow-ups, then quits.
 
 ## File mentions
 
@@ -40,7 +46,7 @@ as **Type an answer**):
 | `1`–`9`     | Jump to option           |
 | Type        | Fill the freeform answer |
 | `←` / `→`   | Another question         |
-| `Esc`       | Cancel                   |
+| `Esc`                                  | Busy: interrupt and send pending steers, else cancel the turn (queued follow-ups return to the input); denies an open permission prompt |
 
 Typing goes to the freeform row on its own — there is no key to focus it, and
 `↑`/`↓` hand the keys back to the list.

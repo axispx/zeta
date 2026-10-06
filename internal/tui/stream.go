@@ -58,6 +58,7 @@ type turnSession struct {
 	pending    *harness.Event       // set when coalesce peeks a non-matching event
 	thinking   string               // live reasoning tail; only while thinkingPhase
 	activeTool int                  // index of open tool row in Model.transcript.messages; -1 if none
+	steers     *steerBox            // messages sent mid-turn, waiting for the loop to take them
 }
 
 // thinkingPhase is true before answer deltas or an open tool (pre-answer reasoning).
@@ -117,6 +118,10 @@ type turnToolStartMsg struct {
 	path   string
 	detail string
 	args   json.RawMessage // raw tool args (interactive tools)
+}
+type turnSteerMsg struct {
+	id      int
+	message ai.Message
 }
 type turnToolOutMsg struct {
 	id   int
@@ -243,6 +248,8 @@ func turnEventMsg(id int, evt harness.Event) tea.Msg {
 		return turnToolOutMsg{id: id, text: evt.Text, name: evt.Name}
 	case harness.KindTool:
 		return turnToolMsg{id: id, label: evt.Text, name: evt.Name, message: evt.Message, denied: evt.Denied}
+	case harness.KindSteer:
+		return turnSteerMsg{id: id, message: evt.Message}
 	case harness.KindDone:
 		return turnDoneMsg{id: id}
 	case harness.KindErr:
@@ -255,7 +262,8 @@ func turnEventMsg(id int, evt harness.Event) tea.Msg {
 func startTurn(id int, client *ai.Client, sess *harness.Session) (*turnSession, tea.Cmd) {
 	ctx, cancel := context.WithCancel(context.Background())
 	replies := make(chan harness.Reply, 1)
-	ch := sess.Run(ctx, client, turnDecider{replies})
+	steers := &steerBox{}
+	ch := sess.Run(ctx, client, turnDecider{replies}, steers.take)
 	t := &turnSession{
 		id:         id,
 		cancel:     cancel,
@@ -263,13 +271,14 @@ func startTurn(id int, client *ai.Client, sess *harness.Session) (*turnSession, 
 		reply:      replies,
 		streaming:  false, // set true on first delta; false = Waiting chrome / settled md
 		activeTool: -1,
+		steers:     steers,
 	}
 	return t, waitTurn(t)
 }
 
 // live reports whether a turn*Msg still belongs to the active turn. Late events
 // from a cancelled/replaced turn must not mutate state.
-func (t turn) live(id int) bool { return t.current != nil && t.current.id == id }
+func (t *turn) live(id int) bool { return t.current != nil && t.current.id == id }
 
 // start installs a freshly started agent loop as the active turn, allocating
 // the id that turn*Msgs are tagged with.

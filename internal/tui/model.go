@@ -112,7 +112,7 @@ func newTranscriptViewport() viewport.Model {
 }
 
 // New creates the initial TUI model.
-func New(cfg config.Config, opts Options) (Model, error) {
+func New(cfg config.Config, opts Options) (*Model, error) {
 	ta := textarea.New()
 	ta.Placeholder = ""
 	ta.CharLimit = 0
@@ -145,7 +145,7 @@ func New(cfg config.Config, opts Options) (Model, error) {
 	vp := newTranscriptViewport()
 
 	ws := workspace.Load()
-	m := Model{
+	m := &Model{
 		transcript: transcript{viewport: vp, mainCache: &mainViewCache{}},
 		composer:   composer{textarea: ta},
 		session: harness.Session{
@@ -164,7 +164,7 @@ func New(cfg config.Config, opts Options) (Model, error) {
 	if opts.ResumeID != "" {
 		sess, recs, err := session.OpenID(ws.Abs, opts.ResumeID)
 		if err != nil {
-			return Model{}, err
+			return nil, err
 		}
 		m.applySession(sess, recs, nil)
 		return m, nil
@@ -190,11 +190,13 @@ func (m *Model) applyPanels(termBg color.Color, dark bool) {
 	m.transcript.invalidate()
 }
 
-func (m Model) Init() tea.Cmd {
+// Init implements tea.Model.
+func (m *Model) Init() tea.Cmd {
 	return tea.Batch(textarea.Blink, tea.RequestBackgroundColor, checkUpdateCmd())
 }
 
-func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+// Update implements tea.Model.
+func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var (
 		taCmd tea.Cmd
 		vpCmd tea.Cmd
@@ -334,8 +336,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, cmd
 			}
 		}
-		// Priority: esc → compact block → ctrl+q → shift+tab →
-		// paste → queue nav → prompt history → plain Enter.
+		// Priority: esc → compact block → shift+tab →
+		// paste → prompt history → plain Enter.
 		// Overlay nav/commit already handled above via handleOverlayKey.
 		switch {
 		case msg.String() == "esc" || msg.Code == tea.KeyEscape:
@@ -343,19 +345,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.selection.sel.clear()
 				return m, nil
 			}
-			// edit → unfocus queue → cancel turn. Never deletes queue items.
-			if m.handleQueueEsc() {
-				return m, nil
+			// Pending steers interrupt the turn and go out now; otherwise
+			// Esc cancels and anything waiting returns to the composer.
+			if m.turn.current != nil && m.turn.current.steers.len() > 0 {
+				return m, m.interruptWithSteers()
 			}
 			m.tryInterrupt()
 			return m, nil
 		case m.exclusiveJob():
 			// Block input while compact / self-update runs.
 			return m, nil
-		case msg.String() == "ctrl+q":
-			if m.toggleQueueFocus() {
-				return m, nil
-			}
+		case msg.String() == "tab" && m.turn.current != nil && !m.composerIsEmpty():
+			return m, m.queueInput()
+		case msg.String() == "alt+up" && m.queue.hasState():
+			m.recallQueued()
+			return m, nil
+		case msg.String() == "alt+down" && m.queue.recalled != nil:
+			m.recallNewerQueued()
+			return m, nil
 		case msg.String() == "shift+tab":
 			if m.turn.current == nil && !m.inputBlocked() && !m.queue.hasState() {
 				m.session.Mode = m.session.Mode.Next()
@@ -369,10 +376,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.handleClipboardPaste()
 				return m, nil
 			}
-		}
-		// Queue focus before prompt-history so ↑/↓ move the list, not recall.
-		if cmd, ok := m.handleQueueNavKey(msg); ok {
-			return m, cmd
 		}
 		if m.handlePromptHistoryKey(msg) {
 			return m, nil

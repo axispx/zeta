@@ -50,6 +50,11 @@ func (m *Model) dispatchTurnMsg(msg tea.Msg) (tea.Cmd, bool) {
 			return nil, true
 		}
 		return m.handleTurnTool(msg), true
+	case turnSteerMsg:
+		if !m.markEffects(msg.id) {
+			return nil, true
+		}
+		return m.handleTurnSteer(msg), true
 	case reviewDoneMsg:
 		if !m.turn.live(msg.id) {
 			return nil, true
@@ -137,6 +142,18 @@ func (m *Model) handleTurnAssistant(msg turnAssistantMsg) tea.Cmd {
 	}
 	m.reportSaveErr(m.session.CommitAssistant(msg.message, msg.usage, msg.plan))
 	m.noteProducedPlan(msg.message.Text)
+	return waitTurn(m.turn.current)
+}
+
+// handleTurnSteer records a message the loop took in mid-turn: it leaves the
+// pending list and becomes a user turn in the transcript and history.
+func (m *Model) handleTurnSteer(msg turnSteerMsg) tea.Cmd {
+	if m.turn.current == nil {
+		return nil
+	}
+	m.commitUserPrompt(msg.message.Text, msg.message.Images)
+	m.afterQueueChange()
+	m.refreshTranscript()
 	return waitTurn(m.turn.current)
 }
 
@@ -268,6 +285,13 @@ func (m *Model) handleTurnTool(msg turnToolMsg) tea.Cmd {
 // When the transcript is near the context limit, auto-compacts first.
 // text/imgs come from parseComposer (inline [Image N] tokens stripped from text).
 func (m *Model) submit(text string, imgs []image.Ref) tea.Cmd {
+	return m.submitAfter(nil, text, imgs)
+}
+
+// submitAfter is submit preceded by earlier user prompts, each committed as its
+// own turn in history, so several queued follow-ups reach the model in one
+// request without being merged. Nothing is committed if the send is refused.
+func (m *Model) submitAfter(lead []queuedPrompt, text string, imgs []image.Ref) tea.Cmd {
 	// Refuse before committing anything: a turn that cannot be sent must stay
 	// out of history and off disk, and its text stays in the composer so the
 	// user can retry it after /config instead of retyping.
@@ -286,11 +310,11 @@ func (m *Model) submit(text string, imgs []image.Ref) tea.Cmd {
 	}
 	m.session.AuthRetried = false
 
-	m.commitUserPrompt(text, imgs)
-	// Keep an in-progress follow-up edit in the composer (drain of another item).
-	if m.queue.editID == 0 {
-		m.resetInput()
+	for _, p := range lead {
+		m.commitUserPrompt(p.text, p.imgs)
 	}
+	m.commitUserPrompt(text, imgs)
+	m.resetInput()
 	m.refreshTranscript()
 	// Sending is intentional navigation: always show the new user turn, even if
 	// the user had scrolled up to read earlier context (stream paints stay put).

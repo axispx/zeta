@@ -36,6 +36,9 @@ const (
 	// KindReasoning is streamed reasoning / thinking tokens (UI only; not answer text).
 	// Appended after existing kinds so their iota values stay stable.
 	KindReasoning
+	// KindSteer is a user message the loop took in mid-turn (Message). The
+	// caller records it; the loop has already added it to the request.
+	KindSteer
 )
 
 // eventBuffer absorbs bursts of KindToolOut without stalling tool I/O.
@@ -122,6 +125,10 @@ type Config struct {
 	// Gate reports whether the harness must decide before this tool runs.
 	// Nil means never wait. Ignored when Decider is nil.
 	Gate func(name string, args json.RawMessage) bool
+	// Steer, when set, is polled between completions. Messages it returns are
+	// added to the request as user turns and the loop keeps going, even when
+	// the model had no tool calls left to make.
+	Steer func() []ai.Message
 	// StreamFn replaces Client.Stream when set (tests).
 	StreamFn func(context.Context, []ai.Message, []ai.Tool) <-chan ai.Event
 }
@@ -161,8 +168,12 @@ func (c Config) run(ctx context.Context, history []ai.Message, out chan<- Event)
 		out <- Event{Kind: KindAssistant, Message: asst, Usage: usage, Plan: plan}
 
 		if len(asst.ToolCalls) == 0 {
-			out <- Event{Kind: KindDone}
-			return
+			var more bool
+			if history, more = c.takeSteers(ctx, history, out); !more {
+				out <- Event{Kind: KindDone}
+				return
+			}
+			continue
 		}
 		for _, call := range asst.ToolCalls {
 			if ctx.Err() != nil {
@@ -173,7 +184,22 @@ func (c Config) run(ctx context.Context, history []ai.Message, out chan<- Event)
 			history = append(history, result)
 			out <- Event{Kind: KindTool, Text: label, Name: call.Name, Message: result, Denied: denied}
 		}
+		history, _ = c.takeSteers(ctx, history, out)
 	}
+}
+
+// takeSteers appends any waiting steer messages to the request and reports
+// whether there were any.
+func (c Config) takeSteers(ctx context.Context, history []ai.Message, out chan<- Event) ([]ai.Message, bool) {
+	if c.Steer == nil || ctx.Err() != nil {
+		return history, false
+	}
+	msgs := c.Steer()
+	for _, m := range msgs {
+		history = append(history, m)
+		out <- Event{Kind: KindSteer, Message: m}
+	}
+	return history, len(msgs) > 0
 }
 
 func (c Config) stream(ctx context.Context, history []ai.Message, defs []ai.Tool) <-chan ai.Event {

@@ -270,3 +270,88 @@ func (d chanDecider) Decide(ctx context.Context, _ Request) (Reply, error) {
 		return Reply{}, ctx.Err()
 	}
 }
+
+// scriptedStream answers each request with the next assistant message and
+// records the request it saw.
+func scriptedStream(replies []ai.Message, seen *[][]ai.Message) func(context.Context, []ai.Message, []ai.Tool) <-chan ai.Event {
+	i := 0
+	return func(_ context.Context, history []ai.Message, _ []ai.Tool) <-chan ai.Event {
+		*seen = append(*seen, append([]ai.Message(nil), history...))
+		ch := make(chan ai.Event, 1)
+		ch <- ai.Event{Type: ai.EventDone, Message: replies[i]}
+		i++
+		close(ch)
+		return ch
+	}
+}
+
+func collect(c Config, history []ai.Message) []Event {
+	var got []Event
+	for e := range c.Run(context.Background(), history) {
+		got = append(got, e)
+	}
+	return got
+}
+
+func TestSteerJoinsTurnAtToolBoundary(t *testing.T) {
+	var seen [][]ai.Message
+	steers := [][]ai.Message{{{Role: ai.RoleUser, Text: "nudge"}}}
+	c := Config{
+		Tools: tools.Build(), Root: t.TempDir(),
+		StreamFn: scriptedStream([]ai.Message{
+			{Role: ai.RoleAssistant, ToolCalls: []ai.ToolCall{{ID: "c1", Name: tools.Bash, Arguments: `{"command":"true"}`}}},
+			{Role: ai.RoleAssistant, Text: "done"},
+		}, &seen),
+		Steer: func() []ai.Message {
+			if len(steers) == 0 {
+				return nil
+			}
+			s := steers[0]
+			steers = steers[1:]
+			return s
+		},
+	}
+	var kinds []EventKind
+	for _, e := range collect(c, []ai.Message{{Role: ai.RoleUser, Text: "go"}}) {
+		kinds = append(kinds, e.Kind)
+	}
+	if len(seen) != 2 {
+		t.Fatalf("requests=%d", len(seen))
+	}
+	last := seen[1][len(seen[1])-1]
+	if last.Role != ai.RoleUser || last.Text != "nudge" {
+		t.Fatalf("second request tail = %+v", last)
+	}
+	steerAt := -1
+	for i, k := range kinds {
+		if k == KindSteer {
+			steerAt = i
+		}
+	}
+	if steerAt < 0 || kinds[steerAt-1] != KindTool {
+		t.Fatalf("kinds=%v", kinds)
+	}
+}
+
+func TestSteerKeepsTurnGoingAfterFinalAnswer(t *testing.T) {
+	var seen [][]ai.Message
+	steers := [][]ai.Message{{{Role: ai.RoleUser, Text: "one more thing"}}}
+	c := Config{
+		StreamFn: scriptedStream([]ai.Message{
+			{Role: ai.RoleAssistant, Text: "first"},
+			{Role: ai.RoleAssistant, Text: "second"},
+		}, &seen),
+		Steer: func() []ai.Message {
+			if len(steers) == 0 {
+				return nil
+			}
+			s := steers[0]
+			steers = steers[1:]
+			return s
+		},
+	}
+	collect(c, []ai.Message{{Role: ai.RoleUser, Text: "go"}})
+	if len(seen) != 2 {
+		t.Fatalf("requests=%d, want 2", len(seen))
+	}
+}

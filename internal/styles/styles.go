@@ -1,3 +1,4 @@
+// Package styles defines the lipgloss tokens, chrome and banner the TUI draws with.
 package styles
 
 import (
@@ -24,6 +25,7 @@ const (
 	OverlayPadRight = 1
 )
 
+// Palette colors are the terminal's 16 ANSI slots, so themes apply.
 var (
 	Dim    = lipgloss.Color(DimANSI)
 	Red    = lipgloss.Color(RedANSI)
@@ -33,7 +35,8 @@ var (
 	Cyan   = lipgloss.Color(CyanANSI)
 	White  = lipgloss.Color(WhiteANSI)
 
-	// Prose styles omit Foreground so the terminal default fg applies.
+	// Banner is the startup banner. Prose styles omit Foreground so the
+	// terminal default fg applies.
 	Banner = lipgloss.NewStyle().Bold(true).Foreground(Blue)
 
 	AgentMsg = lipgloss.NewStyle()
@@ -53,7 +56,8 @@ var (
 	// ThinkingMsg is the live reasoning tail (dim, ephemeral).
 	ThinkingMsg = ToolMsg.Italic(true)
 
-	// Diff line styles use the 16-color palette so terminal themes apply.
+	// DiffAdd, DiffDel and DiffMeta style diff lines with the 16-color palette
+	// so terminal themes apply.
 	DiffAdd  = lipgloss.NewStyle().Foreground(Green)
 	DiffDel  = lipgloss.NewStyle().Foreground(Red)
 	DiffMeta = lipgloss.NewStyle().Foreground(Dim).Faint(true)
@@ -74,7 +78,8 @@ var (
 	Selection = lipgloss.NewStyle().
 			Reverse(true)
 
-	// Footer mode accents (Build / Plan). Mapping from mode → style lives in tui.
+	// StyleModeBuild and StyleModePlan are the footer mode accents. Mapping from
+	// mode → style lives in tui.
 	StyleModeBuild = lipgloss.NewStyle().Bold(true).Foreground(Blue)
 	StyleModePlan  = lipgloss.NewStyle().Bold(true).Foreground(Yellow)
 
@@ -84,15 +89,14 @@ var (
 			BorderForeground(Yellow).
 			PaddingLeft(1)
 
-	// Follow-ups panel above the input while messages are queued.
-	FollowUpsHeader = lipgloss.NewStyle().Bold(true).Foreground(Yellow)
-	FollowUpsHint   = lipgloss.NewStyle().Foreground(Dim).Faint(true)
+	// FollowUpsHint styles queued follow-ups above the input.
+	FollowUpsHint = lipgloss.NewStyle().Foreground(Dim)
 
 	// OutsideWarn flags a path outside the workspace in permission prompts.
 	OutsideWarn = lipgloss.NewStyle().Bold(true).Foreground(Yellow)
 
-	// Overlay / accent-list rows (command palette, model overlay, session picker).
-	// OverlayRow uses default terminal fg (same as input text).
+	// OverlayRow is an overlay / accent-list row (command palette, model
+	// overlay, session picker). It uses default terminal fg (same as input text).
 	OverlayRow         = lipgloss.NewStyle()
 	OverlayHint        = lipgloss.NewStyle().Foreground(Dim).Italic(true)
 	AccentRowSelected  = lipgloss.NewStyle().Foreground(Green)  // keyboard selection
@@ -135,6 +139,7 @@ func NewChrome(termBg color.Color, dark bool) Chrome {
 	}
 }
 
+// InputBox is the bordered frame around the composer.
 func (c Chrome) InputBox() lipgloss.Style {
 	return lipgloss.NewStyle().
 		Border(lipgloss.NormalBorder(), true, false).
@@ -142,6 +147,7 @@ func (c Chrome) InputBox() lipgloss.Style {
 		PaddingRight(1)
 }
 
+// UserMsg styles a user message bubble in the transcript.
 func (c Chrome) UserMsg() lipgloss.Style {
 	s := lipgloss.NewStyle().Padding(0, 1)
 	if c.Prompt != nil {
@@ -157,16 +163,6 @@ func (c Chrome) OverlayPanel() lipgloss.Style {
 		s = s.Background(c.Input)
 	}
 	return s
-}
-
-// FollowUpsBoxBare is the follow-up panel body (yellow border; top border is drawn separately).
-func FollowUpsBoxBare(innerW int) lipgloss.Style {
-	return lipgloss.NewStyle().
-		Border(lipgloss.NormalBorder()).
-		BorderTop(false).
-		BorderForeground(Yellow).
-		Padding(0, OverlayPadRight, 0, 1).
-		Width(innerW)
 }
 
 // OverlayInk is accent-list row styling. Gap carries panel fill so pad cells
@@ -240,7 +236,7 @@ const MascotArt = `
 ▜▛██▜▛██▜▛
 `
 
-// Horizontal inset (columns per side) shared by transcript padding and wrap width.
+// ContentInset sets the horizontal inset (columns per side) shared by transcript padding and wrap width.
 const ContentInset = 1
 
 // Input box geometry (lipgloss v2 Width is the total rendered width):

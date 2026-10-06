@@ -158,13 +158,14 @@ func AutoReply(kind WaitKind) (Reply, bool) {
 // Run starts one turn's tool loop over this session's state. Composed here so
 // every client runs the same wiring — this session's tools, root, gate, and
 // request assembly — with d answering gated calls.
-func (s *Session) Run(ctx context.Context, client *ai.Client, d Decider) <-chan Event {
+func (s *Session) Run(ctx context.Context, client *ai.Client, d Decider, steer func() []ai.Message) <-chan Event {
 	cfg := Config{
 		Client:  client,
 		Tools:   s.Tools(),
 		Root:    s.WS.Abs,
 		Decider: d,
 		Gate:    s.Gate(),
+		Steer:   steer,
 	}
 	return cfg.Run(ctx, s.RequestMsgs())
 }

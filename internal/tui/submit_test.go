@@ -6,6 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/axispx/zeta/internal/ai"
 	"github.com/axispx/zeta/internal/config"
 )
 
@@ -32,7 +33,7 @@ func TestSubmitWithoutClientLeavesTurnUncommitted(t *testing.T) {
 	m.composer.textarea.SetValue("hey")
 
 	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter, Text: "enter"})
-	m = next.(Model)
+	m = next.(*Model)
 
 	if len(m.session.History) != 0 {
 		t.Fatalf("history = %#v", m.session.History)
@@ -49,4 +50,10 @@ func TestSubmitWithoutClientLeavesTurnUncommitted(t *testing.T) {
 	if !strings.Contains(m.transcript.messages[0].Text, "/config") {
 		t.Fatalf("text = %q", m.transcript.messages[0].Text)
 	}
+}
+
+// stubClient is a client whose requests fail fast (nothing listens on the
+// port), for tests that start a real turn.
+func stubClient() *ai.Client {
+	return ai.New(config.Provider{BaseURL: "http://127.0.0.1:1", APIKey: "k"}, "y")
 }

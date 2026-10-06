@@ -91,7 +91,7 @@ func execAuthRetryCmd(t *testing.T, cmd tea.Cmd) authRetryResultMsg {
 
 func TestTurnErrAuthRetriesOnce(t *testing.T) {
 	isolateZetaHome(t)
-	oauthTokenServer(t, func(w http.ResponseWriter, r *http.Request) {
+	oauthTokenServer(t, func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"access_token":  "new-at",
 			"refresh_token": "new-rt",
@@ -235,9 +235,9 @@ func TestAuthRetryingBlocksSubmitAndQueueDeliver(t *testing.T) {
 	}
 
 	// Queue deliver (empty Enter / focus Enter) must not interrupt recover.
-	m.queue.prompts = []queuedPrompt{newQueuedPrompt(1, "queued", nil)}
-	if cmd := m.deliverQueued(1); cmd != nil {
-		t.Fatal("deliverQueued must no-op while authRetrying")
+	m.queue.prompts = []queuedPrompt{newQueuedPrompt("queued", nil)}
+	if cmd := m.sendQueued(); cmd != nil {
+		t.Fatal("sendQueued must no-op while authRetrying")
 	}
 	if len(m.queue.prompts) != 1 {
 		t.Fatalf("queue item dropped: %+v", m.queue.prompts)
@@ -258,7 +258,7 @@ func TestAuthRetryingBlocksSubmitAndQueueDeliver(t *testing.T) {
 
 func TestTurnErrAuthRefreshRejectedSurfacesReauth(t *testing.T) {
 	isolateZetaHome(t)
-	oauthTokenServer(t, func(w http.ResponseWriter, r *http.Request) {
+	oauthTokenServer(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid_grant"})
 	})

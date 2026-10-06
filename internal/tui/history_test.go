@@ -18,8 +18,8 @@ import (
 	"github.com/axispx/zeta/internal/session"
 )
 
-func testModel() Model {
-	m := Model{
+func testModel() *Model {
+	m := &Model{
 		composer:   composer{textarea: textarea.New()},
 		transcript: transcript{viewport: newTranscriptViewport()},
 		term: term{
@@ -183,7 +183,7 @@ func TestHandleCompactDoneNothing(t *testing.T) {
 
 func TestHandleCompactDoneAutoContinuesTurn(t *testing.T) {
 	m := testModel()
-	m.session.Client = &ai.Client{}
+	m.session.Client = stubClient()
 	m.session.Compacting = true
 	m.session.History = []ai.Message{{Role: ai.RoleUser, Text: "hi"}}
 	sum := "## Task\n- go"
@@ -213,7 +213,7 @@ func TestHandleCompactDoneAutoContinuesTurn(t *testing.T) {
 
 func TestHandleCompactDoneAutoFailureContinues(t *testing.T) {
 	m := testModel()
-	m.session.Client = &ai.Client{}
+	m.session.Client = stubClient()
 	m.session.Compacting = true
 	m.session.History = []ai.Message{{Role: ai.RoleUser, Text: "hi"}}
 	cmd := m.handleCompactDone(compactDoneMsg{
@@ -254,7 +254,7 @@ func TestHandleCompactDoneCancelledManual(t *testing.T) {
 
 func TestShouldAutoCompact(t *testing.T) {
 	m := testModel()
-	m.session.Client = &ai.Client{}
+	m.session.Client = stubClient()
 	setWindow := func(n int) {
 		m.session.Cfg = config.Config{
 			Active: "p/m",
@@ -317,7 +317,7 @@ func TestStartCompactGuards(t *testing.T) {
 	}
 
 	m = testModel()
-	m.session.Client = &ai.Client{}
+	m.session.Client = stubClient()
 	// Manual compact does not require a context window.
 	if cmd := m.startCompact(); cmd != nil {
 		t.Fatal("empty history should not start cmd")
@@ -327,7 +327,7 @@ func TestStartCompactGuards(t *testing.T) {
 	}
 
 	m = testModel()
-	m.session.Client = &ai.Client{}
+	m.session.Client = stubClient()
 	m.session.History = []ai.Message{{Role: ai.RoleUser, Text: "x"}, {Role: ai.RoleUser, Text: "y"}}
 	if cmd := m.startCompact(); cmd == nil {
 		t.Fatal("manual compact with history should start (window optional)")

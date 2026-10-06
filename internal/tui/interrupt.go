@@ -38,10 +38,12 @@ func (m *Model) tryInterrupt() bool {
 	case m.turn.current != nil:
 		// Late KindDone must not drain the queue.
 		unstarted := m.session.CanReplay()
+		m.steersToQueue()
 		m.finishTurn()
 		if unstarted && m.restoreUnstartedPrompt() {
 			return true
 		}
+		m.restoreQueuedIntoComposer()
 		m.noteSystem(turnCancelledText)
 		return true
 	}
@@ -49,11 +51,8 @@ func (m *Model) tryInterrupt() bool {
 }
 
 // handleCtrlC is the Ctrl+C ladder:
-// edit/queue-focus → interrupt (config/picker/…/turn) → clear queue → quit.
+// interrupt (config/picker/…/turn) → clear queue → quit.
 func (m *Model) handleCtrlC() tea.Cmd {
-	if m.handleQueueEsc() {
-		return nil
-	}
 	if m.tryInterrupt() {
 		return nil
 	}

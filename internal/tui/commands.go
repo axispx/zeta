@@ -127,7 +127,7 @@ func (o *filterOverlay) clear() {
 
 // ownsInput reports pickers where the composer text is the filter query
 // (slash / model). @ mentions edit a larger draft and must not wipe it on close.
-func (o filterOverlay) ownsInput() bool {
+func (o *filterOverlay) ownsInput() bool {
 	return o.mode == overlayCommands || o.mode == overlayModels
 }
 
@@ -184,12 +184,22 @@ func isSlashToken(s string) bool {
 	return !strings.ContainsAny(s, " \t\n")
 }
 
+// isSkillSlash reports a message that invokes a bundled skill (with or without args).
+func isSkillSlash(text string) bool {
+	if !strings.HasPrefix(strings.TrimSpace(text), "/") {
+		return false
+	}
+	_, ok := skill.MatchSlash(text)
+	return ok
+}
+
 func (m *Model) resetInput() {
 	m.composer.textarea.Reset()
 	m.composer.textarea.SetHeight(inputMinHeight)
 	m.syncTextareaStyles()
 	m.resetPromptHistory()
 	m.clearPendingImages()
+	m.queue.recalled = nil
 }
 
 func (m *Model) syncOverlay() tea.Cmd {
@@ -508,9 +518,10 @@ func (m *Model) handleOverlayKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 	}
 }
 
-// submitInput handles plain Enter: slash, save-edit, queue, or drain.
-// Overlay commits are handled in handleOverlayKey before this runs.
-// Empty Enter delivers the queue head now (interrupts a live turn when busy).
+// submitInput handles plain Enter: slash, steer, or send. Overlay commits are
+// handled in handleOverlayKey before this runs. Mid-turn, Enter steers: the
+// message joins the running turn at its next tool boundary. Empty Enter while
+// idle sends the oldest queued follow-up.
 func (m *Model) submitInput() tea.Cmd {
 	// Exclusive jobs block all submit; auth recover queues like a live turn.
 	if m.exclusiveJob() {
@@ -519,20 +530,10 @@ func (m *Model) submitInput() tea.Cmd {
 
 	text, imgs := m.parseComposer()
 	if text == "" && len(imgs) == 0 {
-		// Empty Enter while editing: keep the item; user must save or Esc.
-		if m.queue.editID != 0 {
+		if m.turn.current != nil {
 			return nil
 		}
-		// Do not interrupt/replace an in-flight OAuth recover.
-		if m.session.AuthRetrying {
-			return nil
-		}
-		return m.drainNextQueuedPrompt()
-	}
-	// Saving an open follow-up beats slash / turn routing.
-	if m.queue.editID != 0 {
-		m.saveEdit(text, imgs)
-		return nil
+		return m.sendQueued()
 	}
 	if m.turn.current == nil && !m.session.AuthRetrying && text == ":q" { // vim
 		return m.requestQuit()
@@ -544,12 +545,32 @@ func (m *Model) submitInput() tea.Cmd {
 			return m.submitHarnessSlash(text, imgs)
 		}
 	}
-	// Mid-turn / OAuth recover: queue for later. Send-now is empty Enter /
-	// queue-focus Enter (blocked while authRetrying).
-	if m.turn.current != nil || m.session.AuthRetrying {
+	skillSlash := isSkillSlash(text)
+	// A skill playbook is attached when its turn starts, so it cannot join a
+	// running turn: it waits in the queue instead. So does anything typed
+	// during an OAuth recover.
+	if m.session.AuthRetrying || (m.turn.current != nil && skillSlash) {
 		return m.enqueuePrompt(text, imgs)
 	}
+	if m.turn.current != nil {
+		return m.steerPrompt(text, imgs)
+	}
 	return m.submit(text, imgs)
+}
+
+// queueInput handles Tab mid-turn: hold the composer text as a follow-up that
+// starts its own turn once this one ends.
+func (m *Model) queueInput() tea.Cmd {
+	if m.exclusiveJob() {
+		return nil
+	}
+	text, imgs := m.parseComposer()
+	if isSlashToken(text) {
+		if _, ok := skill.MatchSlash(text); !ok {
+			return nil
+		}
+	}
+	return m.enqueuePrompt(text, imgs)
 }
 
 // submitHarnessSlash runs a non-skill slash command, or rejects it when idle.
@@ -592,13 +613,13 @@ func windowAround(selected, n, listH int) (start, end int) {
 }
 
 func paletteNameWidth(items []command) int {
-	max := 0
+	widest := 0
 	for _, c := range items {
-		if w := lipgloss.Width(c.name); w > max {
-			max = w
+		if w := lipgloss.Width(c.name); w > widest {
+			widest = w
 		}
 	}
-	return max
+	return widest
 }
 
 func formatPaletteRow(nameW int, c command, selected bool, ink styles.OverlayInk) string {
@@ -612,7 +633,7 @@ func formatPaletteRow(nameW int, c command, selected bool, ink styles.OverlayInk
 	return nameCol + ink.Gap.Render("  ") + hintStyle.Render(c.desc)
 }
 
-func (m Model) renderOverlay(width int) string {
+func (m *Model) renderOverlay(width int) string {
 	switch m.overlay.mode {
 	case overlayCommands:
 		return m.renderCommandOverlay(width)
@@ -625,7 +646,7 @@ func (m Model) renderOverlay(width int) string {
 	}
 }
 
-func (m Model) renderCommandOverlay(width int) string {
+func (m *Model) renderCommandOverlay(width int) string {
 	if !m.overlay.showing() {
 		return ""
 	}
@@ -716,7 +737,7 @@ func formatAccentRowTagged(label, tag, hint string, innerW int, selected, curren
 	return formatHintRowTagged(prefix, label, tag, hint, innerW, labelStyle, hintStyle, ink.Gap)
 }
 
-func (m Model) renderModelOverlay(width int) string {
+func (m *Model) renderModelOverlay(width int) string {
 	visible := m.overlay.visibleModels(m.composer.textarea.Value())
 	if m.overlay.mode != overlayModels || len(visible) == 0 {
 		return ""
@@ -746,6 +767,6 @@ func overlayWidths(termW int) (innerW, contentW int) {
 }
 
 // paintOverlay fills the list with panel chrome so it doesn't blend into the transcript.
-func (m Model) paintOverlay(body string, innerW int) string {
+func (m *Model) paintOverlay(body string, innerW int) string {
 	return m.term.chrome.OverlayPanel().Width(innerW).Render(body)
 }
