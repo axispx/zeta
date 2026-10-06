@@ -249,6 +249,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case authRetryResultMsg:
 		return m, m.handleAuthRetryResult(msg)
 
+	case planUsageMsg:
+		m.handlePlanUsage(msg)
+		return m, nil
+
 	case fileListMsg:
 		m.applyFileListMsg(msg)
 		return m, nil

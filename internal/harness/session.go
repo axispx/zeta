@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/axispx/zeta/internal/ai"
+	"github.com/axispx/zeta/internal/codex"
 	"github.com/axispx/zeta/internal/compact"
 	"github.com/axispx/zeta/internal/config"
 	"github.com/axispx/zeta/internal/image"
@@ -39,6 +40,11 @@ type Session struct {
 	TitlePending  bool
 	Streamed      bool
 	Effects       bool
+	// Plan is the provider's subscription quota as last reported, for providers
+	// that meter by ChatGPT-style plan windows. Live state, not session
+	// history: it is not persisted, and a resumed session refills it from the
+	// next response or /usage.
+	Plan *codex.PlanUsage
 }
 
 // RefreshWorkspace re-reads the volatile workspace fields at a turn boundary:
@@ -107,8 +113,11 @@ func (s *Session) CommitUserPrompt(text string, imgs []image.Ref) error {
 //
 // Usage is attributed to the model that answered, not the currently active one:
 // a /model switch mid-turn must not relabel the previous model's spend.
-func (s *Session) CommitAssistant(m ai.Message, usage ai.Usage) error {
+func (s *Session) CommitAssistant(m ai.Message, usage ai.Usage, plan *codex.PlanUsage) error {
 	s.History = append(s.History, m)
+	if plan != nil {
+		s.Plan = plan
+	}
 	if n := usage.ContextTokens(); n > 0 {
 		s.ContextTokens = n
 		s.ContextMsgs = len(s.History)

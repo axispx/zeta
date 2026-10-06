@@ -78,9 +78,13 @@ func TestOAuthFromToken(t *testing.T) {
 		RefreshToken: "r",
 		ExpiresIn:    60,
 		TokenType:    "bearer",
+		AccountID:    "acct",
 	})
 	if oc == nil || oc.AccessToken != "a" || oc.RefreshToken != "r" || oc.TokenType != "bearer" {
 		t.Fatalf("got %#v", oc)
+	}
+	if oc.AccountID != "acct" {
+		t.Fatalf("account id: %q", oc.AccountID)
 	}
 	if oc.ExpiresAt <= time.Now().UnixMilli() {
 		t.Fatalf("expires_at %d", oc.ExpiresAt)
@@ -123,6 +127,17 @@ func TestApplyToken(t *testing.T) {
 	})
 	if oc.RefreshToken != "r2" {
 		t.Fatalf("rotated refresh token: %q", oc.RefreshToken)
+	}
+
+	// A response without an account id keeps the stored one.
+	oc.AccountID = "acct"
+	oc.ApplyToken(&oauth.TokenResponse{AccessToken: "new3"})
+	if oc.AccountID != "acct" {
+		t.Fatalf("account id must survive a response without one: %q", oc.AccountID)
+	}
+	oc.ApplyToken(&oauth.TokenResponse{AccessToken: "new4", AccountID: "acct2"})
+	if oc.AccountID != "acct2" {
+		t.Fatalf("account id must update: %q", oc.AccountID)
 	}
 }
 

@@ -135,7 +135,7 @@ func (m *Model) handleTurnAssistant(msg turnAssistantMsg) tea.Cmd {
 	if m.turn.current.endStreaming() {
 		m.refreshTranscript()
 	}
-	m.reportSaveErr(m.session.CommitAssistant(msg.message, msg.usage))
+	m.reportSaveErr(m.session.CommitAssistant(msg.message, msg.usage, msg.plan))
 	m.noteProducedPlan(msg.message.Text)
 	return waitTurn(m.turn.current)
 }

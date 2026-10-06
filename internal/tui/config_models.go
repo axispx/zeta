@@ -34,9 +34,11 @@ func (d *configDialog) openModels(providerID string) {
 	d.focusID = providerID
 	d.modelQuery = ""
 	d.listSel.clear()
-	// Sync catalog once on entry — draft then matches display; toggles just flip flags.
+	// Sync catalog once on entry — draft then matches display; toggles just flip
+	// flags. A preset with no models would wipe the provider's list, which can
+	// happen when a catalog is unavailable (a ChatGPT sign-in with no cached list).
 	if !d.caps(providerID).custom {
-		if pre, ok := d.findPreset(providerID); ok {
+		if pre, ok := d.syncPreset(providerID); ok && len(pre.Models) > 0 {
 			if err := d.mutate(func(c *config.Config) error {
 				return c.SyncCatalogModels(providerID, pre.Models)
 			}); err != nil {

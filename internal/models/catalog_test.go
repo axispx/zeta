@@ -211,7 +211,7 @@ func strPtr(s string) *string { return &s }
 func TestBaseURLRequiresAPI(t *testing.T) {
 	cat := map[string]Provider{
 		"openai": {
-			// models.dev leaves api empty for first-party SDKs — skip until set
+			// models.dev leaves api empty; providerAPI fills https://api.openai.com/v1
 			ID: "openai", Name: "OpenAI", NPM: "@ai-sdk/openai",
 			Models: map[string]Model{"m": {Name: "M", Limit: Limit{Context: 100_000}}},
 		},
@@ -227,7 +227,7 @@ func TestBaseURLRequiresAPI(t *testing.T) {
 		},
 	}
 	presets := presetsFromCatalog(cat)
-	if len(presets) != 2 {
+	if len(presets) != 3 {
 		t.Fatalf("presets = %#v", presets)
 	}
 	byID := map[string]Preset{}
@@ -236,6 +236,9 @@ func TestBaseURLRequiresAPI(t *testing.T) {
 	}
 	if byID["deepseek"].BaseURL != "https://api.deepseek.com" {
 		t.Fatalf("deepseek BaseURL = %q", byID["deepseek"].BaseURL)
+	}
+	if byID["openai"].BaseURL != "https://api.openai.com/v1" {
+		t.Fatalf("openai BaseURL = %q", byID["openai"].BaseURL)
 	}
 	if byID["xai"].BaseURL != "https://api.x.ai/v1" {
 		t.Fatalf("xai BaseURL = %q", byID["xai"].BaseURL)

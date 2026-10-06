@@ -8,6 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/axispx/zeta/internal/codex"
 	"github.com/axispx/zeta/internal/config"
 	"github.com/axispx/zeta/internal/oauth"
 )
@@ -15,7 +16,7 @@ import (
 type authMethodKind int
 
 const (
-	authDevice authMethodKind = iota
+	authOAuth authMethodKind = iota
 	authAPIKey
 )
 
@@ -25,9 +26,16 @@ type authMethodRow struct {
 	hint string
 }
 
-func authMethodRows() []authMethodRow {
+// authMethodRows is the chooser for a provider with an OAuth login. A browser
+// flow and a device flow differ only in what the panel shows while waiting, so
+// they share the row.
+func authMethodRows(providerID string) []authMethodRow {
+	hint := "sign in with your account"
+	if providerID == codex.ProviderID {
+		hint = "sign in with ChatGPT"
+	}
 	return []authMethodRow{
-		{authDevice, "OAuth", "sign in with your account"},
+		{authOAuth, "OAuth", hint},
 		{authAPIKey, "API Key", "paste key"},
 	}
 }
@@ -38,20 +46,24 @@ type oauthSession struct {
 	gen       int
 	ctx       context.Context
 	cancel    context.CancelFunc
+	flow      oauth.Flow
 	verifyURL string
 	userCode  string
 }
 
-type oauthDeviceMsg struct {
-	gen    int
-	device oauth.DeviceCode
-	err    error
+type oauthStartedMsg struct {
+	gen  int
+	flow oauth.Flow
+	err  error
 }
 
 type oauthDoneMsg struct {
 	gen int
 	tok *oauth.TokenResponse
-	err error
+	// preset is the catalog the provider's backend reported, for providers
+	// whose models are discovered rather than listed by models.dev (codex).
+	preset *config.Preset
+	err    error
 }
 
 func (d *configDialog) openAuthMethods(providerID string) {
@@ -83,6 +95,10 @@ func (d *configDialog) cancelOAuth() {
 	if d.oauth.cancel != nil {
 		d.oauth.cancel()
 	}
+	// Releases the callback listener or stops device polling.
+	if d.oauth.flow != nil {
+		d.oauth.flow.Close()
+	}
 	d.oauth = nil
 }
 
@@ -95,7 +111,7 @@ func (d *configDialog) handleAuthKey(msg tea.KeyPressMsg) tea.Cmd {
 		return nil
 	}
 	key := msg.String()
-	rows := authMethodRows()
+	rows := authMethodRows(d.focusID)
 	n := len(rows)
 	if d.move(n, key) {
 		d.status = ""
@@ -126,8 +142,8 @@ func (d *configDialog) activateAuthMethod(row authMethodRow) tea.Cmd {
 	case authAPIKey:
 		d.openAPIKeyForm(d.focusID)
 		return nil
-	case authDevice:
-		return d.startDeviceOAuth()
+	case authOAuth:
+		return d.startOAuth()
 	}
 	return nil
 }
@@ -141,36 +157,59 @@ func (d *configDialog) beginOAuth() (gen int, ctx context.Context) {
 	return gen, ctx
 }
 
-func (d *configDialog) startDeviceOAuth() tea.Cmd {
+// startOAuth begins the provider's interactive login. A device flow hands the
+// user a code to type; a browser flow opens the page while the callback is
+// being awaited, and a browser that will not open just leaves the link to
+// click.
+func (d *configDialog) startOAuth() tea.Cmd {
 	gen, ctx := d.beginOAuth()
-	d.status = "Starting device login… (esc to cancel)"
+	d.status = "Starting sign-in… (esc to cancel)"
 	providerID := d.focusID
 
 	return func() tea.Msg {
-		device, err := oauth.StartDevice(ctx, providerID)
-		return oauthDeviceMsg{gen: gen, device: device, err: err}
+		flow, err := oauth.Begin(ctx, providerID)
+		return oauthStartedMsg{gen: gen, flow: flow, err: err}
 	}
 }
 
-func (d *configDialog) handleOAuthDevice(msg oauthDeviceMsg) tea.Cmd {
+func (d *configDialog) handleOAuthStarted(msg oauthStartedMsg) tea.Cmd {
 	if d.oauth == nil || msg.gen != d.oauth.gen {
+		// The dialog moved on (or reopened) while the cmd was in flight.
+		if msg.flow != nil {
+			msg.flow.Close()
+		}
 		return nil
 	}
 	if msg.err != nil {
-		return d.finishOAuth(nil, msg.err)
+		d.finishOAuth(nil, nil, msg.err)
+		return nil
 	}
-	d.oauth.verifyURL = msg.device.BrowserURL()
-	d.oauth.userCode = msg.device.UserCode
+	d.oauth.flow = msg.flow
+	d.oauth.verifyURL = msg.flow.URL()
+	d.oauth.userCode = msg.flow.UserCode()
 	d.status = ""
 	_ = openBrowser(d.oauth.verifyURL)
 
+	// Everything the login needs after the browser — the wait, and the
+	// provider's model discovery — runs in the cmd, never in Update.
 	ctx := d.oauth.ctx
-	providerID := d.focusID
-	device := msg.device
+	flow := msg.flow
 	gen := msg.gen
+	providerID := d.focusID
 	return func() tea.Msg {
-		tok, err := oauth.PollDevice(ctx, providerID, device)
-		return oauthDoneMsg{gen: gen, tok: tok, err: err}
+		tok, err := flow.Wait(ctx)
+		if err != nil {
+			return oauthDoneMsg{gen: gen, err: err}
+		}
+		oc := config.OAuthFromToken(tok)
+		if oc == nil {
+			return oauthDoneMsg{gen: gen, err: errors.New("token response is not renewable")}
+		}
+		preset, err := oauthPreset(ctx, providerID, oc)
+		if err != nil {
+			return oauthDoneMsg{gen: gen, err: err}
+		}
+		return oauthDoneMsg{gen: gen, tok: tok, preset: preset}
 	}
 }
 
@@ -178,44 +217,88 @@ func (d *configDialog) handleOAuthDone(msg oauthDoneMsg) tea.Cmd {
 	if d.oauth == nil || msg.gen != d.oauth.gen {
 		return nil
 	}
-	return d.finishOAuth(msg.tok, msg.err)
+	d.finishOAuth(msg.tok, msg.preset, msg.err)
+	return nil
 }
 
-func (d *configDialog) finishOAuth(tok *oauth.TokenResponse, err error) tea.Cmd {
-	// Flow finished — drop session without cancel (Cmd already returned).
+// finishOAuth closes the flow session and applies the outcome: a connect, a
+// cancellation, or a failure.
+func (d *configDialog) finishOAuth(tok *oauth.TokenResponse, preset *config.Preset, err error) {
+	if d.oauth != nil && d.oauth.flow != nil {
+		d.oauth.flow.Close()
+	}
 	d.oauth = nil
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			d.status = "OAuth cancelled"
-			return nil
+			return
 		}
 		d.status = "OAuth failed: " + err.Error()
-		return nil
+		return
 	}
-	return d.applyOAuthResult(tok)
+	d.applyOAuthResult(tok, preset)
 }
 
-func (d *configDialog) applyOAuthResult(tok *oauth.TokenResponse) tea.Cmd {
+func (d *configDialog) applyOAuthResult(tok *oauth.TokenResponse, preset *config.Preset) {
 	oc := config.OAuthFromToken(tok)
 	if oc == nil {
 		d.status = "OAuth failed: empty token"
-		return nil
+		return
 	}
-	pre, ok := d.findPreset(d.focusID)
+	pre, ok := d.connectPreset(oc, preset)
 	if !ok {
 		d.status = "unknown provider"
-		return nil
+		return
 	}
 	if err := d.mutate(func(c *config.Config) error {
 		return c.ConnectPresetOAuth(pre, oc)
 	}); err != nil {
 		d.status = err.Error()
-		return nil
+		return
 	}
 	d.status = "connected · " + d.focusID + " (OAuth)"
 	d.listSel.clear()
 	d.enterModels()
-	return nil
+}
+
+// connectPreset resolves the preset to connect with: what the login discovered,
+// else the provider's models.dev entry.
+func (d *configDialog) connectPreset(oc *config.OAuthCredential, discovered *config.Preset) (config.Preset, bool) {
+	if discovered != nil {
+		return *discovered, true
+	}
+	return d.findPreset(d.focusID)
+}
+
+// oauthPreset runs the provider's post-login catalog discovery. Codex gates its
+// model list on the account, so the list has to be read with the token that was
+// just issued; every other provider comes from models.dev and needs nothing.
+//
+// A discovery failure fails the login: a provider whose models all error on
+// selection is worse than a retry, and the token would have to be re-minted
+// anyway to try again.
+func oauthPreset(ctx context.Context, providerID string, oc *config.OAuthCredential) (*config.Preset, error) {
+	if providerID != codex.ProviderID {
+		return nil, nil
+	}
+	models, err := codex.Models(ctx, oc.AccessToken, oc.AccountID)
+	if err != nil {
+		return nil, err
+	}
+	// Cached so a later /config visit can show the list without a token.
+	_ = codex.SaveModels(models)
+	pre := config.CodexPreset(models)
+	return &pre, nil
+}
+
+// findPreset returns the preset with id, from a preset list.
+func findPresetID(presets []config.Preset, id string) (config.Preset, bool) {
+	for _, p := range presets {
+		if p.ID == id {
+			return p, true
+		}
+	}
+	return config.Preset{}, false
 }
 
 func openBrowser(rawURL string) error {

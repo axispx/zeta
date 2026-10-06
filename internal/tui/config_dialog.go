@@ -10,6 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/axispx/zeta/internal/codex"
 	"github.com/axispx/zeta/internal/config"
 	"github.com/axispx/zeta/internal/models"
 	"github.com/axispx/zeta/internal/oauth"
@@ -125,6 +126,17 @@ func (d configDialog) caps(id string) providerCaps {
 	return providerCaps{oauth: oauthOK} // connecting from catalog
 }
 
+// syncPreset is the catalog the provider's models are kept in step with. An
+// OpenAI provider signed in with ChatGPT lists the models its account may use,
+// discovered at sign-in and cached; every other provider uses its models.dev
+// entry.
+func (d configDialog) syncPreset(id string) (config.Preset, bool) {
+	if p, ok := d.draft.Provider(id); ok && codex.IsEndpoint(p.BaseURL) {
+		return config.CodexPreset(codex.CachedModels()), true
+	}
+	return d.findPreset(id)
+}
+
 func (d configDialog) findPreset(id string) (config.Preset, bool) {
 	for _, p := range d.presets {
 		if p.ID == id {
@@ -154,8 +166,8 @@ func (d *configDialog) Update(msg tea.Msg) (tea.Cmd, bool) {
 		}
 		d.applyModelsDev(msg)
 		return nil, true
-	case oauthDeviceMsg:
-		return d.handleOAuthDevice(msg), true
+	case oauthStartedMsg:
+		return d.handleOAuthStarted(msg), true
 	case oauthDoneMsg:
 		return d.handleOAuthDone(msg), true
 	case tea.PasteMsg:

@@ -217,7 +217,7 @@ func TestCommitAssistantAppendsBanksAndPersists(t *testing.T) {
 	s := &Session{Log: log, Mode: prompt.ModePlan}
 	usage := ai.Usage{PromptTokens: 1000, CompletionTokens: 200, TotalTokens: 1200, CachedTokens: 900, CacheReported: true}
 
-	if err := s.CommitAssistant(ai.Message{Role: ai.RoleAssistant, Text: "hi"}, usage); err != nil {
+	if err := s.CommitAssistant(ai.Message{Role: ai.RoleAssistant, Text: "hi"}, usage, nil); err != nil {
 		t.Fatal(err)
 	}
 	if len(s.History) != 1 || s.History[0].Role != ai.RoleAssistant || s.History[0].Text != "hi" {
@@ -258,7 +258,7 @@ func TestCommitAssistantWithoutUsage(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := &Session{Log: log, Mode: prompt.ModeBuild}
-	if err := s.CommitAssistant(ai.Message{Role: ai.RoleAssistant, Text: "hi"}, ai.Usage{}); err != nil {
+	if err := s.CommitAssistant(ai.Message{Role: ai.RoleAssistant, Text: "hi"}, ai.Usage{}, nil); err != nil {
 		t.Fatal(err)
 	}
 	if s.ContextTokens != 0 || s.ContextMsgs != 0 {

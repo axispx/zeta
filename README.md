@@ -10,7 +10,7 @@ Use any OpenAI-compatible provider — OpenAI, xAI, DeepSeek, Kimi, and more, pl
 - **Permission prompts** — shell (read-only commands excepted), file changes, and reads outside the workspace ask before running
 - **Local sessions** — chat history stays on your machine; resume anytime with `/resume`
 - **Auto-compaction** — long chats summarize older context when the model window fills up
-- **Multi-provider** — API keys and models managed in-app with `/config`. Providers and models come from [models.dev](https://models.dev).
+- **Multi-provider** — API keys and models managed in-app with `/config`, or sign in to OpenAI with your ChatGPT account to run Codex models on your plan. Providers and models come from [models.dev](https://models.dev).
 
 ## Install
 
@@ -24,7 +24,7 @@ Then run `zeta` from a project directory.
 
 1. Start Zeta in the repo you care about.
 2. Confirm you **trust** the folder when asked.
-3. Run **`/config`** and add a provider API key.
+3. Run **`/config`** and add a provider API key, or sign in to OpenAI with ChatGPT for Codex models.
 4. Type a prompt and press **Enter**.
 
 Each launch opens a **new session**. Use `/resume` to continue an earlier one.

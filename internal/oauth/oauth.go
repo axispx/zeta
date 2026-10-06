@@ -1,3 +1,6 @@
+// Package oauth implements the interactive OAuth 2.0 logins zeta supports
+// (xAI device code, ChatGPT/Codex loopback browser) plus the token endpoints
+// they share.
 package oauth
 
 import (
@@ -16,34 +19,30 @@ const userAgent = "zeta/oauth"
 
 var httpClient = &http.Client{Timeout: 30 * time.Second}
 
-// StartDevice begins RFC 8628 device authorization for providerID.
-func StartDevice(ctx context.Context, providerID string) (DeviceCode, error) {
-	switch providerID {
-	case "xai":
-		return xaiStartDevice(ctx)
-	default:
-		return DeviceCode{}, fmt.Errorf("oauth device flow not supported for provider %q", providerID)
-	}
-}
+// Device-code polling signals, produced by any token endpoint zeta polls.
+var (
+	ErrAuthorizationPending = errors.New("authorization_pending")
+	ErrSlowDown             = errors.New("slow_down")
+	// ErrInvalidGrant means the refresh token was rejected/consumed and the
+	// user must sign in again.
+	ErrInvalidGrant = errors.New("oauth grant rejected")
+)
 
-// PollDevice waits until the user completes device authorization.
-func PollDevice(ctx context.Context, providerID string, device DeviceCode) (*TokenResponse, error) {
-	switch providerID {
-	case "xai":
-		return xaiPollDevice(ctx, device)
-	default:
-		return nil, fmt.Errorf("oauth device flow not supported for provider %q", providerID)
-	}
-}
+// TokenResponse is the OAuth token endpoint response.
+type TokenResponse struct {
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token,omitempty"`
+	ExpiresIn    int64  `json:"expires_in"` // seconds
+	TokenType    string `json:"token_type"` // "bearer"
+	Scope        string `json:"scope,omitempty"`
+	// IDToken is the OIDC id_token, when the provider issues one (codex).
+	IDToken string `json:"id_token,omitempty"`
 
-// Refresh exchanges a refresh_token for new tokens.
-func Refresh(ctx context.Context, providerID, refreshToken string) (*TokenResponse, error) {
-	switch providerID {
-	case "xai":
-		return xaiRefresh(ctx, refreshToken)
-	default:
-		return nil, fmt.Errorf("oauth refresh not supported for provider %q", providerID)
-	}
+	// AccountID is the account the tokens are scoped to, parsed out of the
+	// id_token's claims. Codex only: it is sent as chatgpt-account-id.
+	AccountID string `json:"-"`
+
+	Error string `json:"error,omitempty"`
 }
 
 func tokenRequest(ctx context.Context, tokenURL string, form url.Values) (*TokenResponse, error) {
@@ -133,7 +132,7 @@ func xaiStartDevice(ctx context.Context) (DeviceCode, error) {
 		return DeviceCode{}, fmt.Errorf("device code: %s (status %d)", string(body), resp.StatusCode)
 	}
 
-	var raw DeviceCodeResponse
+	var raw deviceCodeResponse
 	if err := json.Unmarshal(body, &raw); err != nil {
 		return DeviceCode{}, fmt.Errorf("parse device code: %w", err)
 	}

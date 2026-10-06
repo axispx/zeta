@@ -1,34 +1,8 @@
-// Package oauth implements provider OAuth 2.0 flows (currently xAI).
 package oauth
 
 import (
-	"errors"
+	"context"
 )
-
-// Device-code polling signals from the token endpoint.
-var (
-	ErrAuthorizationPending = errors.New("authorization_pending")
-	ErrSlowDown             = errors.New("slow_down")
-	// ErrInvalidGrant means the refresh token was rejected/consumed and the
-	// user must sign in again.
-	ErrInvalidGrant = errors.New("oauth grant rejected")
-)
-
-// Supports reports whether providerID has an OAuth login path.
-func Supports(providerID string) bool {
-	return providerID == "xai"
-}
-
-// TokenResponse is the OAuth token endpoint response.
-type TokenResponse struct {
-	AccessToken  string `json:"access_token"`
-	RefreshToken string `json:"refresh_token,omitempty"`
-	ExpiresIn    int64  `json:"expires_in"` // seconds
-	TokenType    string `json:"token_type"` // "bearer"
-	Scope        string `json:"scope,omitempty"`
-
-	Error string `json:"error,omitempty"`
-}
 
 // DeviceCode is a pending device authorization (RFC 8628).
 type DeviceCode struct {
@@ -48,8 +22,8 @@ func (d DeviceCode) BrowserURL() string {
 	return d.VerificationURI
 }
 
-// DeviceCodeResponse is the raw device authorization endpoint response.
-type DeviceCodeResponse struct {
+// deviceCodeResponse is the raw device authorization endpoint response.
+type deviceCodeResponse struct {
 	DeviceCode              string `json:"device_code"`
 	UserCode                string `json:"user_code"`
 	VerificationURI         string `json:"verification_uri"`
@@ -58,7 +32,7 @@ type DeviceCodeResponse struct {
 	Interval                int64  `json:"interval"` // seconds
 }
 
-func (d DeviceCodeResponse) toDeviceCode() DeviceCode {
+func (d deviceCodeResponse) toDeviceCode() DeviceCode {
 	return DeviceCode{
 		DeviceCode:              d.DeviceCode,
 		UserCode:                d.UserCode,
@@ -67,4 +41,26 @@ func (d DeviceCodeResponse) toDeviceCode() DeviceCode {
 		ExpiresIn:               d.ExpiresIn,
 		Interval:                d.Interval,
 	}
+}
+
+// deviceFlow is a pending xAI device authorization: the user opens the
+// verification page and types the code zeta prints.
+type deviceFlow struct {
+	device DeviceCode
+}
+
+func xaiBeginDevice(ctx context.Context) (Flow, error) {
+	device, err := xaiStartDevice(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return deviceFlow{device: device}, nil
+}
+
+func (f deviceFlow) URL() string      { return f.device.BrowserURL() }
+func (f deviceFlow) UserCode() string { return f.device.UserCode }
+func (deviceFlow) Close()             {}
+
+func (f deviceFlow) Wait(ctx context.Context) (*TokenResponse, error) {
+	return xaiPollDevice(ctx, f.device)
 }

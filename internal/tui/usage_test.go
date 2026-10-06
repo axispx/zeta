@@ -1,10 +1,14 @@
 package tui
 
 import (
+	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/axispx/zeta/internal/ai"
+	"github.com/axispx/zeta/internal/codex"
+	"github.com/axispx/zeta/internal/config"
 	"github.com/axispx/zeta/internal/harness"
 	"github.com/axispx/zeta/internal/session"
 )
@@ -18,7 +22,7 @@ func TestSessionUsageRender(t *testing.T) {
 		CachedTokens:     96_000,
 		CacheReported:    true,
 	})
-	out := renderUsage(u)
+	out := renderUsage(u, nil, harness.Billing{Provider: "Anthropic", Plan: false})
 	for _, want := range []string{
 		"Usage · 1 response",
 		"input", "120.0k",
@@ -37,7 +41,7 @@ func TestSessionUsageRender(t *testing.T) {
 	// No cache accounting reported: the cached row is hidden, not shown as 0%.
 	var cold harness.Usage
 	cold.Add("Sonnet", ai.Usage{PromptTokens: 100, CompletionTokens: 5})
-	if out := renderUsage(cold); strings.Contains(out, "cached") {
+	if out := renderUsage(cold, nil, harness.Billing{}); strings.Contains(out, "cached") {
 		t.Fatalf("unreported cache must be hidden:\n%s", out)
 	}
 }
@@ -47,7 +51,7 @@ func TestSessionUsageRenderByModel(t *testing.T) {
 	u.Add("Sonnet", ai.Usage{PromptTokens: 1000, CompletionTokens: 100, TotalTokens: 1100, CachedTokens: 900, CacheReported: true})
 	u.Add("Grok", ai.Usage{PromptTokens: 2000, CompletionTokens: 200, TotalTokens: 2200, CacheReported: true})
 
-	out := renderUsage(u)
+	out := renderUsage(u, nil, harness.Billing{Provider: "Anthropic", Plan: false})
 	if !strings.Contains(out, "By model:") {
 		t.Fatalf("multi-model session needs a breakdown:\n%s", out)
 	}
@@ -60,7 +64,7 @@ func TestSessionUsageRenderByModel(t *testing.T) {
 	var unknown harness.Usage
 	unknown.Add("", ai.Usage{PromptTokens: 10, CompletionTokens: 1})
 	unknown.Add("M", ai.Usage{PromptTokens: 10, CompletionTokens: 1})
-	if out := renderUsage(unknown); !strings.Contains(out, "unknown ·") {
+	if out := renderUsage(unknown, nil, harness.Billing{Provider: "Anthropic"}); !strings.Contains(out, "unknown ·") {
 		t.Fatalf("unattributed bucket must be labelled:\n%s", out)
 	}
 }
@@ -68,7 +72,7 @@ func TestSessionUsageRenderByModel(t *testing.T) {
 func TestSessionUsageRenderCacheWrite(t *testing.T) {
 	var u harness.Usage
 	u.Add("M", ai.Usage{PromptTokens: 1000, CompletionTokens: 100, CacheWriteTokens: 900, CacheReported: true})
-	out := renderUsage(u)
+	out := renderUsage(u, nil, harness.Billing{Provider: "Anthropic", Plan: false})
 	if !strings.Contains(out, "cache write") || !strings.Contains(out, "900") {
 		t.Fatalf("write side missing:\n%s", out)
 	}
@@ -89,6 +93,179 @@ func TestReportUsageNotesTranscript(t *testing.T) {
 	}
 	if got := m.transcript.messages[len(m.transcript.messages)-1].Text; !strings.Contains(got, "Usage · 1 response") {
 		t.Fatalf("report = %q", got)
+	}
+}
+
+func TestUsageBillingNote(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name    string
+		billing harness.Billing
+		want    string
+	}{
+		{"api key", harness.Billing{Provider: "DeepSeek"}, "API pricing"},
+		{"subscription", harness.Billing{Provider: "OpenAI", Plan: true}, "OpenAI subscription"},
+		{"subscription without a label", harness.Billing{Plan: true}, "provider subscription"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := usageBillingNote(tc.billing); !strings.Contains(got, tc.want) {
+				t.Fatalf("note = %q, want %q in it", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestPlanLines(t *testing.T) {
+	t.Parallel()
+	// Nothing reported is nothing shown: a zeroed gauge would read as 0% used.
+	if got := planLines(nil); len(got) != 0 {
+		t.Fatalf("empty plan = %#v", got)
+	}
+	if got := planLines(&codex.PlanUsage{}); len(got) != 0 {
+		t.Fatalf("empty plan = %#v", got)
+	}
+
+	reset := time.Now().Add(2*time.Hour + 14*time.Minute).Unix()
+	plan := &codex.PlanUsage{
+		Primary:   &codex.Window{UsedPercent: 12.5, WindowMinutes: 300, ResetsAt: reset},
+		Secondary: &codex.Window{UsedPercent: 80, WindowMinutes: 10080},
+		Credits:   &codex.Credits{HasCredits: true, Balance: "$5.00"},
+	}
+	got := strings.Join(planLines(plan), "\n")
+	for _, want := range []string{"Plan quota", "5h window", "12.5% used", "weekly", "80% used", "resets", "2h 14m", "$5.00"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("missing %q in:\n%s", want, got)
+		}
+	}
+}
+
+func TestWindowLabelAndCredits(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		minutes int64
+		want    string
+	}{
+		{0, "window"}, // a plan that disabled the window reports no length
+		{300, "5h window"},
+		{60, "1h window"},
+		{10080, "weekly"},
+		{2880, "2d window"},
+		{90, "90m window"},
+	}
+	for _, tc := range cases {
+		if got := windowLabel(&codex.Window{WindowMinutes: tc.minutes}); got != tc.want {
+			t.Fatalf("windowLabel(%d) = %q, want %q", tc.minutes, got, tc.want)
+		}
+	}
+	credits := []struct {
+		c    codex.Credits
+		want string
+	}{
+		{codex.Credits{Unlimited: true}, "unlimited"},
+		{codex.Credits{}, "none"},
+		{codex.Credits{HasCredits: true, Balance: "$5.00"}, "$5.00"},
+		{codex.Credits{HasCredits: true}, "available"},
+	}
+	for _, tc := range credits {
+		if got := creditsValue(&tc.c); got != tc.want {
+			t.Fatalf("creditsValue(%#v) = %q, want %q", tc.c, got, tc.want)
+		}
+	}
+	// A window that already rolled over reads as "now", not a negative count.
+	if got := resetCountdown(time.Now().Add(-time.Minute).Unix(), time.Now()); got != "now" {
+		t.Fatalf("past reset = %q", got)
+	}
+}
+
+// /usage must not block the UI on a quota round trip: it writes the token block
+// and returns a cmd only when a provider reports a plan.
+func TestReportUsageFetchesPlanOnlyForPlans(t *testing.T) {
+	isolateZetaHome(t)
+
+	// A per-token provider has no quota, so /usage is synchronous.
+	m := testModel()
+	m.session.Cfg = config.Config{
+		Active: "x/m",
+		Providers: map[string]config.Provider{
+			"x": {BaseURL: "https://api.x.ai/v1", APIKey: "k", Models: map[string]config.ModelDef{"m": {ContextWindow: 1000}}},
+		},
+	}
+	m.session.Usage.Add("M", ai.Usage{PromptTokens: 10, CompletionTokens: 1})
+	if cmd := m.reportUsage(); cmd != nil {
+		t.Fatal("an api-key provider must not trigger a quota fetch")
+	}
+	last := m.transcript.messages[len(m.transcript.messages)-1]
+	if !strings.Contains(last.Text, "API pricing") {
+		t.Fatalf("billing note missing:\n%s", last.Text)
+	}
+
+	// A ChatGPT plan reports quota, so /usage returns the fetch cmd.
+	m = testModel()
+	m.session.Cfg = config.Config{
+		Active: "openai/m",
+		Providers: map[string]config.Provider{
+			"openai": {
+				BaseURL: codex.BaseURL,
+				OAuth:   &config.OAuthCredential{AccessToken: "at", AccountID: "acct"},
+				Models:  map[string]config.ModelDef{"m": {ContextWindow: 1000}},
+			},
+		},
+	}
+	m.session.Usage.Add("OpenAI M", ai.Usage{PromptTokens: 10, CompletionTokens: 1})
+	cmd := m.reportUsage()
+	if cmd == nil {
+		t.Fatal("a codex provider must offer to fetch its quota")
+	}
+	last = m.transcript.messages[len(m.transcript.messages)-1]
+	if !strings.Contains(last.Text, "subscription") {
+		t.Fatalf("billing note missing:\n%s", last.Text)
+	}
+
+	// Once the quota is known the plan renders in place, with no fetch.
+	m.session.Plan = &codex.PlanUsage{Primary: &codex.Window{UsedPercent: 50, WindowMinutes: 300}}
+	n := len(m.transcript.messages)
+	if cmd := m.reportUsage(); cmd != nil {
+		t.Fatal("a known quota needs no fetch")
+	}
+	if len(m.transcript.messages) != n+1 {
+		t.Fatalf("messages = %d, want %d", len(m.transcript.messages), n+1)
+	}
+	if got := m.transcript.messages[len(m.transcript.messages)-1].Text; !strings.Contains(got, "Plan quota") || !strings.Contains(got, "50% used") {
+		t.Fatalf("plan missing from report:\n%s", got)
+	}
+}
+
+func TestHandlePlanUsage(t *testing.T) {
+	isolateZetaHome(t)
+	m := testModel()
+	m.session.Usage.Add("M", ai.Usage{PromptTokens: 10, CompletionTokens: 1})
+
+	// A failed fetch is reported, but the session keeps the numbers it has.
+	m.handlePlanUsage(planUsageMsg{err: errors.New("boom")})
+	last := m.transcript.messages[len(m.transcript.messages)-1]
+	if last.Role != RoleSystem || !strings.Contains(last.Text, "boom") {
+		t.Fatalf("error note = %#v", last)
+	}
+	if !m.session.Plan.Empty() {
+		t.Fatalf("a failed fetch must not install a plan: %#v", m.session.Plan)
+	}
+
+	// An empty result is silent: the provider simply has no quota to show.
+	n := len(m.transcript.messages)
+	m.handlePlanUsage(planUsageMsg{plan: &codex.PlanUsage{}})
+	if len(m.transcript.messages) != n {
+		t.Fatal("an empty plan must not note anything")
+	}
+
+	// A real quota is installed and printed.
+	m.handlePlanUsage(planUsageMsg{plan: &codex.PlanUsage{Primary: &codex.Window{UsedPercent: 90, WindowMinutes: 10080}}})
+	if m.session.Plan.Primary.UsedPercent != 90 {
+		t.Fatalf("plan not installed: %#v", m.session.Plan)
+	}
+	if got := m.transcript.messages[len(m.transcript.messages)-1].Text; !strings.Contains(got, "90% used") {
+		t.Fatalf("plan not reported:\n%s", got)
 	}
 }
 

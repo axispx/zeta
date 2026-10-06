@@ -239,6 +239,8 @@ func providerAPI(p Provider) string {
 	switch p.ID {
 	case "xai":
 		return "https://api.x.ai/v1"
+	case "openai":
+		return "https://api.openai.com/v1"
 	}
 	return ""
 }

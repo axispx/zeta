@@ -58,6 +58,9 @@ type ModeDefaults struct {
 type OAuthCredential struct {
 	AccessToken  string `json:"access_token"`
 	RefreshToken string `json:"refresh_token"`
+	// AccountID is the account the tokens are scoped to, sent as
+	// chatgpt-account-id by providers that need it (codex).
+	AccountID string `json:"account_id,omitempty"`
 	// ExpiresAt is unix millis. New tokens always get a concrete expiry
 	// (provider expires_in, or oauthDefaultTTLMs when omitted). 0 is legacy
 	// "unknown" and skips proactive refresh — RecoverOAuth handles 401s.

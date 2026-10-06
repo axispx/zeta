@@ -11,13 +11,34 @@ import (
 	"testing"
 )
 
-func TestSupports(t *testing.T) {
+func TestKindFor(t *testing.T) {
 	t.Parallel()
-	if !Supports("xai") {
-		t.Fatal("expected xai supported")
+	cases := map[string]Kind{
+		"xai":    KindDeviceCode,
+		"openai": KindBrowser,
+		"codex":  KindNone,
+		"":       KindNone,
 	}
-	if Supports("openai") || Supports("") {
-		t.Fatal("unexpected support")
+	for id, want := range cases {
+		if got := KindFor(id); got != want {
+			t.Fatalf("KindFor(%q) = %v, want %v", id, got, want)
+		}
+		if got := Supports(id); got != (want != KindNone) {
+			t.Fatalf("Supports(%q) = %v", id, got)
+		}
+	}
+	if Browser("xai") || !Browser("openai") {
+		t.Fatal("Browser must be true for openai only")
+	}
+}
+
+func TestRotatesRefreshToken(t *testing.T) {
+	t.Parallel()
+	if !RotatesRefreshToken("xai") {
+		t.Fatal("xai rotates its refresh token")
+	}
+	if RotatesRefreshToken("openai") {
+		t.Fatal("openai keeps its refresh token")
 	}
 }
 
@@ -86,16 +107,15 @@ func TestRefresh(t *testing.T) {
 		t.Fatalf("body=%q parsed=%v", gotBody, vals)
 	}
 
-	_, err = Refresh(context.Background(), "openai", "r")
+	_, err = Refresh(context.Background(), "deepseek", "r")
 	if err == nil {
 		t.Fatal("expected unsupported provider error")
 	}
 }
 
-func TestStartDeviceUnsupported(t *testing.T) {
+func TestBeginUnsupported(t *testing.T) {
 	t.Parallel()
-	_, err := StartDevice(context.Background(), "openai")
-	if err == nil {
+	if _, err := Begin(context.Background(), "deepseek"); err == nil {
 		t.Fatal("expected error")
 	}
 }

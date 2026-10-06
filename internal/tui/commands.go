@@ -276,7 +276,7 @@ func (m *Model) runCommand(name string) tea.Cmd {
 	case "/compact":
 		return m.startCompact()
 	case "/usage":
-		m.reportUsage()
+		return m.reportUsage()
 	case "/resume":
 		m.openPicker()
 	case "/model":

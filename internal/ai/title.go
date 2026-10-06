@@ -9,7 +9,7 @@ import (
 
 // SessionTitle asks the model for a short chat title from the first user prompt.
 func (c *Client) SessionTitle(ctx context.Context, prompt string) (string, error) {
-	text, err := c.complete(ctx, []Message{
+	text, err := c.Complete(ctx, []Message{
 		{
 			Role: RoleSystem,
 			Text: titleSystemPrompt,

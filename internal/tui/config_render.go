@@ -259,9 +259,14 @@ func (d configDialog) authBody(innerW int, chrome styles.Chrome, ink styles.Over
 	b.WriteString(configEscTitle(title, innerW, ink))
 	b.WriteByte('\n')
 	if d.oauth != nil {
-		// Device-code flow: clickable verification URL + user code.
+		// A device flow shows the code the user has to type; a browser flow
+		// just waits for the callback, so the code block stays hidden.
 		footer = DialogFooter{Hint: ink.HintKbd("Cancel", "esc")}
-		b.WriteString(ink.Hint.Render("Waiting for device authorization…"))
+		if d.oauth.userCode != "" {
+			b.WriteString(ink.Hint.Render("Waiting for device authorization…"))
+		} else {
+			b.WriteString(ink.Hint.Render("Waiting for you to finish signing in…"))
+		}
 		if d.oauth.verifyURL != "" {
 			b.WriteString("\n\n")
 			link := lipgloss.NewStyle().
@@ -279,7 +284,7 @@ func (d configDialog) authBody(innerW int, chrome styles.Chrome, ink styles.Over
 		return b.String(), footer
 	}
 	b.WriteString(ink.Hint.Render("Choose how to authenticate"))
-	rows := authMethodRows()
+	rows := authMethodRows(d.focusID)
 	for i, row := range rows {
 		b.WriteByte('\n')
 		if i == 0 {

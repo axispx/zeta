@@ -57,6 +57,7 @@ func OAuthFromToken(tok *oauth.TokenResponse) *OAuthCredential {
 	return &OAuthCredential{
 		AccessToken:  tok.AccessToken,
 		RefreshToken: tok.RefreshToken,
+		AccountID:    strings.TrimSpace(tok.AccountID),
 		ExpiresAt:    expiresAtFromToken(tok),
 		TokenType:    tok.TokenType,
 	}
@@ -65,7 +66,7 @@ func OAuthFromToken(tok *oauth.TokenResponse) *OAuthCredential {
 // ApplyToken updates stored OAuth credentials from a refresh/token response.
 // Callers that require rotation must reject a missing refresh_token before
 // calling; an omitted refresh_token here keeps the previous value for
-// providers that do not rotate.
+// providers that do not rotate. Same for account_id.
 func (oc *OAuthCredential) ApplyToken(tok *oauth.TokenResponse) {
 	if oc == nil || tok == nil {
 		return
@@ -75,6 +76,9 @@ func (oc *OAuthCredential) ApplyToken(tok *oauth.TokenResponse) {
 	}
 	if t := strings.TrimSpace(tok.RefreshToken); t != "" {
 		oc.RefreshToken = t
+	}
+	if t := strings.TrimSpace(tok.AccountID); t != "" {
+		oc.AccountID = t
 	}
 	if exp := expiresAtFromToken(tok); exp > 0 {
 		oc.ExpiresAt = exp
@@ -209,8 +213,10 @@ func (c *Config) refreshOAuth(ctx context.Context, providerID string, mode refre
 			return refreshErr
 		}
 
-		// Success: require rotated refresh_token so we never store a dead RT.
-		if strings.TrimSpace(tok.RefreshToken) == "" {
+		// Success: require the replacement for single-use refresh tokens, so
+		// we never store a dead one. Providers that keep their refresh token
+		// may omit it; ApplyToken then preserves the stored value.
+		if strings.TrimSpace(tok.RefreshToken) == "" && oauth.RotatesRefreshToken(providerID) {
 			return fmt.Errorf("token refresh: provider omitted refresh_token; re-authenticate with /config")
 		}
 		if strings.TrimSpace(tok.AccessToken) == "" {

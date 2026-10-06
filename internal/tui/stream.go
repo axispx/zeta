@@ -8,6 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/axispx/zeta/internal/ai"
+	"github.com/axispx/zeta/internal/codex"
 	"github.com/axispx/zeta/internal/harness"
 )
 
@@ -107,6 +108,7 @@ type turnAssistantMsg struct {
 	id      int
 	message ai.Message
 	usage   ai.Usage
+	plan    *codex.PlanUsage
 }
 type turnToolStartMsg struct {
 	id     int
@@ -227,7 +229,7 @@ func turnEventMsg(id int, evt harness.Event) tea.Msg {
 	case harness.KindReasoning:
 		return turnReasoningMsg{id: id, text: evt.Text}
 	case harness.KindAssistant:
-		return turnAssistantMsg{id: id, message: evt.Message, usage: evt.Usage}
+		return turnAssistantMsg{id: id, message: evt.Message, usage: evt.Usage, plan: evt.Plan}
 	case harness.KindToolStart:
 		return turnToolStartMsg{
 			id:     id,

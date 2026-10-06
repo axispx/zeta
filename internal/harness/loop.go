@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/axispx/zeta/internal/ai"
+	"github.com/axispx/zeta/internal/codex"
 	"github.com/axispx/zeta/internal/tools"
 )
 
@@ -47,11 +48,14 @@ type Event struct {
 	Name    string     // tool name for KindToolStart / KindToolOut / KindTool
 	Message ai.Message // set for KindAssistant / KindTool
 	Usage   ai.Usage   // set for KindAssistant when the provider reports usage
-	Err     error
-	Path    string          // KindToolStart: workspace path when relevant
-	Detail  string          // KindToolStart: side-effect preview (diff); empty when unused
-	Args    json.RawMessage // KindToolStart: raw tool arguments
-	Denied  bool            // KindTool: rejected by harness deny or cancel
+	// Plan is the provider's subscription quota for the account, set for
+	// KindAssistant when it meters by plan rather than per token.
+	Plan   *codex.PlanUsage
+	Err    error
+	Path   string          // KindToolStart: workspace path when relevant
+	Detail string          // KindToolStart: side-effect preview (diff); empty when unused
+	Args   json.RawMessage // KindToolStart: raw tool arguments
+	Denied bool            // KindTool: rejected by harness deny or cancel
 }
 
 // ReplyKind is an explicit harness decision after a gated KindToolStart.
@@ -149,12 +153,12 @@ func (c Config) run(ctx context.Context, history []ai.Message, out chan<- Event)
 			return
 		}
 
-		asst, usage, ok := c.streamOnce(ctx, history, defs, out)
+		asst, usage, plan, ok := c.streamOnce(ctx, history, defs, out)
 		if !ok {
 			return
 		}
 		history = append(history, asst)
-		out <- Event{Kind: KindAssistant, Message: asst, Usage: usage}
+		out <- Event{Kind: KindAssistant, Message: asst, Usage: usage, Plan: plan}
 
 		if len(asst.ToolCalls) == 0 {
 			out <- Event{Kind: KindDone}
@@ -179,10 +183,11 @@ func (c Config) stream(ctx context.Context, history []ai.Message, defs []ai.Tool
 	return c.Client.Stream(ctx, history, defs)
 }
 
-func (c Config) streamOnce(ctx context.Context, history []ai.Message, defs []ai.Tool, out chan<- Event) (ai.Message, ai.Usage, bool) {
+func (c Config) streamOnce(ctx context.Context, history []ai.Message, defs []ai.Tool, out chan<- Event) (ai.Message, ai.Usage, *codex.PlanUsage, bool) {
 	ch := c.stream(ctx, history, defs)
 	var asst ai.Message
 	var usage ai.Usage
+	var plan *codex.PlanUsage
 	for evt := range ch {
 		switch evt.Type {
 		case ai.EventDelta:
@@ -196,27 +201,28 @@ func (c Config) streamOnce(ctx context.Context, history []ai.Message, defs []ai.
 		case ai.EventDone:
 			asst = evt.Message
 			usage = evt.Usage
+			plan = evt.Plan
 			if asst.Role == "" {
 				asst.Role = ai.RoleAssistant
 			}
 		case ai.EventErr:
 			if ctx.Err() != nil {
 				out <- Event{Kind: KindDone}
-				return ai.Message{}, ai.Usage{}, false
+				return ai.Message{}, ai.Usage{}, nil, false
 			}
 			out <- Event{Kind: KindErr, Err: evt.Err}
-			return ai.Message{}, ai.Usage{}, false
+			return ai.Message{}, ai.Usage{}, nil, false
 		}
 	}
 	// Cancelled with empty accumulator.
 	if asst.Role == "" && asst.Text == "" && len(asst.ToolCalls) == 0 {
 		out <- Event{Kind: KindDone}
-		return ai.Message{}, ai.Usage{}, false
+		return ai.Message{}, ai.Usage{}, nil, false
 	}
 	if asst.Role == "" {
 		asst.Role = ai.RoleAssistant
 	}
-	return asst, usage, true
+	return asst, usage, plan, true
 }
 
 func (c Config) execTool(ctx context.Context, call ai.ToolCall, ev chan<- Event) (label string, result ai.Message, denied bool) {

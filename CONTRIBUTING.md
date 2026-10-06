@@ -27,7 +27,7 @@ a release.
 cmd/zeta/            entrypoint
 internal/cli/        flags, usage, folder-trust prompt
 internal/tui/        bubbletea UI
-internal/ai/         OpenAI-compatible streaming + tools
+internal/ai/         OpenAI-compatible streaming + tools (chat.go), Codex Responses transport (codex.go)
 internal/harness/    agent harness: tool loop + permission gate, decision gate, request assembly, session state and the durable write path, approvals, usage, client construction
 internal/permission/ allow | deny for side-effect tools
 internal/policy/     persisted permission rules (~/.zeta/permissions.json)
@@ -38,6 +38,8 @@ internal/todo/       session-scoped checklist store (model-owned)
 internal/skill/      bundled playbooks (`skills/*/SKILL.md` via go:embed)
 internal/config/     ~/.zeta/config.json
 internal/models/     models.dev catalog → presets
+internal/codex/      ChatGPT Codex backend: endpoint identity, model discovery/cache, plan quota
+internal/oauth/      interactive logins (xai device code, ChatGPT browser PKCE) + refresh
 internal/session/    JSONL under ~/.zeta/sessions/
 internal/workspace/  cwd/git context, AGENTS.md, folder trust (~/.zeta/trusted.json)
 internal/search/     fuzzy filter helpers (slash palette, @ files, models)
