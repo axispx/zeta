@@ -62,7 +62,7 @@ func TestAskPromptFreeformEmptyAnswersOther(t *testing.T) {
 
 func TestHandleAskSubmitSendsResult(t *testing.T) {
 	replies := make(chan harness.Reply, 1)
-	m := Model{
+	m := &Model{
 		panel: panel{ask: newAskPrompt(sampleAskArgs())},
 		turn:  turn{current: &turnSession{reply: replies, activeTool: -1, cancel: func() {}}},
 	}
@@ -87,7 +87,7 @@ func TestHandleAskSubmitSendsResult(t *testing.T) {
 
 func TestHandleAskKeyNavAndEnter(t *testing.T) {
 	replies := make(chan harness.Reply, 1)
-	m := Model{
+	m := &Model{
 		panel: panel{ask: newAskPrompt(sampleAskArgs())},
 		turn:  turn{current: &turnSession{reply: replies, activeTool: -1, cancel: func() {}}},
 	}
@@ -107,7 +107,7 @@ func TestHandleAskKeyNavAndEnter(t *testing.T) {
 }
 
 func TestHandleAskTypeJumpsToOther(t *testing.T) {
-	m := Model{panel: panel{ask: newAskPrompt(sampleAskArgs())}}
+	m := &Model{panel: panel{ask: newAskPrompt(sampleAskArgs())}}
 	m.panel.ask.lists[0].selected = 2
 	m.panel.ask.typing = true
 	m.panel.ask.other[0] = "x"
@@ -146,7 +146,7 @@ func TestAskTextKeySpace(t *testing.T) {
 }
 
 func TestHandleAskTypeInsertsSpace(t *testing.T) {
-	m := Model{panel: panel{ask: newAskPrompt(sampleAskArgs())}}
+	m := &Model{panel: panel{ask: newAskPrompt(sampleAskArgs())}}
 	m.panel.ask.lists[0].selected = 2
 	m.panel.ask.typing = true
 	m.panel.ask.other[0] = "hybrid"
@@ -159,7 +159,7 @@ func TestHandleAskTypeInsertsSpace(t *testing.T) {
 
 // A space on an option row drops into Other, like any other printable key.
 func TestHandleAskKeySpaceJumpsToOther(t *testing.T) {
-	m := Model{panel: panel{ask: newAskPrompt(sampleAskArgs())}}
+	m := &Model{panel: panel{ask: newAskPrompt(sampleAskArgs())}}
 	m.panel.ask.lists[0].selected = 0
 	if _, ok := m.handleAskKey(spaceKey()); !ok {
 		t.Fatal("expected handled")
@@ -175,7 +175,7 @@ func TestHandleAskKeySpaceJumpsToOther(t *testing.T) {
 
 // A multi-rune text (bracketed paste) lands whole rather than being dropped.
 func TestHandleAskTypePastesText(t *testing.T) {
-	m := Model{panel: panel{ask: newAskPrompt(sampleAskArgs())}}
+	m := &Model{panel: panel{ask: newAskPrompt(sampleAskArgs())}}
 	m.panel.ask.lists[0].selected = 2
 	m.panel.ask.typing = true
 	m.handleAskType(tea.KeyPressMsg{Code: tea.KeyExtended, Text: "two words"})
@@ -187,7 +187,7 @@ func TestHandleAskTypePastesText(t *testing.T) {
 // Tab has no job in the ask panel: any printable key drops into the freeform
 // row on its own, and ←/→ move between questions.
 func TestAskTabIsInert(t *testing.T) {
-	m := Model{panel: panel{ask: newAskPrompt(sampleAskArgs())}}
+	m := &Model{panel: panel{ask: newAskPrompt(sampleAskArgs())}}
 	p := m.panel.ask
 	p.lists[0].selected = 2 // freeform row
 	if _, ok := m.handleAskKey(tea.KeyPressMsg{Code: tea.KeyTab, Text: "\t"}); !ok {
@@ -203,7 +203,7 @@ func TestAskTabIsInert(t *testing.T) {
 		ID: "scope", Header: "Scope", Question: "How wide?",
 		Options: []tools.AskOption{{Label: "Narrow"}},
 	})
-	m = Model{panel: panel{ask: newAskPrompt(args)}}
+	m = &Model{panel: panel{ask: newAskPrompt(args)}}
 	p = m.panel.ask
 	if _, ok := m.handleAskKey(tea.KeyPressMsg{Code: tea.KeyTab, Text: "\t"}); !ok {
 		t.Fatal("tab must still be swallowed")
@@ -223,7 +223,7 @@ func TestAskTabIsInert(t *testing.T) {
 // ↑/↓ leave the freeform field and move the list, so the footer's "↑/↓ select"
 // holds while typing. ↓ from the freeform row stays put (it is the last row).
 func TestAskMoveLeavesFreeformAndMoves(t *testing.T) {
-	m := Model{panel: panel{ask: newAskPrompt(sampleAskArgs())}}
+	m := &Model{panel: panel{ask: newAskPrompt(sampleAskArgs())}}
 	p := m.panel.ask
 	p.lists[0].selected = 2
 	p.typing = true
@@ -254,7 +254,7 @@ func TestAskMoveLeavesFreeformAndMoves(t *testing.T) {
 
 // The footer advertises the keys that exist, and Tab is not one of them.
 func TestRenderAskFooterOmitsTab(t *testing.T) {
-	m := Model{term: term{width: 80}, panel: panel{ask: newAskPrompt(sampleAskArgs())}}
+	m := &Model{term: term{width: 80}, panel: panel{ask: newAskPrompt(sampleAskArgs())}}
 	out := stripANSI(m.renderAsk(80))
 	if strings.Contains(out, "tab") {
 		t.Fatalf("footer still mentions tab: %q", out)
@@ -272,7 +272,7 @@ func TestRenderAskFooterOmitsTab(t *testing.T) {
 }
 
 func TestRenderAskShowsOptions(t *testing.T) {
-	m := Model{term: term{width: 80}, panel: panel{ask: newAskPrompt(sampleAskArgs())}}
+	m := &Model{term: term{width: 80}, panel: panel{ask: newAskPrompt(sampleAskArgs())}}
 	out := stripANSI(m.renderAsk(80))
 	if !strings.Contains(out, "Simple (Recommended)") {
 		t.Fatalf("missing option: %q", out)
@@ -287,7 +287,7 @@ func TestRenderAskShowsOptions(t *testing.T) {
 
 // The question block ends with a blank row separating it from the options.
 func TestRenderAskBlankAfterQuestion(t *testing.T) {
-	m := Model{term: term{width: 80}, panel: panel{ask: newAskPrompt(sampleAskArgs())}}
+	m := &Model{term: term{width: 80}, panel: panel{ask: newAskPrompt(sampleAskArgs())}}
 	lines := strings.Split(stripANSI(m.renderAsk(80)), "\n")
 	i := -1
 	for j, l := range lines {
@@ -309,7 +309,7 @@ func TestRenderAskBlankAfterQuestion(t *testing.T) {
 
 // The key hints sit one blank row below the last option.
 func TestRenderAskGapAboveFooter(t *testing.T) {
-	m := Model{term: term{width: 80}, panel: panel{ask: newAskPrompt(sampleAskArgs())}}
+	m := &Model{term: term{width: 80}, panel: panel{ask: newAskPrompt(sampleAskArgs())}}
 	lines := strings.Split(stripANSI(m.renderAsk(80)), "\n")
 	i := -1
 	for j, l := range lines {
@@ -331,7 +331,7 @@ func TestRenderAskGapAboveFooter(t *testing.T) {
 
 // Typing in the freeform row replaces its option text: no description line, caret at the end.
 func TestRenderAskOtherReplacesLabel(t *testing.T) {
-	m := Model{term: term{width: 80}, panel: panel{ask: newAskPrompt(sampleAskArgs())}}
+	m := &Model{term: term{width: 80}, panel: panel{ask: newAskPrompt(sampleAskArgs())}}
 	p := m.panel.ask
 	p.lists[0].selected = 2
 
@@ -365,7 +365,7 @@ func TestRenderAskOtherReplacesLabel(t *testing.T) {
 
 // A long answer scrolls from the left so the caret and newest keys stay visible.
 func TestRenderAskOtherLabelScrolls(t *testing.T) {
-	m := Model{term: term{width: 60}, panel: panel{ask: newAskPrompt(sampleAskArgs())}}
+	m := &Model{term: term{width: 60}, panel: panel{ask: newAskPrompt(sampleAskArgs())}}
 	p := m.panel.ask
 	p.lists[0].selected = 2
 	p.typing = true
@@ -392,7 +392,7 @@ func TestRenderAskOtherLabelScrolls(t *testing.T) {
 
 // A saved answer survives leaving the field: no caret once keys move off it.
 func TestRenderAskOtherAnswerUnfocused(t *testing.T) {
-	m := Model{term: term{width: 80}, panel: panel{ask: newAskPrompt(sampleAskArgs())}}
+	m := &Model{term: term{width: 80}, panel: panel{ask: newAskPrompt(sampleAskArgs())}}
 	p := m.panel.ask
 	p.other[0] = "hybrid approach"
 	p.lists[0].selected = 2
@@ -408,7 +408,7 @@ func TestRenderAskOtherAnswerUnfocused(t *testing.T) {
 
 // Descriptions render under their option, so a click on one selects that row.
 func TestHandleAskClickOnDescriptionLine(t *testing.T) {
-	m := Model{term: term{width: 100}, panel: panel{ask: newAskPrompt(sampleAskArgs())}}
+	m := &Model{term: term{width: 100}, panel: panel{ask: newAskPrompt(sampleAskArgs())}}
 	m.panel.ask.lists[0].selected = 0
 	titleH := m.askTitleH()
 	// Rows are label · description, so row 1's description is line 3.
@@ -423,7 +423,7 @@ func TestHandleAskClickOnDescriptionLine(t *testing.T) {
 
 func TestOpenAskFromToolStart(t *testing.T) {
 	replies := make(chan harness.Reply, 1)
-	m := Model{turn: turn{current: &turnSession{reply: replies, activeTool: -1, cancel: func() {}}}}
+	m := &Model{turn: turn{current: &turnSession{reply: replies, activeTool: -1, cancel: func() {}}}}
 	raw, _ := json.Marshal(sampleAskArgs())
 	m.openAskFromToolStart(raw)
 	if m.panel.ask == nil || len(m.panel.ask.questions) != 1 {
@@ -433,7 +433,7 @@ func TestOpenAskFromToolStart(t *testing.T) {
 
 func TestOpenAskInvalidArgsReturnsErrorResult(t *testing.T) {
 	replies := make(chan harness.Reply, 1)
-	m := Model{turn: turn{current: &turnSession{reply: replies, activeTool: -1, cancel: func() {}}}}
+	m := &Model{turn: turn{current: &turnSession{reply: replies, activeTool: -1, cancel: func() {}}}}
 	m.openAskFromToolStart(json.RawMessage(`{"questions":[]}`))
 	r := <-replies
 	if r.Kind != harness.ReplyInject || !strings.Contains(r.Result, "error:") {
@@ -443,7 +443,7 @@ func TestOpenAskInvalidArgsReturnsErrorResult(t *testing.T) {
 
 func TestAbandonAskDenies(t *testing.T) {
 	replies := make(chan harness.Reply, 1)
-	m := Model{
+	m := &Model{
 		panel: panel{ask: newAskPrompt(sampleAskArgs())},
 		turn:  turn{current: &turnSession{reply: replies, activeTool: -1, cancel: func() {}}},
 	}
@@ -471,7 +471,7 @@ func TestMultiQuestionAdvance(t *testing.T) {
 		},
 	}
 	replies := make(chan harness.Reply, 1)
-	m := Model{
+	m := &Model{
 		panel: panel{ask: newAskPrompt(args)},
 		turn:  turn{current: &turnSession{reply: replies, activeTool: -1, cancel: func() {}}},
 	}

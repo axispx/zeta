@@ -1,3 +1,4 @@
+// Package plan extracts the proposed plan from a Plan-mode reply and seeds the Build session.
 package plan
 
 import (
@@ -93,18 +94,18 @@ func Title(body string) string {
 	return "Untitled plan"
 }
 
-func truncateRunes(s string, max int) string {
-	if max <= 0 {
+func truncateRunes(s string, limit int) string {
+	if limit <= 0 {
 		return ""
 	}
 	runes := []rune(s)
-	if len(runes) <= max {
+	if len(runes) <= limit {
 		return s
 	}
-	if max <= 1 {
+	if limit <= 1 {
 		return "…"
 	}
-	return string(runes[:max-1]) + "…"
+	return string(runes[:limit-1]) + "…"
 }
 
 // BuildPrompt is the user message seeded into a fresh Build session.

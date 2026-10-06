@@ -1,3 +1,4 @@
+// Package models reads the models.dev catalog and turns it into provider presets.
 package models
 
 import (

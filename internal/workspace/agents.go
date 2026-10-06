@@ -1,3 +1,4 @@
+// Package workspace gathers cwd and git context, AGENTS.md, and folder trust.
 package workspace
 
 import (

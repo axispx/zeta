@@ -9,7 +9,7 @@ import (
 	"github.com/axispx/zeta/internal/config"
 )
 
-func newDropModel(t *testing.T) Model {
+func newDropModel(t *testing.T) *Model {
 	t.Helper()
 	isolateZetaHome(t)
 	m, err := New(config.Config{}, Options{})

@@ -113,8 +113,7 @@ func planEdit(root string, args editArgs) (fileChange, error) {
 	return fileChange{abs: abs, rel: rel, before: content, after: next}, nil
 }
 
-func (editTool) Run(ctx context.Context, root string, raw json.RawMessage) (string, error) {
-	_ = ctx
+func (editTool) Run(_ context.Context, root string, raw json.RawMessage) (string, error) {
 	var args editArgs
 	if err := json.Unmarshal(raw, &args); err != nil {
 		return "", fmt.Errorf("invalid arguments: %w", err)

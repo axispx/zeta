@@ -16,7 +16,7 @@ import (
 // refresh_token is a success, not a reason to re-authenticate.
 func TestEnsureOAuthFreshCodexKeepsRefreshToken(t *testing.T) {
 	t.Setenv("ZETA_HOME", t.TempDir())
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"access_token": "new-access",
 			"expires_in":   3600,

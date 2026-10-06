@@ -116,7 +116,7 @@ func (o *optionList) rowAtLine(line, contentW int) int {
 	return -1
 }
 
-func (o optionList) render(contentW int, ink styles.OverlayInk) string {
+func (o *optionList) render(contentW int, ink styles.OverlayInk) string {
 	return renderOptionRows(o.rows, o.selected, contentW, ink)
 }
 

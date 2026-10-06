@@ -206,7 +206,7 @@ func TestUpdateProviderClearsOAuth(t *testing.T) {
 }
 
 func TestRedeemRefreshRequiresRotatedRT(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		// Access-only response — xAI always rotates; treat as failure at commit.
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"access_token": "new-access",
@@ -242,7 +242,7 @@ func TestRedeemRefreshRequiresRotatedRT(t *testing.T) {
 
 func TestRecoverOAuthRefreshes(t *testing.T) {
 	t.Setenv("ZETA_HOME", t.TempDir())
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"access_token":  "new-access",
 			"refresh_token": "new-refresh",
@@ -292,7 +292,7 @@ func TestRecoverOAuthRefreshes(t *testing.T) {
 func TestEnsureOAuthFreshSkipsFreshToken(t *testing.T) {
 	t.Setenv("ZETA_HOME", t.TempDir())
 	var hits atomic.Int64
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		hits.Add(1)
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"access_token":  "new-access",
@@ -327,7 +327,7 @@ func TestEnsureOAuthFreshSkipsFreshToken(t *testing.T) {
 func TestEnsureOAuthFreshRejectedPersistsDead(t *testing.T) {
 	t.Setenv("ZETA_HOME", t.TempDir())
 	var hits atomic.Int64
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		hits.Add(1)
 		w.WriteHeader(http.StatusBadRequest)
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid_grant"})
@@ -395,7 +395,7 @@ func TestEnsureOAuthFreshAdoptsDiskBeforeRefresh(t *testing.T) {
 
 	// Stale memory would get invalid_grant if it hit the network with its RT.
 	var hits atomic.Int64
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		hits.Add(1)
 		w.WriteHeader(http.StatusBadRequest)
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid_grant"})
@@ -446,7 +446,7 @@ func TestRecoverOAuthAdoptsDiskWithoutRefresh(t *testing.T) {
 	}
 
 	var hits atomic.Int64
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		hits.Add(1)
 		w.WriteHeader(http.StatusBadRequest)
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid_grant"})
@@ -481,7 +481,7 @@ func TestRecoverOAuthAdoptsDiskWithoutRefresh(t *testing.T) {
 
 func TestEnsureOAuthFreshDoesNotClobberUnrelatedDiskFields(t *testing.T) {
 	t.Setenv("ZETA_HOME", t.TempDir())
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"access_token":  "new-access",
 			"refresh_token": "new-refresh",

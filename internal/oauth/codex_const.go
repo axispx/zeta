@@ -19,10 +19,11 @@ const (
 	// CodexAuthorizeURL is the browser authorization endpoint.
 	CodexAuthorizeURL = CodexIssuer + "/oauth/authorize"
 
-	// CodexRedirectHost/Path complete the registered loopback redirect. The
-	// host must be "localhost" — that is the spelling the client_id is
-	// registered with, so the browser has to resolve it back to us.
+	// CodexRedirectHost is the host of the registered loopback redirect. It must
+	// be "localhost" — that is the spelling the client_id is registered with, so
+	// the browser has to resolve it back to us.
 	CodexRedirectHost = "localhost"
+	// CodexRedirectPath is the path of the registered loopback redirect.
 	CodexRedirectPath = "/auth/callback"
 )
 

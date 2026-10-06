@@ -8,6 +8,7 @@ import (
 // Mode controls how zeta responds to prompts.
 type Mode int
 
+// The modes zeta runs in.
 const (
 	ModeBuild Mode = iota
 	ModePlan

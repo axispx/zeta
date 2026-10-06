@@ -114,11 +114,11 @@ func (d *configDialog) takeSaved() *config.Config {
 	return c
 }
 
-func (d configDialog) isForm() bool {
+func (d *configDialog) isForm() bool {
 	return d.active && d.view == configFormView
 }
 
-func (d configDialog) caps(id string) providerCaps {
+func (d *configDialog) caps(id string) providerCaps {
 	oauthOK := oauth.Supports(id)
 	if p, ok := d.draft.Provider(id); ok {
 		return providerCaps{custom: p.Custom, oauth: oauthOK && !p.Custom}
@@ -130,14 +130,14 @@ func (d configDialog) caps(id string) providerCaps {
 // OpenAI provider signed in with ChatGPT lists the models its account may use,
 // discovered at sign-in and cached; every other provider uses its models.dev
 // entry.
-func (d configDialog) syncPreset(id string) (config.Preset, bool) {
+func (d *configDialog) syncPreset(id string) (config.Preset, bool) {
 	if p, ok := d.draft.Provider(id); ok && codex.IsEndpoint(p.BaseURL) {
 		return config.CodexPreset(codex.CachedModels()), true
 	}
 	return d.findPreset(id)
 }
 
-func (d configDialog) findPreset(id string) (config.Preset, bool) {
+func (d *configDialog) findPreset(id string) (config.Preset, bool) {
 	for _, p := range d.presets {
 		if p.ID == id {
 			return p, true
@@ -197,7 +197,7 @@ func (d *configDialog) UpdateForm(msg tea.Msg) tea.Cmd {
 }
 
 // View renders the centered dialog panel on a scrim (full terminal area).
-func (d configDialog) View(chrome styles.Chrome, termW, areaW, areaH int) string {
+func (d *configDialog) View(chrome styles.Chrome, termW, areaW, areaH int) string {
 	if !d.active {
 		return ""
 	}

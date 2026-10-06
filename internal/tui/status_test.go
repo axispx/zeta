@@ -12,7 +12,7 @@ import (
 )
 
 func TestBusyLabel(t *testing.T) {
-	m := Model{}
+	m := &Model{}
 	if got := m.busyLabel(); got != "" {
 		t.Fatalf("idle = %q", got)
 	}
@@ -48,7 +48,7 @@ func TestBusyLabel(t *testing.T) {
 }
 
 func TestTurnStatusLine(t *testing.T) {
-	m := Model{
+	m := &Model{
 		spinner: spinner.New(spinner.WithSpinner(spinner.MiniDot)),
 	}
 	if got := m.turnStatusLine(); got != "" {

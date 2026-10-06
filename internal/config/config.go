@@ -34,6 +34,7 @@ const (
 	ReviewBackendModel = "model"
 )
 
+// ReviewConfig is the auto review setting: whether it is on and where commands go.
 type ReviewConfig struct {
 	Enabled bool `json:"enabled,omitempty"`
 	// Backend names where reviewed commands are sent: ReviewBackendJev or
@@ -125,7 +126,7 @@ func (p Provider) DisplayName(id string) string {
 }
 
 // ProviderIDs returns sorted provider ids.
-func (c Config) ProviderIDs() []string {
+func (c *Config) ProviderIDs() []string {
 	ids := make([]string, 0, len(c.Providers))
 	for id := range c.Providers {
 		ids = append(ids, id)
@@ -303,7 +304,7 @@ func parseConfig(data []byte) (Config, error) {
 }
 
 // Save writes the config to disk (atomic replace under the config file lock).
-func (c Config) Save() error {
+func (c *Config) Save() error {
 	path := Path()
 	if path == "" {
 		return fmt.Errorf("cannot resolve config path")
@@ -315,7 +316,7 @@ func (c Config) Save() error {
 
 // saveUnlocked validates and atomically writes path. Caller must hold the
 // config file lock when concurrent writers are possible.
-func (c Config) saveUnlocked(path string) error {
+func (c *Config) saveUnlocked(path string) error {
 	if err := c.Validate(); err != nil {
 		return err
 	}
@@ -350,7 +351,7 @@ func ParseModelID(id string) (provider, model string, err error) {
 
 // Validate checks providers are complete and Active (if set) resolves.
 // Empty config (no providers / no active) is allowed.
-func (c Config) Validate() error {
+func (c *Config) Validate() error {
 	for id, p := range c.Providers {
 		if err := validateProvider(id, p); err != nil {
 			return err
@@ -401,13 +402,13 @@ func validateProvider(id string, p Provider) error {
 }
 
 // Provider returns the provider with the given id.
-func (c Config) Provider(id string) (Provider, bool) {
+func (c *Config) Provider(id string) (Provider, bool) {
 	p, ok := c.Providers[id]
 	return p, ok
 }
 
 // ActiveChoice returns the configured provider+model pair, or false if unset/invalid.
-func (c Config) ActiveChoice() (ModelChoice, bool) {
+func (c *Config) ActiveChoice() (ModelChoice, bool) {
 	provider, modelID, err := ParseModelID(c.Active)
 	if err != nil {
 		return ModelChoice{}, false
@@ -429,7 +430,7 @@ func (c Config) ActiveChoice() (ModelChoice, bool) {
 }
 
 // ActiveProvider returns the provider from cfg.Active.
-func (c Config) ActiveProvider() (Provider, bool) {
+func (c *Config) ActiveProvider() (Provider, bool) {
 	provider, _, err := ParseModelID(c.Active)
 	if err != nil {
 		return Provider{}, false
@@ -438,7 +439,7 @@ func (c Config) ActiveProvider() (Provider, bool) {
 }
 
 // ActiveModelID returns the model id from cfg.Active.
-func (c Config) ActiveModelID() string {
+func (c *Config) ActiveModelID() string {
 	_, model, err := ParseModelID(c.Active)
 	if err != nil {
 		return ""
@@ -447,7 +448,7 @@ func (c Config) ActiveModelID() string {
 }
 
 // ModelChoices returns all enabled provider+model pairs for the picker, sorted by name.
-func (c Config) ModelChoices() []ModelChoice {
+func (c *Config) ModelChoices() []ModelChoice {
 	var out []ModelChoice
 	for _, pid := range c.ProviderIDs() {
 		p := c.Providers[pid]
@@ -475,7 +476,7 @@ func (c Config) ModelChoices() []ModelChoice {
 }
 
 // ModelName is the active model display name shown in the footer.
-func (c Config) ModelName() string {
+func (c *Config) ModelName() string {
 	if ch, ok := c.ActiveChoice(); ok {
 		return ch.Name
 	}
@@ -486,7 +487,7 @@ func (c Config) ModelName() string {
 }
 
 // ContextWindow returns the active model's context window in tokens, or 0.
-func (c Config) ContextWindow() int {
+func (c *Config) ContextWindow() int {
 	p, ok := c.ActiveProvider()
 	id := c.ActiveModelID()
 	if !ok || id == "" {
@@ -500,7 +501,7 @@ func (c Config) ContextWindow() int {
 }
 
 // ActiveReasoningEffort is the active model's reasoning_effort, or "".
-func (c Config) ActiveReasoningEffort() string {
+func (c *Config) ActiveReasoningEffort() string {
 	p, ok := c.ActiveProvider()
 	id := c.ActiveModelID()
 	if !ok || id == "" {
@@ -516,7 +517,7 @@ func (c *Config) SetActive(id string) {
 
 // PreferredBuildModel returns defaults.build when it resolves to an enabled
 // model, otherwise the current Active id (may be empty).
-func (c Config) PreferredBuildModel() string {
+func (c *Config) PreferredBuildModel() string {
 	if id := strings.TrimSpace(c.Defaults.Build); id != "" && c.modelEnabled(id) {
 		return id
 	}
@@ -529,7 +530,7 @@ func (c *Config) SetBuildDefault(id string) {
 	c.Defaults.Build = strings.TrimSpace(id)
 }
 
-func (c Config) modelEnabled(id string) bool {
+func (c *Config) modelEnabled(id string) bool {
 	provider, model, err := ParseModelID(id)
 	if err != nil {
 		return false

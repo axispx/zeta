@@ -448,7 +448,7 @@ func submitEditModel(d *configDialog, vals []string) error {
 // settingRow is one entry on the Settings tab.
 type settingRow struct {
 	name   string
-	value  func(configDialog) string
+	value  func(*configDialog) string
 	toggle func(*configDialog)
 	// key, when set, is the ctrl+k action; keyLabel is its footer hint.
 	key      func(*configDialog)
@@ -458,7 +458,7 @@ type settingRow struct {
 func settingRows() []settingRow {
 	return []settingRow{{
 		name: "Auto review",
-		value: func(d configDialog) string {
+		value: func(d *configDialog) string {
 			if !d.draft.Review.Enabled {
 				return "off"
 			}

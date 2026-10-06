@@ -75,7 +75,7 @@ func (m *Model) quit() tea.Cmd {
 }
 
 // PersistedSessionID returns the current session id if it has been written to disk.
-func (m Model) PersistedSessionID() string {
+func (m *Model) PersistedSessionID() string {
 	if m.session.Log == nil || !m.session.Log.Persisted() {
 		return ""
 	}
@@ -84,6 +84,6 @@ func (m Model) PersistedSessionID() string {
 
 // UpdateRequested reports that the user ran /update, so main should apply the
 // release in the CLI and relaunch zeta.
-func (m Model) UpdateRequested() bool {
+func (m *Model) UpdateRequested() bool {
 	return m.exit.updateOnExit
 }

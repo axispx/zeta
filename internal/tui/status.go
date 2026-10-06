@@ -24,7 +24,7 @@ const (
 
 // turnStatusLine is the busy indicator above the input while a turn runs.
 // Height is always busyStatusRows when non-empty (see gapHeight).
-func (m Model) turnStatusLine() string {
+func (m *Model) turnStatusLine() string {
 	label := m.busyLabel()
 	if label == "" {
 		return ""
@@ -41,7 +41,7 @@ func (m Model) turnStatusLine() string {
 // (pinOverlayBottom) so opening a picker does not resize the viewport.
 //
 // Priority: panel → busy + follow-ups → copy flash → empty (idle blank).
-func (m Model) gapContent() string {
+func (m *Model) gapContent() string {
 	if p := m.renderPanel(m.term.width); p != "" {
 		return p
 	}
@@ -70,14 +70,14 @@ func copiedFlashLine() string {
 
 // filterOverlayOpen reports a slash/model/@ picker above the input.
 // Panels own the composer; no floating overlay while input is blocked.
-func (m Model) filterOverlayOpen() bool {
+func (m *Model) filterOverlayOpen() bool {
 	return !m.inputBlocked() && m.overlay.showing()
 }
 
 // gapHeight is the in-flow rows between transcript and input.
 // Idle blank stays reserved while a filter overlay is open so opening a picker
 // does not jump the transcript (list pins over the blank / status gap).
-func (m Model) gapHeight() int {
+func (m *Model) gapHeight() int {
 	if g := m.gapContent(); g != "" {
 		if h := lipgloss.Height(g); h > 0 {
 			return h
@@ -87,7 +87,7 @@ func (m Model) gapHeight() int {
 }
 
 // busyLabel derives the chrome status from turn phase (no stored status field).
-func (m Model) busyLabel() string {
+func (m *Model) busyLabel() string {
 	if m.session.Compacting {
 		return statusCompacting
 	}

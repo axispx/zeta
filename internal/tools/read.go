@@ -61,8 +61,7 @@ type readArgs struct {
 	Limit  int    `json:"limit"`
 }
 
-func (readTool) Run(ctx context.Context, root string, raw json.RawMessage) (string, error) {
-	_ = ctx
+func (readTool) Run(_ context.Context, root string, raw json.RawMessage) (string, error) {
 	var args readArgs
 	if err := json.Unmarshal(raw, &args); err != nil {
 		return "", fmt.Errorf("invalid arguments: %w", err)

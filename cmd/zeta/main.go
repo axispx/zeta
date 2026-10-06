@@ -1,3 +1,4 @@
+// Command zeta is an AI coding agent for the terminal.
 package main
 
 import (
@@ -80,7 +81,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "tui: %v\n", err)
 		os.Exit(1)
 	}
-	m, ok := final.(tui.Model)
+	m, ok := final.(*tui.Model)
 	if ok && m.UpdateRequested() {
 		// /update: the TUI is gone, so apply the release here in the CLI and
 		// hand the terminal back to a fresh zeta.

@@ -132,7 +132,7 @@ func TestHandlePlanKeyApproveOpensBuildPick(t *testing.T) {
 	m.session.Mode = prompt.ModePlan
 	m.panel.plan = newPlanPrompt("## T\nbody", "T")
 
-	cmd, ok := choosePlanRow(t, &m, 1)
+	cmd, ok := choosePlanRow(t, m, 1)
 	if !ok {
 		t.Fatal("expected handled")
 	}
@@ -157,7 +157,7 @@ func TestHandlePlanKeyRevise(t *testing.T) {
 	m := testModel()
 	m.panel.plan = newPlanPrompt("x", "T")
 	m.pendingPlan = "should clear"
-	cmd, ok := choosePlanRow(t, &m, 2)
+	cmd, ok := choosePlanRow(t, m, 2)
 	if !ok {
 		t.Fatal("expected handled")
 	}
@@ -178,7 +178,7 @@ func TestHandlePlanKeyRevise(t *testing.T) {
 func TestHandlePlanKeyDiscard(t *testing.T) {
 	m := testModel()
 	m.panel.plan = newPlanPrompt("x", "T")
-	_, ok := choosePlanRow(t, &m, 3)
+	_, ok := choosePlanRow(t, m, 3)
 	if !ok {
 		t.Fatal("expected handled")
 	}

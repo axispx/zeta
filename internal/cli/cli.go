@@ -1,3 +1,4 @@
+// Package cli parses flags, prints usage and runs the folder-trust prompt.
 package cli
 
 import (

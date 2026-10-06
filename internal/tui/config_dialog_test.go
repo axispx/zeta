@@ -181,10 +181,10 @@ var (
 // stepModel drives one msg through Update the way Bubble Tea does: on a copy,
 // keeping only what Update returns. Writes the dialog makes through a pointer
 // captured in an earlier turn are dropped here, as they are at runtime.
-func stepModel(t *testing.T, m Model, msg tea.Msg) Model {
+func stepModel(t *testing.T, m *Model, msg tea.Msg) *Model {
 	t.Helper()
 	next, _ := m.Update(msg)
-	got, ok := next.(Model)
+	got, ok := next.(*Model)
 	if !ok {
 		t.Fatalf("Update returned %T", next)
 	}

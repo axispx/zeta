@@ -47,7 +47,7 @@ func TestSkillSlashDoesNotCollideWithBuiltins(t *testing.T) {
 func TestSubmitInputSkillWithArgs(t *testing.T) {
 	ta := textarea.New()
 	ta.SetValue("/review focus on stream.go")
-	m := Model{composer: composer{textarea: ta}, session: harness.Session{Cfg: testClientCfg()}}
+	m := &Model{composer: composer{textarea: ta}, session: harness.Session{Cfg: testClientCfg()}}
 	m.session.ApplyClient()
 	cmd := m.submitInput()
 	_ = cmd
@@ -62,7 +62,7 @@ func TestSubmitInputSkillWithArgs(t *testing.T) {
 func TestSubmitInputPaletteSkillFillsInput(t *testing.T) {
 	ta := textarea.New()
 	ta.SetValue("/rev")
-	m := Model{composer: composer{textarea: ta}}
+	m := &Model{composer: composer{textarea: ta}}
 	_ = m.syncOverlay()
 	if !m.overlay.showing() {
 		t.Fatal("expected command overlay")
@@ -100,7 +100,7 @@ func TestSubmitInputExactSkillTokenFills(t *testing.T) {
 	// Palette Enter always fills skills (never runs) so args can be added.
 	ta := textarea.New()
 	ta.SetValue("/review")
-	m := Model{composer: composer{textarea: ta}, session: harness.Session{Cfg: testClientCfg()}}
+	m := &Model{composer: composer{textarea: ta}, session: harness.Session{Cfg: testClientCfg()}}
 	m.session.ApplyClient()
 	_ = m.syncOverlay()
 	if !m.overlay.showing() {
@@ -132,7 +132,7 @@ func TestSubmitInputExactSkillTokenFills(t *testing.T) {
 func TestTabSkillFillsInput(t *testing.T) {
 	ta := textarea.New()
 	ta.SetValue("/rev")
-	m := Model{composer: composer{textarea: ta}}
+	m := &Model{composer: composer{textarea: ta}}
 	_ = m.syncOverlay()
 	for i, c := range m.overlay.cmds {
 		if c.name == "/review" {

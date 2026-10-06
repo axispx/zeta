@@ -58,7 +58,7 @@ func TestHighlightSelection(t *testing.T) {
 }
 
 func TestTranscriptPosAppliesYOffset(t *testing.T) {
-	m := Model{
+	m := &Model{
 		term: term{
 			ready: true,
 			width: 40,
@@ -84,7 +84,7 @@ func TestTranscriptPosAppliesYOffset(t *testing.T) {
 }
 
 func TestTranscriptPosClamp(t *testing.T) {
-	m := Model{
+	m := &Model{
 		term: term{
 			ready: true,
 			width: 40,
@@ -109,7 +109,7 @@ func TestTranscriptPosClamp(t *testing.T) {
 }
 
 func TestSelectionDragThreshold(t *testing.T) {
-	m := Model{
+	m := &Model{
 		term: term{
 			ready:  true,
 			width:  42,
@@ -155,7 +155,7 @@ func TestSelectionNormalized(t *testing.T) {
 }
 
 func TestSelectionReleaseExtendsWithoutMotion(t *testing.T) {
-	m := Model{
+	m := &Model{
 		term: term{
 			ready:  true,
 			width:  42,
@@ -193,7 +193,7 @@ func TestSelectionReleaseExtendsWithoutMotion(t *testing.T) {
 }
 
 func TestSelectionBlurFinishesDrag(t *testing.T) {
-	m := Model{
+	m := &Model{
 		term: term{
 			ready:  true,
 			width:  42,
@@ -229,7 +229,7 @@ func TestSelectionBlurFinishesDrag(t *testing.T) {
 }
 
 func TestOutsideTerminal(t *testing.T) {
-	m := Model{term: term{width: 80, height: 24}}
+	m := &Model{term: term{width: 80, height: 24}}
 	if m.outsideTerminal(0, 0) || m.outsideTerminal(79, 23) {
 		t.Fatal("in-bounds should be inside")
 	}
@@ -239,7 +239,7 @@ func TestOutsideTerminal(t *testing.T) {
 }
 
 func TestModelSelectedTextMultiLine(t *testing.T) {
-	m := Model{
+	m := &Model{
 		term: term{
 			ready: true,
 			width: 42,

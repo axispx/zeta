@@ -33,14 +33,7 @@ type deviceCodeResponse struct {
 }
 
 func (d deviceCodeResponse) toDeviceCode() DeviceCode {
-	return DeviceCode{
-		DeviceCode:              d.DeviceCode,
-		UserCode:                d.UserCode,
-		VerificationURI:         d.VerificationURI,
-		VerificationURIComplete: d.VerificationURIComplete,
-		ExpiresIn:               d.ExpiresIn,
-		Interval:                d.Interval,
-	}
+	return DeviceCode(d)
 }
 
 // deviceFlow is a pending xAI device authorization: the user opens the

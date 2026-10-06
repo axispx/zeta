@@ -1,3 +1,4 @@
+// Package session stores chat history as JSONL under ~/.zeta/sessions.
 package session
 
 import (

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -244,7 +245,7 @@ func isRateLimitMessage(msg string) bool {
 
 func webSearchRateLimitError(provider string) error {
 	if provider == "parallel" {
-		return fmt.Errorf("Parallel web search rate limit reached. Set PARALLEL_API_KEY for your own quota: https://parallel.ai")
+		return errors.New("parallel web search rate limit reached; set PARALLEL_API_KEY for your own quota: https://parallel.ai")
 	}
-	return fmt.Errorf("Exa web search rate limit reached. Set EXA_API_KEY for your own quota: https://dashboard.exa.ai/api-keys")
+	return errors.New("exa web search rate limit reached; set EXA_API_KEY for your own quota: https://dashboard.exa.ai/api-keys")
 }

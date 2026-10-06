@@ -99,7 +99,7 @@ func TestPromptPersistRows(t *testing.T) {
 	if !p.appr.Call.Persist {
 		t.Fatal("bash with command should be persistable")
 	}
-	out := stripANSI(Model{term: term{width: 80}, panel: panel{perm: p}}.renderPermission(80))
+	out := stripANSI((&Model{term: term{width: 80}, panel: panel{perm: p}}).renderPermission(80))
 	if !strings.Contains(out, "Yes, and don't ask again for commands that start with `go test`") {
 		t.Fatalf("missing always-allow row in %q", out)
 	}
@@ -111,7 +111,7 @@ func TestPromptPersistRows(t *testing.T) {
 	// rememberable.
 	pe := newPermissionPrompt("edit a.go", tools.Edit, "a.go")
 	pe.setArgs(policy.Policy{}, json.RawMessage(`{"path":"a.go"}`), root)
-	out = stripANSI(Model{term: term{width: 80}, panel: panel{perm: pe}}.renderPermission(80))
+	out = stripANSI((&Model{term: term{width: 80}, panel: panel{perm: pe}}).renderPermission(80))
 	if strings.Contains(out, "don't ask again") {
 		t.Fatalf("edit must not offer a persist row: %q", out)
 	}
@@ -124,7 +124,7 @@ func TestPromptNoPersistOutOfWorkspace(t *testing.T) {
 	if p.appr.Call.Persist {
 		t.Fatal("out-of-workspace edit must not be persistable")
 	}
-	out := stripANSI(Model{term: term{width: 80}, panel: panel{perm: p}}.renderPermission(80))
+	out := stripANSI((&Model{term: term{width: 80}, panel: panel{perm: p}}).renderPermission(80))
 	if strings.Contains(out, "don't ask again") {
 		t.Fatalf("out-of-workspace prompt must not offer persist: %q", out)
 	}
@@ -134,7 +134,7 @@ func TestPromptNoPersistOutOfWorkspace(t *testing.T) {
 	if pr.appr.Call.Persist || !pr.appr.Call.Outside {
 		t.Fatalf("out-of-workspace read: persist=%v outside=%v", pr.appr.Call.Persist, pr.appr.Call.Outside)
 	}
-	out = stripANSI(Model{term: term{width: 80}, panel: panel{perm: pr}}.renderPermission(80))
+	out = stripANSI((&Model{term: term{width: 80}, panel: panel{perm: pr}}).renderPermission(80))
 	if strings.Contains(out, "don't ask again for this file") {
 		t.Fatalf("outside read must not offer persist: %q", out)
 	}
@@ -158,12 +158,12 @@ func TestPromptPersistChainedCommand(t *testing.T) {
 	if !p.appr.Call.Persist {
 		t.Fatal("a plain chain must be rememberable")
 	}
-	out := stripANSI(Model{term: term{width: 80}, panel: panel{perm: p}}.renderPermission(80))
+	out := stripANSI((&Model{term: term{width: 80}, panel: panel{perm: p}}).renderPermission(80))
 	if !strings.Contains(out, "Yes, and don't ask again for commands that start with `go test ./...`") {
 		t.Fatalf("missing remember row in %q", out)
 	}
 	// The read-only `cd src` needs no rule, so the row never names it.
-	if row := stripANSI(p.list.render(60, Model{term: term{width: 80}}.term.chrome.OverlayInk())); strings.Contains(row, "cd src") {
+	if row := stripANSI(p.list.render(60, (&Model{term: term{width: 80}}).term.chrome.OverlayInk())); strings.Contains(row, "cd src") {
 		t.Fatalf("row must not offer a rule for a read-only part: %q", row)
 	}
 	// A chain of read-only parts runs on its own: nothing to remember.
@@ -183,7 +183,7 @@ func TestPromptPersistChainedCommand(t *testing.T) {
 	if po.appr.Call.Persist {
 		t.Fatalf("a redirect must not be rememberable: %+v", po.appr.Call)
 	}
-	out = stripANSI(Model{term: term{width: 80}, panel: panel{perm: po}}.renderPermission(80))
+	out = stripANSI((&Model{term: term{width: 80}, panel: panel{perm: po}}).renderPermission(80))
 	if strings.Contains(out, "commands that start with") || strings.Contains(out, "these commands") {
 		t.Fatalf("opaque command must not offer persist: %q", out)
 	}
@@ -246,7 +246,7 @@ func TestPersistAllowChainWritesEveryRule(t *testing.T) {
 	}
 	m.turn.current.activeTool = -1
 
-	pressPermRow(t, &m, permission.AllowAlways)
+	pressPermRow(t, m, permission.AllowAlways)
 	if r := <-replies; r.Kind != harness.ReplyRun {
 		t.Fatalf("always-allow should allow this call: %+v", r)
 	}
@@ -341,7 +341,7 @@ func TestPersistRowWritesAllow(t *testing.T) {
 
 	_ = m.handleTurnToolStart(turnToolStartMsg{name: tools.Bash, label: "bash go test", args: bashArgs("go test")})
 	// Row 2 is "always allow" for a persistable command; it must be confirmed.
-	pressPermRow(t, &m, permission.AllowAlways)
+	pressPermRow(t, m, permission.AllowAlways)
 	if r := <-replies; r.Kind != harness.ReplyRun {
 		t.Fatalf("always-allow should allow this call: %+v", r)
 	}
@@ -412,7 +412,7 @@ func TestEditPromptOnlyAllowAndDeny(t *testing.T) {
 			if strings.Join(labels, "|") != strings.Join(tc.labels, "|") {
 				t.Fatalf("labels=%v want %v", labels, tc.labels)
 			}
-			out := stripANSI(Model{term: term{width: 80}, panel: panel{perm: p}}.renderPermission(80))
+			out := stripANSI((&Model{term: term{width: 80}, panel: panel{perm: p}}).renderPermission(80))
 			if !strings.Contains(out, "Yes, proceed") || !strings.Contains(out, "No, and") {
 				t.Fatalf("prompt must offer allow and deny: %q", out)
 			}

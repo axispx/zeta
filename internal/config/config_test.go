@@ -63,7 +63,8 @@ func TestDisplayNames(t *testing.T) {
 }
 
 func TestModelChoices(t *testing.T) {
-	choices := sampleConfig().ModelChoices()
+	cfg := sampleConfig()
+	choices := cfg.ModelChoices()
 	if len(choices) != 3 {
 		t.Fatalf("got %d choices, want 3", len(choices))
 	}

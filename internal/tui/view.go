@@ -10,7 +10,8 @@ import (
 // This file is the frame: how the regions are composed and stacked, plus the
 // terminal capabilities the program announces. It reads state and renders.
 
-func (m Model) View() tea.View {
+// View implements tea.Model.
+func (m *Model) View() tea.View {
 	if m.exit.quitting {
 		return tea.NewView("")
 	}
@@ -80,7 +81,7 @@ func pinOverlayBottom(main, overlay string) string {
 }
 
 // renderInput returns the input box, or "" when a panel replaces it.
-func (m Model) renderInput() string {
+func (m *Model) renderInput() string {
 	if m.inputBlocked() {
 		return ""
 	}
@@ -93,7 +94,7 @@ func (m Model) renderInput() string {
 		Render(input)
 }
 
-func (m Model) renderFooter() string {
+func (m *Model) renderFooter() string {
 	footerW := max(m.term.width-2*styles.InputMarginH, 1)
 
 	return lipgloss.NewStyle().
@@ -111,7 +112,7 @@ func stackMainChrome(main, input, footer string) string {
 	return lipgloss.JoinVertical(lipgloss.Left, main, input, footer)
 }
 
-func (m Model) programView(content string) tea.View {
+func (m *Model) programView(content string) tea.View {
 	v := tea.NewView(content)
 	v.AltScreen = true
 	v.MouseMode = tea.MouseModeCellMotion

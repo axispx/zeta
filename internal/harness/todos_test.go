@@ -19,7 +19,7 @@ func TestTodosFromRecordsLastWins(t *testing.T) {
 			{"id": "2", "subject": "second", "status": "in_progress"},
 		},
 	})
-	clear, _ := json.Marshal(map[string]any{"items": []any{}})
+	emptyItems, _ := json.Marshal(map[string]any{"items": []any{}})
 
 	recs := []session.Record{
 		{Role: session.RoleUser, Text: "start"},
@@ -48,7 +48,7 @@ func TestTodosFromRecordsLastWins(t *testing.T) {
 		session.Record{
 			Role: session.RoleAgent,
 			ToolCalls: []session.ToolCall{
-				{ID: "c3", Name: tools.Todo, Arguments: string(clear)},
+				{ID: "c3", Name: tools.Todo, Arguments: string(emptyItems)},
 			},
 		},
 		session.Record{Role: session.RoleTool, Tool: tools.Todo, ToolCallID: "c3", Denied: true, Text: "rejected"},
@@ -63,7 +63,7 @@ func TestTodosFromRecordsLastWins(t *testing.T) {
 		session.Record{
 			Role: session.RoleAgent,
 			ToolCalls: []session.ToolCall{
-				{ID: "c3err", Name: tools.Todo, Arguments: string(clear)},
+				{ID: "c3err", Name: tools.Todo, Arguments: string(emptyItems)},
 			},
 		},
 		session.Record{Role: session.RoleTool, Tool: tools.Todo, ToolCallID: "c3err", Text: "error: todo store unavailable"},
@@ -77,7 +77,7 @@ func TestTodosFromRecordsLastWins(t *testing.T) {
 	recs = append(recs, session.Record{
 		Role: session.RoleAgent,
 		ToolCalls: []session.ToolCall{
-			{ID: "c3b", Name: tools.Todo, Arguments: string(clear)},
+			{ID: "c3b", Name: tools.Todo, Arguments: string(emptyItems)},
 		},
 	})
 	got = TodosFromRecords(recs)
@@ -90,7 +90,7 @@ func TestTodosFromRecordsLastWins(t *testing.T) {
 		session.Record{
 			Role: session.RoleAgent,
 			ToolCalls: []session.ToolCall{
-				{ID: "c4", Name: tools.Todo, Arguments: string(clear)},
+				{ID: "c4", Name: tools.Todo, Arguments: string(emptyItems)},
 			},
 		},
 		session.Record{Role: session.RoleTool, Tool: tools.Todo, ToolCallID: "c4", Text: "Todos (0):"},

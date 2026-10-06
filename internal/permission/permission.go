@@ -1,3 +1,4 @@
+// Package permission decides allow or deny for side-effect tool calls.
 package permission
 
 import (
@@ -133,6 +134,7 @@ func SessionGrantable(tool string) bool {
 // Class groups side-effect tools for harness UI (prompt copy) and session grants.
 type Class int
 
+// The side-effect tool classes.
 const (
 	ClassBash Class = iota
 	ClassEdit
@@ -153,6 +155,7 @@ func ClassOf(tool string) (Class, bool) {
 // Decision is the harness reply after KindToolStart when gating is enabled.
 type Decision int
 
+// The harness's answers to a gated tool call.
 const (
 	AllowOnce Decision = iota
 	AllowSession

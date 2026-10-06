@@ -89,7 +89,7 @@ func TestSyncFileOverlayListOnceAndInsert(t *testing.T) {
 	ta := textarea.New()
 	ta.SetValue("fix @mo")
 	ta.MoveToEnd()
-	m := Model{
+	m := &Model{
 		composer: composer{textarea: ta},
 		session:  harness.Session{WS: workspace.Context{Abs: t.TempDir()}},
 	}
@@ -152,7 +152,7 @@ func TestSubmitInputInsertsFileNotSend(t *testing.T) {
 	ta := textarea.New()
 	ta.SetValue("@x")
 	ta.MoveToEnd()
-	m := Model{composer: composer{textarea: ta}, session: harness.Session{Cfg: testClientCfg()}}
+	m := &Model{composer: composer{textarea: ta}, session: harness.Session{Cfg: testClientCfg()}}
 	m.session.ApplyClient()
 	m.overlay.mode = overlayFiles
 	m.overlay.files.matches = []string{"a.go"}
@@ -174,7 +174,7 @@ func TestEnterEmptyFileOverlaySubmits(t *testing.T) {
 	ta := textarea.New()
 	ta.SetValue("hello @zzzz")
 	ta.MoveToEnd()
-	m := Model{composer: composer{textarea: ta}, session: harness.Session{Cfg: testClientCfg()}}
+	m := &Model{composer: composer{textarea: ta}, session: harness.Session{Cfg: testClientCfg()}}
 	m.session.ApplyClient()
 	m.overlay.mode = overlayFiles
 	m.overlay.files.matches = nil
@@ -207,7 +207,7 @@ func TestEmptyFileMatchesRefilterShowsAgain(t *testing.T) {
 	ta := textarea.New()
 	ta.SetValue("@zzzz")
 	ta.MoveToEnd()
-	m := Model{
+	m := &Model{
 		composer: composer{textarea: ta},
 		session:  harness.Session{WS: workspace.Context{Abs: t.TempDir()}},
 	}
@@ -235,7 +235,7 @@ func TestEmptyFileMatchesRefilterShowsAgain(t *testing.T) {
 func TestSlashWinsOverAt(t *testing.T) {
 	ta := textarea.New()
 	ta.SetValue("/cle")
-	m := Model{composer: composer{textarea: ta}}
+	m := &Model{composer: composer{textarea: ta}}
 	_ = m.syncOverlay()
 	if m.overlay.mode != overlayCommands {
 		t.Fatalf("mode=%v", m.overlay.mode)
@@ -269,7 +269,7 @@ func TestFileOverlayFloatsWithoutReplacingStatus(t *testing.T) {
 func TestCloseFileOverlayKeepsDraft(t *testing.T) {
 	ta := textarea.New()
 	ta.SetValue("keep @x")
-	m := Model{composer: composer{textarea: ta}}
+	m := &Model{composer: composer{textarea: ta}}
 	m.overlay.mode = overlayFiles
 	m.overlay.files.matches = []string{"a.go"}
 	m.closeOverlay()
@@ -285,7 +285,7 @@ func TestCancelOverlayKeepsFileDraftWipesSlash(t *testing.T) {
 	// @ mention: cancel keeps composer.
 	ta := textarea.New()
 	ta.SetValue("draft @f")
-	m := Model{composer: composer{textarea: ta}}
+	m := &Model{composer: composer{textarea: ta}}
 	m.overlay.mode = overlayFiles
 	m.overlay.files.matches = []string{"a.go"}
 	m.cancelOverlay()
@@ -299,7 +299,7 @@ func TestCancelOverlayKeepsFileDraftWipesSlash(t *testing.T) {
 	// Slash owns input: cancel wipes composer.
 	ta2 := textarea.New()
 	ta2.SetValue("/cle")
-	m2 := Model{composer: composer{textarea: ta2}}
+	m2 := &Model{composer: composer{textarea: ta2}}
 	m2.overlay.mode = overlayCommands
 	m2.overlay.cmds = []command{{name: "/clear", desc: "start a new session"}}
 	m2.cancelOverlay()
@@ -356,7 +356,7 @@ func TestCommandOverlayEnterViaHandleOverlayKey(t *testing.T) {
 	// Enter on a skill fills; does not submit through submitInput.
 	ta := textarea.New()
 	ta.SetValue("/rev")
-	m := Model{composer: composer{textarea: ta}}
+	m := &Model{composer: composer{textarea: ta}}
 	_ = m.syncOverlay()
 	for i, c := range m.overlay.cmds {
 		if c.name == "/review" {

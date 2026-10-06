@@ -21,6 +21,7 @@ type Jev struct {
 	HTTP *http.Client
 }
 
+// Name identifies the backend in config and in the prompt's review reason.
 func (Jev) Name() string { return "jev" }
 
 // jevQuestionID names the one question each request asks.
@@ -49,6 +50,7 @@ type jevResponse struct {
 	} `json:"answers"`
 }
 
+// Classify sends the command to Jev and sums the probability of the allowed labels.
 func (j Jev) Classify(ctx context.Context, req Request) (Result, error) {
 	criteria := make(map[string]string, len(labels))
 	for _, e := range labels {

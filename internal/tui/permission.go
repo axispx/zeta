@@ -337,13 +337,13 @@ func (m *Model) handlePermissionMotion(msg tea.MouseMotionMsg) bool {
 	return p.list.handleMotion(msg.X, msg.Y, m.transcript.viewport.Height(), m.term.width, m.permissionTitleH(), contentW)
 }
 
-func (m Model) permissionTitleH() int {
+func (m *Model) permissionTitleH() int {
 	_, contentW := overlayWidths(m.term.width)
 	ink := m.term.chrome.OverlayInk()
 	return lipgloss.Height(m.renderPermissionTitle(contentW, ink))
 }
 
-func (m Model) renderPermission(width int) string {
+func (m *Model) renderPermission(width int) string {
 	p := m.panel.perm
 	if p == nil {
 		return ""
@@ -362,7 +362,7 @@ func (m Model) renderPermission(width int) string {
 // to the transcript row behind the panel: the prompt is the decision surface, so
 // it has to be answerable on its own. A payload ends with a newline, which the
 // row list's own leading newline turns into the blank separator between them.
-func (m Model) renderPermissionTitle(contentW int, ink styles.OverlayInk) string {
+func (m *Model) renderPermissionTitle(contentW int, ink styles.OverlayInk) string {
 	inner := contentW - panelGutter
 	if inner < 1 {
 		inner = 1

@@ -1,3 +1,4 @@
+// Package config reads and writes ~/.zeta/config.json: providers, models and settings.
 package config
 
 import (

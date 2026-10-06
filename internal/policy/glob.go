@@ -1,3 +1,4 @@
+// Package policy loads and evaluates persisted permission rules.
 package policy
 
 import "strings"

@@ -10,7 +10,7 @@ import (
 
 // assistantTurn feeds one completed assistant message through the live handler,
 // the way the agent loop does, and returns the model.
-func assistantTurn(t *testing.T, m Model, text string, usage ai.Usage) Model {
+func assistantTurn(t *testing.T, m *Model, text string, usage ai.Usage) *Model {
 	t.Helper()
 	m.turn.current = &turnSession{activeTool: -1}
 	msg := turnAssistantMsg{message: ai.Message{Role: ai.RoleAssistant, Text: text}, usage: usage}

@@ -4,6 +4,7 @@ package oauth
 // Reused because xAI rejects loopback OAuth from non-allowlisted clients.
 const XaiClientID = "b1a00492-073a-47ea-816f-4c329264a828"
 
+// The xAI device-code endpoint, scope and grant type.
 const (
 	XaiDeviceAuthorizeURL = "https://auth.x.ai/oauth2/device/code"
 	XaiScope              = "openid profile email offline_access grok-cli:access api:access"

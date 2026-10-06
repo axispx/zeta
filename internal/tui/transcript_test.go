@@ -225,7 +225,7 @@ func TestTranscriptCacheManyDeltasStablePrefix(t *testing.T) {
 }
 
 // overflowViewport seeds a viewport tall enough that top/mid/bottom are distinct.
-func overflowViewport(t *testing.T) Model {
+func overflowViewport(t *testing.T) *Model {
 	t.Helper()
 	m := testModel()
 	m.term.width = 80
@@ -292,7 +292,7 @@ func TestRejectEdgeScrollUpdateNoMove(t *testing.T) {
 	off := m.transcript.viewport.YOffset()
 
 	next, _ := m.Update(tea.MouseWheelMsg{Button: tea.MouseWheelUp})
-	m = next.(Model)
+	m = next.(*Model)
 	if got := m.transcript.viewport.YOffset(); got != off {
 		t.Fatalf("YOffset=%d after rejected wheel-up, want %d", got, off)
 	}

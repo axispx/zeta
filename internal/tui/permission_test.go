@@ -47,12 +47,12 @@ func pressPermRow(t *testing.T, m *Model, d permission.Decision) {
 
 func TestHandlePermissionKey(t *testing.T) {
 	replies := make(chan harness.Reply, 1)
-	m := Model{
+	m := &Model{
 		session: harness.Session{Grants: &permission.Session{}},
 		panel:   panel{perm: newPermissionPrompt("bash echo", tools.Bash, "")},
 		turn:    turn{current: &turnSession{reply: replies, activeTool: -1, cancel: func() {}}},
 	}
-	pressPermRow(t, &m, permission.AllowOnce)
+	pressPermRow(t, m, permission.AllowOnce)
 	if m.panel.perm != nil {
 		t.Fatal("perm should clear")
 	}
@@ -64,7 +64,7 @@ func TestHandlePermissionKey(t *testing.T) {
 	m.panel.perm = newPermissionPrompt("", tools.Bash, "")
 	m.panel.perm.setArgs(policy.Policy{}, bashArgs("echo"), t.TempDir())
 	m.turn.current.reply = replies
-	pressPermRow(t, &m, permission.AllowSession)
+	pressPermRow(t, m, permission.AllowSession)
 	if !m.session.Grants.CmdGranted("echo") {
 		t.Fatal("session grant should stick on harness")
 	}
@@ -79,7 +79,7 @@ func TestHandlePermissionKey(t *testing.T) {
 	replies = make(chan harness.Reply, 1)
 	m.panel.perm = newPermissionPrompt("", tools.Bash, "")
 	m.turn.current.reply = replies
-	pressPermRow(t, &m, permission.Deny)
+	pressPermRow(t, m, permission.Deny)
 	if allow := <-replies; allow.Kind != harness.ReplyDeny {
 		t.Fatal("want deny")
 	}
@@ -87,7 +87,7 @@ func TestHandlePermissionKey(t *testing.T) {
 
 func TestHandlePermissionKeyEditNoSession(t *testing.T) {
 	replies := make(chan harness.Reply, 1)
-	m := Model{
+	m := &Model{
 		session: harness.Session{Grants: &permission.Session{}},
 		panel:   panel{perm: newPermissionPrompt("", tools.Edit, "a.go")},
 		turn:    turn{current: &turnSession{reply: replies, activeTool: -1, cancel: func() {}}},
@@ -109,7 +109,7 @@ func TestHandlePermissionKeyEditNoSession(t *testing.T) {
 	default:
 	}
 
-	pressPermRow(t, &m, permission.AllowOnce)
+	pressPermRow(t, m, permission.AllowOnce)
 	if allow := <-replies; allow.Kind == harness.ReplyDeny {
 		t.Fatal("want allow")
 	}
@@ -121,7 +121,7 @@ func TestHandlePermissionKeyEditNoSession(t *testing.T) {
 func TestHandlePermissionKeyNavEnter(t *testing.T) {
 	// edit has Allow / Deny (2 options)
 	replies := make(chan harness.Reply, 1)
-	m := Model{
+	m := &Model{
 		session: harness.Session{Grants: &permission.Session{}},
 		panel:   panel{perm: newPermissionPrompt("", tools.Edit, "")},
 		turn:    turn{current: &turnSession{reply: replies, activeTool: -1, cancel: func() {}}},
@@ -158,7 +158,7 @@ func TestHandlePermissionKeyNavEnter(t *testing.T) {
 }
 
 func TestHandlePermissionKeyIdle(t *testing.T) {
-	m := Model{}
+	m := &Model{}
 	if _, ok := m.handlePermissionKey(tea.KeyPressMsg{Code: 'a', Text: "a"}); ok {
 		t.Fatal("should not handle when idle")
 	}
@@ -194,12 +194,12 @@ func selectDenyRow(t *testing.T, m *Model) {
 // and never decides; Enter then denies with that reason.
 func TestDenyReasonTypeToFocus(t *testing.T) {
 	replies := make(chan harness.Reply, 1)
-	m := Model{
+	m := &Model{
 		session: harness.Session{Grants: &permission.Session{}},
 		panel:   panel{perm: newPermissionPrompt("", tools.Edit, "a.go")},
 		turn:    turn{current: &turnSession{reply: replies, activeTool: -1, cancel: func() {}}},
 	}
-	selectDenyRow(t, &m)
+	selectDenyRow(t, m)
 	select {
 	case r := <-replies:
 		t.Fatalf("selecting the deny row must not decide: %+v", r)
@@ -208,7 +208,7 @@ func TestDenyReasonTypeToFocus(t *testing.T) {
 
 	// Letters and digits are the reason's text, not row jumps or a decision.
 	for _, s := range []string{"w", "r", "o", "n", "g", "7"} {
-		pressPermKey(t, &m, s)
+		pressPermKey(t, m, s)
 	}
 	if !m.panel.perm.typing {
 		t.Fatal("typing on deny should claim the keys")
@@ -284,7 +284,7 @@ func TestDenyReasonEdges(t *testing.T) {
 // TestDenyReasonRendering: the Deny row shows the typed reason with a caret
 // while it owns the keys, and the placeholder before anything is typed.
 func TestDenyReasonRendering(t *testing.T) {
-	m := Model{term: term{width: 80}, panel: panel{perm: newPermissionPrompt("", tools.Edit, "a.go")}}
+	m := &Model{term: term{width: 80}, panel: panel{perm: newPermissionPrompt("", tools.Edit, "a.go")}}
 	base := stripANSI(m.renderPermission(80))
 	if !strings.Contains(base, "No, and tell zeta what to do differently") {
 		t.Fatalf("deny row missing: %q", base)
@@ -296,8 +296,8 @@ func TestDenyReasonRendering(t *testing.T) {
 		t.Fatalf("no field before typing: %q", base)
 	}
 
-	selectDenyRow(t, &m)
-	pressPermKey(t, &m, "t")
+	selectDenyRow(t, m)
+	pressPermKey(t, m, "t")
 	out := stripANSI(m.renderPermission(80))
 	if !strings.Contains(out, "t"+optionCaret) {
 		t.Fatalf("live reason with caret: %q", out)
@@ -305,7 +305,7 @@ func TestDenyReasonRendering(t *testing.T) {
 }
 
 func TestGapHeightWithPermission(t *testing.T) {
-	m := Model{term: term{width: 80}, panel: panel{perm: newPermissionPrompt("", tools.Bash, "")}}
+	m := &Model{term: term{width: 80}, panel: panel{perm: newPermissionPrompt("", tools.Bash, "")}}
 	// blank + panel pad + title + 3 options (bash)
 	if h := m.gapHeight(); h < 5 {
 		t.Fatalf("gapHeight=%d, want padded options panel", h)
@@ -336,7 +336,7 @@ func TestPermissionHidesInput(t *testing.T) {
 }
 
 func TestRenderPermissionVertical(t *testing.T) {
-	m := Model{
+	m := &Model{
 		term: term{
 			width: 80,
 		},
@@ -371,7 +371,7 @@ func TestRenderPermissionVertical(t *testing.T) {
 }
 
 func TestRenderPermissionBashOptions(t *testing.T) {
-	m := Model{
+	m := &Model{
 		term: term{
 			width: 80,
 		},
@@ -387,7 +387,7 @@ func TestRenderPermissionBashOptions(t *testing.T) {
 }
 
 func TestRenderPermissionWrite(t *testing.T) {
-	m := Model{
+	m := &Model{
 		term: term{
 			width: 80,
 		},
@@ -404,7 +404,7 @@ func TestRenderPermissionWrite(t *testing.T) {
 }
 
 func TestRenderPermissionBash(t *testing.T) {
-	m := Model{
+	m := &Model{
 		term: term{
 			width: 80,
 		},
@@ -475,7 +475,7 @@ func TestHandlePermissionClick(t *testing.T) {
 	vp := viewport.New()
 	vp.SetHeight(10)
 	replies := make(chan harness.Reply, 1)
-	m := Model{
+	m := &Model{
 		term: term{
 			width: 80,
 		},
@@ -614,7 +614,7 @@ func TestEditOutsideWorkspacePromptFlagsOutside(t *testing.T) {
 }
 
 func TestActiveGrantsSurviveMode(t *testing.T) {
-	m := Model{session: harness.Session{Grants: &permission.Session{}}}
+	m := &Model{session: harness.Session{Grants: &permission.Session{}}}
 	m.session.Grants.GrantCmd("echo")
 	if !m.session.Grants.CmdGranted("echo") {
 		t.Fatal("session grant should stick")
@@ -739,7 +739,7 @@ func TestReadOutsideSessionGrantSkipsLater(t *testing.T) {
 		name: tools.Read, label: "read a.txt", path: filepath.Join(outer, "one", "a.txt"),
 		args: oneA,
 	})
-	pressPermRow(t, &m, permission.AllowSession)
+	pressPermRow(t, m, permission.AllowSession)
 	if !m.session.Grants.DirGranted(permission.CallFor(policy.Policy{}, root, tools.Read, oneA)) {
 		t.Fatal("directory grant should stick")
 	}
@@ -819,7 +819,7 @@ func TestReadOutsidePromptsInPlanMode(t *testing.T) {
 // that are not nav / row numbers / Enter are consumed but decide nothing.
 func TestHandlePermissionKeySwallowsUnknown(t *testing.T) {
 	replies := make(chan harness.Reply, 1)
-	m := Model{
+	m := &Model{
 		session: harness.Session{Grants: &permission.Session{}},
 		panel:   panel{perm: newPermissionPrompt("", tools.Bash, "")},
 		turn:    turn{current: &turnSession{reply: replies, activeTool: -1, cancel: func() {}}},
@@ -886,14 +886,14 @@ func TestPermissionEscDeniesNotCancels(t *testing.T) {
 // TestPermissionEscTakesTypedReason: Esc denies with the reason already typed.
 func TestPermissionEscTakesTypedReason(t *testing.T) {
 	replies := make(chan harness.Reply, 1)
-	m := Model{
+	m := &Model{
 		session: harness.Session{Grants: &permission.Session{}},
 		panel:   panel{perm: newPermissionPrompt("", tools.Edit, "a.go")},
 		turn:    turn{current: &turnSession{reply: replies, activeTool: -1, cancel: func() {}}},
 	}
-	selectDenyRow(t, &m)
-	pressPermKey(t, &m, "n")
-	pressPermKey(t, &m, "o")
+	selectDenyRow(t, m)
+	pressPermKey(t, m, "n")
+	pressPermKey(t, m, "o")
 	if _, ok := m.handlePermissionKey(tea.KeyPressMsg{Code: tea.KeyEscape, Text: "esc"}); !ok {
 		t.Fatal("esc should be consumed")
 	}
@@ -971,7 +971,7 @@ func TestPermissionPayloadCarriesPanelFill(t *testing.T) {
 	}
 
 	// The key legend is a hint, not content.
-	m := Model{term: term{width: 80, chrome: chrome}, panel: panel{perm: newPermissionPrompt("go test", tools.Bash, "")}}
+	m := &Model{term: term{width: 80, chrome: chrome}, panel: panel{perm: newPermissionPrompt("go test", tools.Bash, "")}}
 	m.panel.perm.setArgs(policy.Policy{}, bashArgs("go test"), t.TempDir())
 	out := m.renderPermission(80)
 	legend := ""

@@ -1,3 +1,4 @@
+// Package paths resolves where zeta keeps its data (ZETA_HOME, default ~/.zeta).
 package paths
 
 import (

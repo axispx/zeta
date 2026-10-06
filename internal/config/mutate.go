@@ -6,7 +6,7 @@ import (
 )
 
 // Clone returns a deep copy of the config.
-func (c Config) Clone() Config {
+func (c *Config) Clone() Config {
 	out := Config{Active: c.Active, Defaults: c.Defaults, Review: c.Review}
 	out.Review.Allow = append([]string(nil), c.Review.Allow...)
 	if len(c.Providers) == 0 {

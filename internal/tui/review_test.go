@@ -24,7 +24,7 @@ func reviewModel(t *testing.T) (*Model, chan harness.Reply) {
 	m.session.Rules = permission.NewRules(policy.Policy{})
 	replies := make(chan harness.Reply, 1)
 	m.turn.current = &turnSession{id: 1, activeTool: -1, ch: make(chan harness.Event), reply: replies, cancel: func() {}}
-	return &m, replies
+	return m, replies
 }
 
 func TestReviewOffOpensPrompt(t *testing.T) {

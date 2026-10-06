@@ -1,3 +1,4 @@
+// Package prompt holds the system prompt and per-mode instructions.
 package prompt
 
 import _ "embed"

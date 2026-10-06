@@ -367,13 +367,13 @@ func (m *Model) handleAskMotion(msg tea.MouseMotionMsg) bool {
 	return list.handleMotion(msg.X, msg.Y, m.transcript.viewport.Height(), m.term.width, m.askTitleH(), contentW)
 }
 
-func (m Model) askTitleH() int {
+func (m *Model) askTitleH() int {
 	_, contentW := overlayWidths(m.term.width)
 	ink := m.term.chrome.OverlayInk()
 	return lipgloss.Height(m.renderAskHeader(contentW, ink))
 }
 
-func (m Model) renderAsk(width int) string {
+func (m *Model) renderAsk(width int) string {
 	p := m.panel.ask
 	if p == nil {
 		return ""
@@ -407,7 +407,7 @@ func panelInner(contentW int) int {
 	return max(1, contentW-panelGutter)
 }
 
-func (m Model) renderAskHeader(contentW int, ink styles.OverlayInk) string {
+func (m *Model) renderAskHeader(contentW int, ink styles.OverlayInk) string {
 	p := m.panel.ask
 	if p == nil {
 		return ""
@@ -434,7 +434,7 @@ func (m Model) renderAskHeader(contentW int, ink styles.OverlayInk) string {
 	return out
 }
 
-func (m Model) renderAskFooter(contentW int, ink styles.OverlayInk) string {
+func (m *Model) renderAskFooter(contentW int, ink styles.OverlayInk) string {
 	inner := panelInner(contentW)
 	p := m.panel.ask
 	parts := []string{"↑/↓ select", "enter submit"}

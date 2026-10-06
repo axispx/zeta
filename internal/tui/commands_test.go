@@ -76,19 +76,19 @@ func TestMatchCommands(t *testing.T) {
 	if !foundReview {
 		t.Fatalf("expected /review in palette, got %#v", all)
 	}
-	clear := matchCommands("/cle")
-	if len(clear) == 0 {
+	matches := matchCommands("/cle")
+	if len(matches) == 0 {
 		t.Fatalf("expected match for /cle")
 	}
 	found := false
-	for _, c := range clear {
+	for _, c := range matches {
 		if c.name == "/clear" {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Fatalf("expected /clear in prefix matches for /cle, got %#v", clear)
+		t.Fatalf("expected /clear in prefix matches for /cle, got %#v", matches)
 	}
 	none := matchCommands("/zzz")
 	if len(none) != 0 {
@@ -99,7 +99,7 @@ func TestMatchCommands(t *testing.T) {
 func TestSubmitInputQuit(t *testing.T) {
 	ta := textarea.New()
 	ta.SetValue(":q")
-	m := Model{composer: composer{textarea: ta}}
+	m := &Model{composer: composer{textarea: ta}}
 	cmd := m.submitInput()
 	if !m.exit.quitting {
 		t.Fatal("quitting = false")
@@ -111,7 +111,7 @@ func TestSubmitInputQuit(t *testing.T) {
 	for _, other := range []string{":quit", "/quit", ":Q"} {
 		ta := textarea.New()
 		ta.SetValue(other)
-		m := Model{composer: composer{textarea: ta}}
+		m := &Model{composer: composer{textarea: ta}}
 		_ = m.submitInput()
 		if m.exit.quitting {
 			t.Fatalf("%q should not quit", other)
@@ -184,7 +184,7 @@ func TestFormatAccentRow(t *testing.T) {
 func TestSyncOverlaySelectsPartial(t *testing.T) {
 	ta := textarea.New()
 	ta.SetValue("/cle")
-	m := Model{composer: composer{textarea: ta}}
+	m := &Model{composer: composer{textarea: ta}}
 	_ = m.syncOverlay()
 	if !m.overlay.showing() || m.overlay.mode != overlayCommands {
 		t.Fatal("command overlay inactive")
@@ -208,7 +208,7 @@ func TestVisibleModels(t *testing.T) {
 }
 
 func TestHandleModelOverlayKey(t *testing.T) {
-	m := Model{
+	m := &Model{
 		overlay: filterOverlay{
 			mode: overlayModels,
 			models: []config.ModelChoice{
@@ -253,7 +253,7 @@ func TestCycleModelReasoning(t *testing.T) {
 			},
 		},
 	}
-	m := Model{
+	m := &Model{
 		session:  harness.Session{Cfg: cfg},
 		composer: composer{textarea: textarea.New()},
 		overlay: filterOverlay{
@@ -294,7 +294,7 @@ func TestCycleModelReasoning(t *testing.T) {
 }
 
 func TestRenderModelOverlayShowsEffort(t *testing.T) {
-	m := Model{
+	m := &Model{
 		session: harness.Session{Cfg: config.Config{Active: "p/a"}},
 		overlay: filterOverlay{
 			mode: overlayModels,
@@ -350,7 +350,7 @@ func TestRenderModelOverlayMaxRows(t *testing.T) {
 			Name:       string(rune('A' + i)),
 		}
 	}
-	m := Model{
+	m := &Model{
 		session: harness.Session{Cfg: config.Config{Active: "p/a"}},
 		overlay: filterOverlay{
 			mode:   overlayModels,

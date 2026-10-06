@@ -43,7 +43,7 @@ func TestToolGroupRowsFitWidth(t *testing.T) {
 }
 
 // transcriptAt builds a laid-out transcript showing rows at terminal width w.
-func transcriptAt(w int, rows []Message) Model {
+func transcriptAt(w int, rows []Message) *Model {
 	m := testModel()
 	m.term.width = w
 	m.term.height = 40

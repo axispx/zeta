@@ -1,3 +1,4 @@
+// Package ai streams chat completions from OpenAI-compatible providers and the Codex Responses backend.
 package ai
 
 import (
@@ -20,6 +21,7 @@ var ErrAuth = errors.New("authentication failed")
 // Role is an OpenAI chat message role.
 type Role string
 
+// The chat message roles.
 const (
 	RoleUser      Role = "user"
 	RoleAssistant Role = "assistant"
@@ -57,6 +59,7 @@ type Message struct {
 // EventType identifies a streaming event.
 type EventType int
 
+// The streaming event types.
 const (
 	EventDelta EventType = iota
 	EventDone

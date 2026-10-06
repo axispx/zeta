@@ -44,7 +44,6 @@ func authMethodRows(providerID string) []authMethodRow {
 // no shared run struct or tick poller.
 type oauthSession struct {
 	gen       int
-	ctx       context.Context
 	cancel    context.CancelFunc
 	flow      oauth.Flow
 	verifyURL string
@@ -53,6 +52,7 @@ type oauthSession struct {
 
 type oauthStartedMsg struct {
 	gen  int
+	ctx  context.Context // the login's lifetime; cancelled with the session
 	flow oauth.Flow
 	err  error
 }
@@ -153,7 +153,7 @@ func (d *configDialog) beginOAuth() (gen int, ctx context.Context) {
 	d.oauthGen++
 	gen = d.oauthGen
 	ctx, cancel := context.WithCancel(context.Background())
-	d.oauth = &oauthSession{gen: gen, ctx: ctx, cancel: cancel}
+	d.oauth = &oauthSession{gen: gen, cancel: cancel}
 	return gen, ctx
 }
 
@@ -168,7 +168,7 @@ func (d *configDialog) startOAuth() tea.Cmd {
 
 	return func() tea.Msg {
 		flow, err := oauth.Begin(ctx, providerID)
-		return oauthStartedMsg{gen: gen, flow: flow, err: err}
+		return oauthStartedMsg{gen: gen, ctx: ctx, flow: flow, err: err}
 	}
 }
 
@@ -192,7 +192,7 @@ func (d *configDialog) handleOAuthStarted(msg oauthStartedMsg) tea.Cmd {
 
 	// Everything the login needs after the browser — the wait, and the
 	// provider's model discovery — runs in the cmd, never in Update.
-	ctx := d.oauth.ctx
+	ctx := msg.ctx
 	flow := msg.flow
 	gen := msg.gen
 	providerID := d.focusID
@@ -263,7 +263,7 @@ func (d *configDialog) applyOAuthResult(tok *oauth.TokenResponse, preset *config
 
 // connectPreset resolves the preset to connect with: what the login discovered,
 // else the provider's models.dev entry.
-func (d *configDialog) connectPreset(oc *config.OAuthCredential, discovered *config.Preset) (config.Preset, bool) {
+func (d *configDialog) connectPreset(_ *config.OAuthCredential, discovered *config.Preset) (config.Preset, bool) {
 	if discovered != nil {
 		return *discovered, true
 	}
@@ -289,16 +289,6 @@ func oauthPreset(ctx context.Context, providerID string, oc *config.OAuthCredent
 	_ = codex.SaveModels(models)
 	pre := config.CodexPreset(models)
 	return &pre, nil
-}
-
-// findPreset returns the preset with id, from a preset list.
-func findPresetID(presets []config.Preset, id string) (config.Preset, bool) {
-	for _, p := range presets {
-		if p.ID == id {
-			return p, true
-		}
-	}
-	return config.Preset{}, false
 }
 
 func openBrowser(rawURL string) error {

@@ -11,10 +11,10 @@ import (
 	"github.com/axispx/zeta/internal/image"
 )
 
-func histModel(prompts ...string) Model {
+func histModel(prompts ...string) *Model {
 	ta := textarea.New()
 	ta.Focus()
-	m := Model{composer: composer{textarea: ta}}
+	m := &Model{composer: composer{textarea: ta}}
 	for _, p := range prompts {
 		m.transcript.messages = append(m.transcript.messages, Message{Role: RoleUser, Text: p})
 	}

@@ -77,7 +77,7 @@ func TestThinkingLifecycleClearsOnDelta(t *testing.T) {
 	}
 
 	next, cmd := m.Update(turnReasoningMsg{text: "step1\n"})
-	m = next.(Model)
+	m = next.(*Model)
 	if cmd == nil {
 		t.Fatal("expected wait cmd")
 	}
@@ -85,13 +85,13 @@ func TestThinkingLifecycleClearsOnDelta(t *testing.T) {
 		t.Fatalf("thinking=%q", m.turn.current.thinking)
 	}
 	next, _ = m.Update(turnReasoningMsg{text: "step2"})
-	m = next.(Model)
+	m = next.(*Model)
 	if m.turn.current.thinking != "step1\nstep2" {
 		t.Fatalf("thinking=%q", m.turn.current.thinking)
 	}
 
 	next, _ = m.Update(turnDeltaMsg{text: "Hello"})
-	m = next.(Model)
+	m = next.(*Model)
 	if m.turn.current.thinking != "" {
 		t.Fatalf("thinking not cleared: %q", m.turn.current.thinking)
 	}
@@ -114,7 +114,7 @@ func TestThinkingIgnoredWhileStreaming(t *testing.T) {
 		activeTool: -1,
 	}
 	next, _ := m.Update(turnReasoningMsg{text: "nope"})
-	m = next.(Model)
+	m = next.(*Model)
 	if m.turn.current.thinking != "" {
 		t.Fatalf("thinking=%q", m.turn.current.thinking)
 	}
@@ -129,7 +129,7 @@ func TestThinkingClearsOnToolStart(t *testing.T) {
 		activeTool: -1,
 	}
 	next, _ := m.Update(turnToolStartMsg{label: "read a.go", name: tools.Read})
-	m = next.(Model)
+	m = next.(*Model)
 	if m.turn.current.thinking != "" {
 		t.Fatalf("thinking=%q", m.turn.current.thinking)
 	}
@@ -149,7 +149,7 @@ func TestThinkingClearsOnAssistant(t *testing.T) {
 	next, _ := m.Update(turnAssistantMsg{
 		message: ai.Message{Role: ai.RoleAssistant, Text: ""},
 	})
-	m = next.(Model)
+	m = next.(*Model)
 	if m.turn.current.thinking != "" {
 		t.Fatalf("thinking=%q", m.turn.current.thinking)
 	}

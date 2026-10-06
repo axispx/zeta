@@ -1,3 +1,4 @@
+// Package search provides the fuzzy filtering behind the slash palette, @ file mentions and model pickers.
 package search
 
 import (

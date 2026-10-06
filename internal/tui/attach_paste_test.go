@@ -26,7 +26,7 @@ func TestUpdatePasteMsgInsertsImage(t *testing.T) {
 	m.layout()
 
 	model, _ := m.Update(tea.PasteMsg{Content: png})
-	mm := model.(Model)
+	mm := model.(*Model)
 	if !strings.Contains(mm.composer.textarea.Value(), "[Image 1]") {
 		t.Fatalf("after paste input=%q pending=%d", mm.composer.textarea.Value(), len(mm.composer.pendingImages))
 	}

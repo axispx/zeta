@@ -25,6 +25,7 @@ import (
 // Label is what a command would do, judged by the worst thing in it.
 type Label string
 
+// The labels a command can receive; see docs/permissions.md for what each means.
 const (
 	ReadOnly         Label = "read_only"
 	LocalReversible  Label = "local_reversible"

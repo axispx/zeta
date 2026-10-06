@@ -75,7 +75,7 @@ func formatPickerHeader(innerW int) string {
 	return formatHintRow(prefix, "NAME", "UPDATED", innerW, ink.Header, ink.Header, ink.Gap)
 }
 
-func (m Model) renderPicker(width, height int) string {
+func (m *Model) renderPicker(width, height int) string {
 	if !m.picker.active || len(m.picker.entries) == 0 {
 		return ""
 	}

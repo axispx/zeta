@@ -19,11 +19,13 @@ type Completer interface {
 // anything but "high" as not sure enough to approve.
 type Model struct{ Client Completer }
 
+// Name identifies the backend in config and in the prompt's review reason.
 func (Model) Name() string { return "model" }
 
 // modelMaxTokens leaves room for a reasoning model to think before it answers.
 const modelMaxTokens = 1024
 
+// Classify asks the active chat model for a label and requires a high-certainty answer.
 func (m Model) Classify(ctx context.Context, req Request) (Result, error) {
 	text, err := m.Client.Complete(ctx, []ai.Message{
 		{Role: ai.RoleSystem, Text: modelSystemPrompt()},

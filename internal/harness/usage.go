@@ -83,7 +83,7 @@ func (u *Usage) Add(model string, v ai.Usage) {
 }
 
 // Empty reports whether nothing has been totalled yet.
-func (u Usage) Empty() bool { return u.Responses == 0 }
+func (u *Usage) Empty() bool { return u.Responses == 0 }
 
 // UsageOrNil returns a turn's accounting for persistence, or nil when the
 // provider reported no token counts, so those records stay clean.

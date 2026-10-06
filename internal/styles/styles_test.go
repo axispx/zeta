@@ -25,7 +25,7 @@ func TestPanelFromTerminalDarkensLightBg(t *testing.T) {
 	}
 }
 
-func TestChromeZeroValueSafe(t *testing.T) {
+func TestChromeZeroValueSafe(_ *testing.T) {
 	var c Chrome
 	_ = c.InputBox()
 	_ = c.UserMsg()

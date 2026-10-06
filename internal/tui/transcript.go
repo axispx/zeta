@@ -286,7 +286,7 @@ func (t *transcript) invalidateMainView() {
 
 // mainViewKey is the tray of inputs the painted frame depends on. Selection
 // lives in selection, so it is passed in rather than reached for.
-func (t transcript) mainViewKey(sel transcriptSel) mainViewKey {
+func (t *transcript) mainViewKey(sel transcriptSel) mainViewKey {
 	k := mainViewKey{
 		yOff:  t.viewport.YOffset(),
 		w:     t.viewport.Width(),
@@ -353,7 +353,7 @@ func (t *transcript) mainView(sel transcriptSel) string {
 }
 
 // mainView paints the transcript region with the current drag selection.
-func (m Model) mainView() string {
+func (m *Model) mainView() string {
 	return m.transcript.mainView(m.selection.sel)
 }
 
@@ -384,7 +384,7 @@ type transcriptSel struct {
 	head     selPos
 }
 
-func (s transcriptSel) has() bool { return s.dragging }
+func (s *transcriptSel) has() bool { return s.dragging }
 
 func (s *transcriptSel) clear() {
 	*s = transcriptSel{}
@@ -401,7 +401,7 @@ func (s *transcriptSel) dragTo(p selPos) {
 }
 
 // moved reports whether head is far enough from anchor to count as a drag.
-func (s transcriptSel) moved() bool {
+func (s *transcriptSel) moved() bool {
 	dl := s.anchor.line - s.head.line
 	if dl < 0 {
 		dl = -dl
@@ -414,7 +414,7 @@ func (s transcriptSel) moved() bool {
 }
 
 // normalized returns start/end with start <= end in reading order.
-func (s transcriptSel) normalized() (start, end selPos) {
+func (s *transcriptSel) normalized() (start, end selPos) {
 	a, b := s.anchor, s.head
 	if a.line < b.line || (a.line == b.line && a.col <= b.col) {
 		return a, b

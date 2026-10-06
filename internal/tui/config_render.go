@@ -9,7 +9,7 @@ import (
 	"github.com/axispx/zeta/internal/styles"
 )
 
-func (d configDialog) renderPanel(chrome styles.Chrome, termW int, dlg Dialog) string {
+func (d *configDialog) renderPanel(chrome styles.Chrome, termW int, dlg Dialog) string {
 	if !d.active {
 		return ""
 	}
@@ -52,7 +52,7 @@ func tabsFooter(hints []string, ink styles.OverlayInk) DialogFooter {
 
 // tabsTitle is the presets view's title row: the tab strip with the active tab
 // highlighted, and the esc hint on the right.
-func (d configDialog) tabsTitle(innerW int, ink styles.OverlayInk) string {
+func (d *configDialog) tabsTitle(innerW int, ink styles.OverlayInk) string {
 	var tabs []string
 	for i, name := range configTabNames {
 		if configTab(i) == d.tab {
@@ -70,7 +70,7 @@ func (d configDialog) tabsTitle(innerW int, ink styles.OverlayInk) string {
 	return left + ink.Gap.Render(strings.Repeat(" ", pad)) + hint
 }
 
-func (d configDialog) settingsBody(innerW int, ink styles.OverlayInk) (body string, footer DialogFooter) {
+func (d *configDialog) settingsBody(innerW int, ink styles.OverlayInk) (body string, footer DialogFooter) {
 	rows := settingRows()
 	var hints []string
 	if d.selected < len(rows) && rows[d.selected].key != nil {
@@ -90,7 +90,7 @@ func (d configDialog) settingsBody(innerW int, ink styles.OverlayInk) (body stri
 	return b.String(), footer
 }
 
-func (d configDialog) presetsBody(innerW int, chrome styles.Chrome, ink styles.OverlayInk) (body string, footer DialogFooter) {
+func (d *configDialog) presetsBody(innerW int, chrome styles.Chrome, ink styles.OverlayInk) (body string, footer DialogFooter) {
 	items := d.connectRows()
 	n := len(items)
 	var hints []string
@@ -160,7 +160,7 @@ func (d configDialog) presetsBody(innerW int, chrome styles.Chrome, ink styles.O
 	return b.String(), footer
 }
 
-func (d configDialog) modelsBody(innerW int, chrome styles.Chrome, ink styles.OverlayInk) (body string, footer DialogFooter) {
+func (d *configDialog) modelsBody(innerW int, chrome styles.Chrome, ink styles.OverlayInk) (body string, footer DialogFooter) {
 	caps := d.caps(d.focusID)
 	var hints []string
 	credLabel := "Update API Key"
@@ -234,7 +234,7 @@ func (d configDialog) modelsBody(innerW int, chrome styles.Chrome, ink styles.Ov
 }
 
 // reviewBody is the auto review backend chooser shown when review is turned on.
-func (d configDialog) reviewBody(innerW int, ink styles.OverlayInk) (body string, footer DialogFooter) {
+func (d *configDialog) reviewBody(innerW int, ink styles.OverlayInk) (body string, footer DialogFooter) {
 	var b strings.Builder
 	b.WriteString(configEscTitle("Auto review", innerW, ink))
 	b.WriteByte('\n')
@@ -250,7 +250,7 @@ func (d configDialog) reviewBody(innerW int, ink styles.OverlayInk) (body string
 	return b.String(), DialogFooter{}
 }
 
-func (d configDialog) authBody(innerW int, chrome styles.Chrome, ink styles.OverlayInk) (body string, footer DialogFooter) {
+func (d *configDialog) authBody(innerW int, _ styles.Chrome, ink styles.OverlayInk) (body string, footer DialogFooter) {
 	title := d.authTitle
 	if title == "" {
 		title = "Credentials"
@@ -295,7 +295,7 @@ func (d configDialog) authBody(innerW int, chrome styles.Chrome, ink styles.Over
 	return b.String(), footer
 }
 
-func (d configDialog) formBody(innerW int, chrome styles.Chrome, ink styles.OverlayInk) (body string, footer DialogFooter) {
+func (d *configDialog) formBody(innerW int, chrome styles.Chrome, ink styles.OverlayInk) (body string, footer DialogFooter) {
 	if len(d.form.fields) > 1 {
 		footer = DialogFooter{Hint: strings.Join([]string{
 			ink.HintKbd("Next", "tab"),

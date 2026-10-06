@@ -234,7 +234,7 @@ func TestCodexStreamErrors(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			events := streamCodex(t, func(w http.ResponseWriter, r *http.Request) {
+			events := streamCodex(t, func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(tc.status)
 				_, _ = w.Write([]byte(tc.body))
 			}, []Message{{Role: RoleUser, Text: "hi"}}, nil)
@@ -256,7 +256,7 @@ func TestCodexStreamErrors(t *testing.T) {
 func TestCodexStreamFailureEvents(t *testing.T) {
 	t.Parallel()
 	// response.failed carries the error under response.error.
-	events := streamCodex(t, func(w http.ResponseWriter, r *http.Request) {
+	events := streamCodex(t, func(w http.ResponseWriter, _ *http.Request) {
 		sse(w, `{"type":"response.failed","response":{"error":{"code":"usage_limit_reached","message":"quota spent"}}}`)
 	}, []Message{{Role: RoleUser, Text: "hi"}}, nil)
 	if len(events) != 1 || events[0].Type != EventErr {
@@ -267,7 +267,7 @@ func TestCodexStreamFailureEvents(t *testing.T) {
 	}
 
 	// A bare error event reports its own error object.
-	events = streamCodex(t, func(w http.ResponseWriter, r *http.Request) {
+	events = streamCodex(t, func(w http.ResponseWriter, _ *http.Request) {
 		sse(w, `{"type":"error","error":{"message":"boom"}}`)
 	}, []Message{{Role: RoleUser, Text: "hi"}}, nil)
 	if len(events) != 1 || events[0].Type != EventErr || !strings.Contains(events[0].Err.Error(), "boom") {
@@ -278,7 +278,7 @@ func TestCodexStreamFailureEvents(t *testing.T) {
 func TestCodexStreamMalformedFrame(t *testing.T) {
 	t.Parallel()
 	// A frame zeta cannot parse is skipped; the rest of the turn still lands.
-	events := streamCodex(t, func(w http.ResponseWriter, r *http.Request) {
+	events := streamCodex(t, func(w http.ResponseWriter, _ *http.Request) {
 		sse(w, `{not json`)
 		sse(w, `{"type":"response.output_text.delta","delta":"ok"}`)
 		sse(w, `{"type":"response.completed","response":{}}`)
@@ -370,7 +370,7 @@ func TestCodexComplete(t *testing.T) {
 		t.Fatal("Complete must not stream")
 	}
 
-	srvErr := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srvErr := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"error":{"message":"nope"}}`))
 	}))
 	t.Cleanup(srvErr.Close)

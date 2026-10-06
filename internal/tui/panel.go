@@ -54,7 +54,7 @@ func (p *panel) setBuild(build *buildPickPrompt) {
 }
 
 // inputBlocked reports whether a panel owns the input slot.
-func (m Model) inputBlocked() bool {
+func (m *Model) inputBlocked() bool {
 	return m.panel.blocked()
 }
 
@@ -143,7 +143,7 @@ func (m *Model) handlePanelMotion(msg tea.MouseMotionMsg) bool {
 }
 
 // renderPanel returns the exclusive panel view, or "".
-func (m Model) renderPanel(width int) string {
+func (m *Model) renderPanel(width int) string {
 	switch {
 	case m.panel.perm != nil:
 		return m.renderPermission(width)

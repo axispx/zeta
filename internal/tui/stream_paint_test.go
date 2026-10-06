@@ -20,7 +20,7 @@ func TestTurnDeltaSetsFramePlanInPlanMode(t *testing.T) {
 		activeTool: -1,
 	}
 	next, _ := m.Update(turnDeltaMsg{text: "hi"})
-	m = next.(Model)
+	m = next.(*Model)
 	if len(m.transcript.messages) != 1 || !m.transcript.messages[0].framePlan {
 		t.Fatalf("plan mode agent row should set framePlan: %+v", m.transcript.messages)
 	}
@@ -33,7 +33,7 @@ func TestTurnDeltaSetsFramePlanInPlanMode(t *testing.T) {
 		activeTool: -1,
 	}
 	next, _ = m2.Update(turnDeltaMsg{text: "hi"})
-	m2 = next.(Model)
+	m2 = next.(*Model)
 	if len(m2.transcript.messages) != 1 || m2.transcript.messages[0].framePlan {
 		t.Fatalf("build mode must not set framePlan: %+v", m2.transcript.messages)
 	}
@@ -64,10 +64,9 @@ func TestAssistantPersistsFramePlan(t *testing.T) {
 				ch:         closedAgentEvents(),
 				activeTool: -1,
 			}
-			next, _ := m.Update(turnAssistantMsg{
+			m.Update(turnAssistantMsg{
 				message: ai.Message{Role: ai.RoleAssistant, Text: "hello"},
 			})
-			m = next.(Model)
 
 			_, recs, err := session.OpenID(proj, sess.ID)
 			if err != nil {
@@ -127,9 +126,9 @@ func TestStreamPaintMsgRedrawsAccumulatedDeltas(t *testing.T) {
 	}
 
 	next, _ := m.Update(turnDeltaMsg{text: "Hel"})
-	m = next.(Model)
+	m = next.(*Model)
 	next, _ = m.Update(turnDeltaMsg{text: "lo"})
-	m = next.(Model)
+	m = next.(*Model)
 
 	if !m.transcript.paint.scheduled {
 		t.Fatal("expected scheduled paint after deltas")
@@ -168,9 +167,9 @@ func TestStreamPaintThinkingThrottled(t *testing.T) {
 	}
 
 	next, _ := m.Update(turnReasoningMsg{text: "step-a"})
-	m = next.(Model)
+	m = next.(*Model)
 	next, _ = m.Update(turnReasoningMsg{text: "\nstep-b"})
-	m = next.(Model)
+	m = next.(*Model)
 
 	if m.turn.current.thinking != "step-a\nstep-b" {
 		t.Fatalf("thinking=%q", m.turn.current.thinking)
@@ -203,9 +202,9 @@ func TestStreamPaintToolOutThrottled(t *testing.T) {
 	}
 
 	next, _ := m.Update(turnToolOutMsg{text: "line1\n", name: tools.Bash})
-	m = next.(Model)
+	m = next.(*Model)
 	next, _ = m.Update(turnToolOutMsg{text: "line1\nline2\n", name: tools.Bash})
-	m = next.(Model)
+	m = next.(*Model)
 
 	if m.transcript.messages[1].Out != "line1\nline2\n" {
 		t.Fatalf("out=%q", m.transcript.messages[1].Out)
@@ -236,7 +235,7 @@ func TestCancelStreamPaintIgnoresStaleTick(t *testing.T) {
 	}
 
 	next, _ := m.Update(turnDeltaMsg{text: "partial"})
-	m = next.(Model)
+	m = next.(*Model)
 	staleGen := m.transcript.paint.gen
 	m.cancelStreamPaint()
 	m.transcript.messages = append(m.transcript.messages, Message{Role: RoleUser, Text: "other"})
@@ -298,7 +297,7 @@ func TestAssistantFlushesStreamPaint(t *testing.T) {
 	}
 
 	next, _ := m.Update(turnDeltaMsg{text: "Final answer"})
-	m = next.(Model)
+	m = next.(*Model)
 	if strings.Contains(m.transcript.viewport.GetContent(), "Final answer") {
 		t.Fatal("should still be buffered pre-assistant")
 	}
@@ -306,7 +305,7 @@ func TestAssistantFlushesStreamPaint(t *testing.T) {
 	next, _ = m.Update(turnAssistantMsg{
 		message: ai.Message{Role: ai.RoleAssistant, Text: "Final answer"},
 	})
-	m = next.(Model)
+	m = next.(*Model)
 	if !strings.Contains(stripANSI(m.transcript.viewport.GetContent()), "Final answer") {
 		t.Fatalf("assistant should flush paint: %q", stripANSI(m.transcript.viewport.GetContent()))
 	}

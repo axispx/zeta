@@ -162,7 +162,7 @@ func TestCodexConnectDiscoversModels(t *testing.T) {
 // whose models all error on selection.
 func TestCodexConnectDiscoveryFailure(t *testing.T) {
 	d := authDialogOpen(t)
-	failing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	failing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
 		_, _ = w.Write([]byte(`{"detail":"Unauthorized"}`))
 	}))

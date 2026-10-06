@@ -30,7 +30,7 @@ func TestTryInterruptCancelsTurn(t *testing.T) {
 }
 
 func TestTryInterruptDismissesPicker(t *testing.T) {
-	m := Model{picker: pickerState{active: true, entries: []session.IndexEntry{{ID: "a"}}}}
+	m := &Model{picker: pickerState{active: true, entries: []session.IndexEntry{{ID: "a"}}}}
 	if !m.tryInterrupt() {
 		t.Fatal("expected interrupt")
 	}
@@ -40,7 +40,7 @@ func TestTryInterruptDismissesPicker(t *testing.T) {
 }
 
 func TestTryInterruptDismissesConfig(t *testing.T) {
-	m := Model{}
+	m := &Model{}
 	m.config.active = true
 	if !m.tryInterrupt() {
 		t.Fatal("expected interrupt")
@@ -74,7 +74,7 @@ func TestTryInterruptDismissesCommandOverlay(t *testing.T) {
 }
 
 func TestTryInterruptCancelsCompact(t *testing.T) {
-	m := Model{session: harness.Session{Compacting: true}}
+	m := &Model{session: harness.Session{Compacting: true}}
 	cancelled := false
 	m.turn.compactCancel = func() { cancelled = true }
 	if !m.tryInterrupt() {
@@ -108,7 +108,7 @@ func TestTryInterruptPriorityConfigOverTurn(t *testing.T) {
 }
 
 func TestTryInterruptIdle(t *testing.T) {
-	m := Model{}
+	m := &Model{}
 	if m.tryInterrupt() {
 		t.Fatal("expected no interrupt when idle")
 	}

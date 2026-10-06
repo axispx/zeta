@@ -8,7 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
-func scrolledUpModel(t *testing.T) Model {
+func scrolledUpModel(t *testing.T) *Model {
 	t.Helper()
 	m := testModel()
 	m.term.width = 80

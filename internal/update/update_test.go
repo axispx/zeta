@@ -215,10 +215,10 @@ func TestApplyChecksumMismatch(t *testing.T) {
 			]
 		}`, artifact, "http://"+r.Host+"/bin", "http://"+r.Host+"/sums")
 	})
-	mux.HandleFunc("/bin", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/bin", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write(payload)
 	})
-	mux.HandleFunc("/sums", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/sums", func(w http.ResponseWriter, _ *http.Request) {
 		fmt.Fprintf(w, "%s  %s\n", strings.Repeat("0", 64), artifact)
 	})
 	srv := httptest.NewServer(mux)
@@ -265,7 +265,7 @@ func TestReplaceFile(t *testing.T) {
 }
 
 func TestDownloadExceedsCap(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte("0123456789")) // 10 bytes
 	}))
 	defer srv.Close()
@@ -296,10 +296,10 @@ func newReleaseServer(t *testing.T, tag, goos, goarch string, payload []byte) *h
 			]
 		}`, tag, artifact, base+"/bin/"+artifact, base+"/SHA256SUMS")
 	})
-	mux.HandleFunc("/bin/"+artifact, func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/bin/"+artifact, func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write(payload)
 	})
-	mux.HandleFunc("/SHA256SUMS", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/SHA256SUMS", func(w http.ResponseWriter, _ *http.Request) {
 		fmt.Fprintf(w, "%s  %s\n", hexSum, artifact)
 	})
 	return httptest.NewServer(mux)

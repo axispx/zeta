@@ -215,7 +215,7 @@ func toAPITools(tools []Tool) []openai.ChatCompletionToolUnionParam {
 // array into the cached request prefix, so passing a conversation's own tools
 // keeps that prefix intact — the caller is reusing a warm prefix, not asking
 // for a tool to run — while the choice keeps the model from calling one.
-func (c *chatClient) complete(ctx context.Context, model, effort string, msgs []Message, tools []Tool, maxTokens int64) (string, error) {
+func (c *chatClient) complete(ctx context.Context, model, _ string, msgs []Message, tools []Tool, maxTokens int64) (string, error) {
 	apiMsgs, err := toAPIMessages(msgs)
 	if err != nil {
 		return "", err

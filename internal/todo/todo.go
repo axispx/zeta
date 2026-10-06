@@ -11,6 +11,7 @@ import (
 // Status is the lifecycle state of one checklist item.
 type Status string
 
+// The statuses a checklist item moves through.
 const (
 	Pending    Status = "pending"
 	InProgress Status = "in_progress"

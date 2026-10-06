@@ -16,7 +16,7 @@ import (
 
 const jumpLabel = " ↓ Scroll to bottom "
 
-func (m Model) jumpVisible() bool {
+func (m *Model) jumpVisible() bool {
 	return len(m.transcript.messages) > 0 &&
 		!m.transcript.viewport.AtBottom() &&
 		!m.filterOverlayOpen()
@@ -25,7 +25,7 @@ func (m Model) jumpVisible() bool {
 // jumpBounds returns the pill's cell range. It sits centered on the idle gap
 // row, flush against the input; when the gap holds status or a panel it falls
 // back to the transcript's last row.
-func (m Model) jumpBounds() (row, x0, x1 int) {
+func (m *Model) jumpBounds() (row, x0, x1 int) {
 	w := lipgloss.Width(jumpLabel)
 	row = m.transcript.viewport.Height() - 1
 	if m.gapContent() == "" {
@@ -36,7 +36,7 @@ func (m Model) jumpBounds() (row, x0, x1 int) {
 }
 
 // withJumpButton paints the pill over the row jumpBounds names.
-func (m Model) withJumpButton(surface string) string {
+func (m *Model) withJumpButton(surface string) string {
 	if !m.jumpVisible() {
 		return surface
 	}

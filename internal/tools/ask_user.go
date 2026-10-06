@@ -1,3 +1,4 @@
+// Package tools implements the tools the model can call: read, edit, write, grep, glob, bash, web search and fetch, skill, todo and ask_user.
 package tools
 
 import (
@@ -195,7 +196,7 @@ func (askUserTool) Summary(raw json.RawMessage) string {
 
 // Run is not used when the harness answers interactively; the agent injects the
 // user response. Direct calls return an error so misuse is obvious.
-func (askUserTool) Run(ctx context.Context, root string, raw json.RawMessage) (string, error) {
+func (askUserTool) Run(_ context.Context, _ string, raw json.RawMessage) (string, error) {
 	if _, err := ParseAskUserArgs(raw); err != nil {
 		return "", err
 	}

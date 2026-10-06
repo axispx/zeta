@@ -236,13 +236,13 @@ func (m *Model) handlePlanMotion(msg tea.MouseMotionMsg) bool {
 	return p.list.handleMotion(msg.X, msg.Y, m.transcript.viewport.Height(), m.term.width, m.planTitleH(), contentW)
 }
 
-func (m Model) planTitleH() int {
+func (m *Model) planTitleH() int {
 	_, contentW := overlayWidths(m.term.width)
 	ink := m.term.chrome.OverlayInk()
 	return lipgloss.Height(m.renderPlanTitle(contentW, ink))
 }
 
-func (m Model) renderPlanApproval(width int) string {
+func (m *Model) renderPlanApproval(width int) string {
 	p := m.panel.plan
 	if p == nil {
 		return ""
@@ -254,7 +254,7 @@ func (m Model) renderPlanApproval(width int) string {
 	return renderPanelFrame(m.term.chrome, width, body)
 }
 
-func (m Model) renderPlanTitle(contentW int, ink styles.OverlayInk) string {
+func (m *Model) renderPlanTitle(contentW int, ink styles.OverlayInk) string {
 	inner := contentW - panelGutter
 	if inner < 1 {
 		inner = 1
@@ -319,7 +319,7 @@ func (m *Model) handleBuildPickMotion(msg tea.MouseMotionMsg) bool {
 	return false
 }
 
-func (m Model) buildPickOptionAt(x, y int) int {
+func (m *Model) buildPickOptionAt(x, y int) int {
 	b := m.panel.build
 	if b == nil || len(b.models) == 0 {
 		return -1
@@ -336,7 +336,7 @@ func (m Model) buildPickOptionAt(x, y int) int {
 	return start + idx
 }
 
-func (m Model) renderBuildPickHeader(contentW int, ink styles.OverlayInk) string {
+func (m *Model) renderBuildPickHeader(contentW int, ink styles.OverlayInk) string {
 	b := m.panel.build
 	title := "Build with"
 	if b != nil {
@@ -349,7 +349,7 @@ func (m Model) renderBuildPickHeader(contentW int, ink styles.OverlayInk) string
 }
 
 // renderPlanBuildPick is the model list shown with input hidden after approve.
-func (m Model) renderPlanBuildPick(width int) string {
+func (m *Model) renderPlanBuildPick(width int) string {
 	b := m.panel.build
 	if b == nil || len(b.models) == 0 {
 		return ""

@@ -13,6 +13,7 @@ import (
 // Role identifies who produced a transcript message.
 type Role int
 
+// The transcript message roles.
 const (
 	RoleSystem Role = iota
 	RoleUser
@@ -24,6 +25,7 @@ const (
 // ToolStatus is the lifecycle of a RoleTool row.
 type ToolStatus int
 
+// The tool row statuses.
 const (
 	ToolRunning ToolStatus = iota // call in flight (or awaiting permission)
 	ToolOK                        // finished successfully
@@ -72,10 +74,7 @@ func (m *Message) renderBody(width int, userMsg lipgloss.Style, live bool) strin
 			return s.Render(composerPrompt + m.Text)
 		}
 		// Dim glyph in its own column so wrapped lines hang under the text.
-		piece := lipgloss.NewStyle()
-		if bg := userMsg.GetBackground(); bg != nil {
-			piece = piece.Background(bg)
-		}
+		piece := lipgloss.NewStyle().Background(userMsg.GetBackground())
 		innerW := max(width-userMsg.GetHorizontalFrameSize()-inputPromptWidth, 1)
 		glyph := piece.Foreground(styles.Dim).Width(inputPromptWidth).Render(composerPrompt)
 		text := piece.Width(innerW).Render(m.Text)

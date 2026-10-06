@@ -446,13 +446,13 @@ func run(ctx context.Context, c Completer, history []ai.Message, cfg Config, for
 	}, nil
 }
 
-func extractTag(s, open, close string) (string, bool) {
-	i := strings.Index(s, open)
+func extractTag(s, openTag, closeTag string) (string, bool) {
+	i := strings.Index(s, openTag)
 	if i < 0 {
 		return "", false
 	}
-	i += len(open)
-	j := strings.Index(s[i:], close)
+	i += len(openTag)
+	j := strings.Index(s[i:], closeTag)
 	if j < 0 {
 		return "", false
 	}

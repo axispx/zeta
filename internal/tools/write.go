@@ -70,8 +70,7 @@ func planWrite(root string, args writeArgs) (fileChange, error) {
 	return fileChange{abs: abs, rel: rel, before: before, after: args.Content}, nil
 }
 
-func (writeTool) Run(ctx context.Context, root string, raw json.RawMessage) (string, error) {
-	_ = ctx
+func (writeTool) Run(_ context.Context, root string, raw json.RawMessage) (string, error) {
 	var args writeArgs
 	if err := json.Unmarshal(raw, &args); err != nil {
 		return "", fmt.Errorf("invalid arguments: %w", err)

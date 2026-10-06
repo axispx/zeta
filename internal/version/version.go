@@ -1,3 +1,4 @@
+// Package version holds the link-time release version string.
 package version
 
 // Version is set at link time via:

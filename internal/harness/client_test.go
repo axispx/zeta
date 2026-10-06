@@ -188,7 +188,7 @@ func TestPlanQuota(t *testing.T) {
 	}
 
 	// A backend failure surfaces as an error, never as a panic or a zero plan.
-	srvErr := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srvErr := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
 		_, _ = w.Write([]byte(`{"detail":"Unauthorized"}`))
 	}))

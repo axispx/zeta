@@ -110,13 +110,13 @@ func redirectModels(t *testing.T, base string) {
 
 func TestModelsErrors(t *testing.T) {
 	// Not parallel: the discovery URL is package state.
-	forbidden := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	forbidden := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
 		_, _ = w.Write([]byte(`{"error":"no"}`))
 	}))
 	t.Cleanup(forbidden.Close)
 
-	garbage := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	garbage := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{`))
 	}))
 	t.Cleanup(garbage.Close)
@@ -361,7 +361,7 @@ func TestFetchPlanUsage(t *testing.T) {
 		t.Fatalf("empty account id must not be sent: %q", gotAccount)
 	}
 
-	srvErr := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srvErr := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
 		_, _ = w.Write([]byte(`{"detail":"nope"}`))
 	}))
@@ -372,7 +372,7 @@ func TestFetchPlanUsage(t *testing.T) {
 	}
 
 	UsageURL = srv.URL + "/x"
-	srvBad := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srvBad := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{`))
 	}))
 	t.Cleanup(srvBad.Close)

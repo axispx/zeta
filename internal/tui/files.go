@@ -40,7 +40,7 @@ func (f *filePicker) clear() {
 
 // visible reports rows (or a status line) the list can show.
 // Empty matches after inventory loads → hidden; inventory stays for refilter.
-func (f filePicker) visible() bool {
+func (f *filePicker) visible() bool {
 	if f.err != "" {
 		return true
 	}
@@ -304,7 +304,7 @@ func (m *Model) insertFileMention() {
 	}
 }
 
-func (m Model) renderFileOverlay(width int) string {
+func (m *Model) renderFileOverlay(width int) string {
 	if m.overlay.mode != overlayFiles || !m.overlay.files.visible() {
 		return ""
 	}
