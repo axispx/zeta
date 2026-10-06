@@ -7,7 +7,6 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/axispx/zeta/internal/config"
-	"github.com/axispx/zeta/internal/tools"
 	"github.com/axispx/zeta/internal/workspace"
 )
 
@@ -30,49 +29,17 @@ func testFooterCfg() config.Config {
 func TestInputFooterLayout(t *testing.T) {
 	cfg := testFooterCfg()
 	ws := workspace.Context{Cwd: "~/proj", Branch: "main"}
-	diff := lineStats{added: 12, deleted: 3}
-	out := inputFooter(80, ws, cfg, 18000, diff)
-	plain := stripANSI(out)
+	plain := stripANSI(inputFooter(80, ws, cfg, 18000))
 	lines := strings.Split(plain, "\n")
 	if len(lines) != footerRows {
 		t.Fatalf("footer rows = %d, want %d:\n%s", len(lines), footerRows, plain)
 	}
-	// Row 0: path left, diff stats right.
-	if !strings.Contains(lines[0], "proj") {
-		t.Fatalf("top missing cwd: %q", lines[0])
+	// Row 0: path · branch left, model right-aligned.
+	if !strings.HasPrefix(lines[0], "~/proj · main") {
+		t.Fatalf("top should start with path · branch: %q", lines[0])
 	}
-	if !strings.Contains(lines[0], "main") {
-		t.Fatalf("top missing branch: %q", lines[0])
-	}
-	if !strings.Contains(lines[0], "+12") || !strings.Contains(lines[0], "-3") {
-		t.Fatalf("top missing diff stats: %q", lines[0])
-	}
-	if strings.Contains(lines[0], "18.0k") || strings.Contains(lines[0], "GPT-4") {
-		t.Fatalf("top should be path/stats only: %q", lines[0])
-	}
-	if i, j := strings.Index(lines[0], "proj"), strings.Index(lines[0], "+12"); i < 0 || j < 0 || i > j {
-		t.Fatalf("path should precede stats: %q", lines[0])
-	}
-	// Row 1: model · % left, mode right.
-	if !strings.HasPrefix(strings.TrimLeft(lines[1], " "), "Test GPT-4") {
-		t.Fatalf("bottom should start with model: %q", lines[1])
-	}
-	if !strings.Contains(lines[1], "18%") {
-		t.Fatalf("bottom missing usage: %q", lines[1])
-	}
-	if strings.Contains(lines[1], "18.0k") {
-		t.Fatalf("bottom should not show token count: %q", lines[1])
-	}
-	if !strings.Contains(lines[1], "Test GPT-4") {
-		t.Fatalf("bottom missing model: %q", lines[1])
-	}
-	if strings.Contains(lines[1], "proj") || strings.Contains(lines[1], "+12") {
-		t.Fatalf("bottom should be usage/model/mode only: %q", lines[1])
-	}
-	// model · % on the left.
-	mi, pi := strings.Index(lines[1], "Test GPT-4"), strings.Index(lines[1], "18%")
-	if mi < 0 || pi < 0 || mi > pi {
-		t.Fatalf("want model then %%: %q", lines[1])
+	if !strings.HasSuffix(lines[0], "Test GPT-4 · 18%") || lipgloss.Width(lines[0]) != 80 {
+		t.Fatalf("top should end with model at full width: %q", lines[0])
 	}
 }
 
@@ -81,97 +48,10 @@ func TestInputFooterShowsReasoningEffort(t *testing.T) {
 	md := cfg.Providers["test"].Models["gpt-4"]
 	md.ReasoningEffort = "high"
 	cfg.Providers["test"].Models["gpt-4"] = md
-	out := stripANSI(inputFooter(80, workspace.Context{Cwd: "~/proj"}, cfg, 0, lineStats{}))
+	out := stripANSI(inputFooter(80, workspace.Context{Cwd: "~/proj"}, cfg, 0))
 	lines := strings.Split(out, "\n")
-	if !strings.Contains(lines[1], "Test GPT-4") || !strings.Contains(lines[1], "High") {
-		t.Fatalf("bottom missing model/effort: %q", lines[1])
-	}
-	mi, ei := strings.Index(lines[1], "Test GPT-4"), strings.Index(lines[1], "High")
-	if mi < 0 || ei < 0 || mi > ei {
-		t.Fatalf("want model then effort: %q", lines[1])
-	}
-}
-
-func TestInputFooterHidesEmptyDiff(t *testing.T) {
-	cfg := testFooterCfg()
-	ws := workspace.Context{Cwd: "~/proj"}
-	out := stripANSI(inputFooter(80, ws, cfg, 0, lineStats{}))
-	if strings.Contains(out, "+0") || strings.Contains(out, "-0") {
-		t.Fatalf("empty diff should be omitted: %q", out)
-	}
-	lines := strings.Split(out, "\n")
-	if len(lines) != footerRows {
-		t.Fatalf("rows = %d: %q", len(lines), out)
-	}
-	if !strings.Contains(lines[0], "proj") {
-		t.Fatalf("top missing path: %q", lines[0])
-	}
-	if !strings.Contains(lines[1], "Test GPT-4") {
-		t.Fatalf("bottom missing model when no usage: %q", lines[1])
-	}
-}
-
-func TestFormatDiffStats(t *testing.T) {
-	if got := formatDiffStats(lineStats{}); got != "" {
-		t.Fatalf("empty: %q", got)
-	}
-	got := stripANSI(formatDiffStats(lineStats{added: 4, deleted: 1}))
-	if got != "+4 -1" {
-		t.Fatalf("got %q", got)
-	}
-	if got := stripANSI(formatDiffStats(lineStats{added: 3})); got != "+3" {
-		t.Fatalf("adds only: %q", got)
-	}
-	if got := stripANSI(formatDiffStats(lineStats{deleted: 2})); got != "-2" {
-		t.Fatalf("dels only: %q", got)
-	}
-}
-
-func TestSessionDiff(t *testing.T) {
-	diff := "--- a\n+++ b\n@@ -1 +1,2 @@\n-old\n+new\n+extra\n"
-	writeOut := "--- a\n+++ b\n+only\n"
-	msgs := []Message{
-		{Role: RoleTool, Tool: tools.Edit, Status: ToolOK, Out: diff},                        // +2 -1
-		{Role: RoleTool, Tool: tools.Write, Status: ToolOK, Out: writeOut},                   // +1
-		{Role: RoleTool, Tool: tools.Edit, Status: ToolDenied, Out: "--- a\n+++ b\n+nope\n"}, // ignored
-		{Role: RoleTool, Tool: tools.Bash, Status: ToolOK, Out: "hi"},
-		{Role: RoleUser, Text: "hi"},
-	}
-	got := sessionDiff(msgs)
-	if got.added != 3 || got.deleted != 1 {
-		t.Fatalf("sessionDiff = %+v, want +3 -1", got)
-	}
-
-	m := testModel()
-	m.transcript.messages = msgs
-	m.refreshSessionDiff()
-	if m.transcript.sessionDiff.added != 3 || m.transcript.sessionDiff.deleted != 1 {
-		t.Fatalf("refreshSessionDiff = %+v, want +3 -1", m.transcript.sessionDiff)
-	}
-
-	// Live tool finish path: Out set then refresh (same as handleTurnTool).
-	m.transcript.messages = []Message{
-		{Role: RoleTool, Tool: tools.Edit, Status: ToolOK, Out: diff},
-	}
-	m.refreshSessionDiff()
-	if m.transcript.sessionDiff.added != 2 || m.transcript.sessionDiff.deleted != 1 {
-		t.Fatalf("after edit: %+v, want +2 -1", m.transcript.sessionDiff)
-	}
-	m.transcript.messages = append(m.transcript.messages, Message{Role: RoleTool, Tool: tools.Write, Status: ToolOK, Out: writeOut})
-	m.refreshSessionDiff()
-	if m.transcript.sessionDiff.added != 3 || m.transcript.sessionDiff.deleted != 1 {
-		t.Fatalf("after write: %+v, want +3 -1", m.transcript.sessionDiff)
-	}
-	// Non-edit tool does not change totals when rescanned.
-	m.transcript.messages = append(m.transcript.messages, Message{Role: RoleTool, Tool: tools.Bash, Status: ToolOK, Out: "hi"})
-	m.refreshSessionDiff()
-	if m.transcript.sessionDiff.added != 3 || m.transcript.sessionDiff.deleted != 1 {
-		t.Fatalf("after bash: %+v, want +3 -1", m.transcript.sessionDiff)
-	}
-
-	m.applySession(nil, nil, nil)
-	if !m.transcript.sessionDiff.empty() {
-		t.Fatalf("new session should zero diff: %+v", m.transcript.sessionDiff)
+	if !strings.HasSuffix(lines[0], "Test GPT-4 High") {
+		t.Fatalf("top missing model/effort: %q", lines[0])
 	}
 }
 
@@ -226,13 +106,9 @@ func TestFooterBottomRespectsWidth(t *testing.T) {
 		Cwd:    "~/Developer/axispx/very/deep/project",
 		Branch: "feature/long-name",
 	}
-	out := stripANSI(footerPathRow(30, ws, lineStats{added: 12, deleted: 3}))
+	out := stripANSI(footerPathLabel(ws.Cwd, ws.Branch, 30))
 	if w := lipgloss.Width(out); w > 30 {
 		t.Fatalf("bottom width %d > 30: %q", w, out)
-	}
-	// Diff stats should still show when path is shortened.
-	if !strings.Contains(out, "+12") || !strings.Contains(out, "-3") {
-		t.Fatalf("should keep diff stats: %q", out)
 	}
 }
 

@@ -343,7 +343,6 @@ func (m *Model) applySession(sess *session.Session, recs []session.Record, err e
 	// A session boundary is when project instructions are read: /clear and
 	// /resume pick up an edited AGENTS.md, turns in between do not.
 	m.session.ReloadAgents()
-	m.refreshSessionDiff()
 	m.session.ResetContext()
 	// /resume replays the persisted per-turn accounting; /clear starts at zero.
 	m.session.Usage = harness.UsageFromRecords(recs)

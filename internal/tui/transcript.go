@@ -30,13 +30,12 @@ import (
 // transcript is the scrollable conversation surface: the rendered message
 // list, the viewport that scrolls it, and the memos that keep repaints cheap.
 type transcript struct {
-	messages    []Message
-	viewport    viewport.Model
-	contentW    int             // viewport width: full region, user bubbles fill it.
-	sessionDiff lineStats       // memo of sessionDiff(messages); refreshSessionDiff only
-	tx          transcriptCache // frozen settled transcript; tail re-renders only
-	mainCache   *mainViewCache  // memo of mainView() for transcript + gap; invalidated on transcript change
-	paint       streamPaint     // throttled live redraw; gen survives turn boundaries
+	messages  []Message
+	viewport  viewport.Model
+	contentW  int             // viewport width: full region, user bubbles fill it.
+	tx        transcriptCache // frozen settled transcript; tail re-renders only
+	mainCache *mainViewCache  // memo of mainView() for transcript + gap; invalidated on transcript change
+	paint     streamPaint     // throttled live redraw; gen survives turn boundaries
 }
 
 // selection is app-level transcript drag selection plus its copy flash.

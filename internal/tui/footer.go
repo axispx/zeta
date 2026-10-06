@@ -12,98 +12,70 @@ import (
 	"github.com/axispx/zeta/internal/workspace"
 )
 
-// footerRows is the fixed height of the input footer (path/stats + usage/model).
-const footerRows = 2
+// footerRows is the fixed height of the input footer (path left, model and usage right).
+const footerRows = 1
 
-// inputFooter is two rows under the input box:
+var (
+	footerPathStyle   = lipgloss.NewStyle().Foreground(styles.Green)
+	footerBranchStyle = lipgloss.NewStyle().Foreground(styles.Red)
+	footerModelStyle  = lipgloss.NewStyle().Foreground(styles.Blue)
+)
+
+// inputFooter is one row under the input box:
 //
-//	cwd · branch                                +N -M
-//	model · effort · %
-func inputFooter(width int, ws workspace.Context, cfg config.Config, contextTokens int64, diff lineStats) string {
+//	cwd · branch                      model effort · %
+func inputFooter(width int, ws workspace.Context, cfg config.Config, contextTokens int64) string {
 	if width < 1 {
 		return ""
 	}
-	top := footerPathRow(width, ws, diff)
-	bot := footerUsageRow(width, cfg, contextTokens)
-	return lipgloss.JoinVertical(lipgloss.Left, top, bot)
-}
-
-// footerUsageRow is model · effort · %.
-func footerUsageRow(width int, cfg config.Config, contextTokens int64) string {
-	return footerUsageModel(contextTokens, cfg.ContextWindow(), cfg.ModelName(), cfg.ActiveReasoningEffort(), width)
-}
-
-// footerPathRow is path · branch (left) and +N -M (right).
-func footerPathRow(width int, ws workspace.Context, diff lineStats) string {
-	right := formatDiffStats(diff)
-	leftMax := footerLeftBudget(width, right)
-	left := styles.SystemMsg.Render(footerPathLabel(ws.Cwd, ws.Branch, leftMax))
-	return footerSplitRow(width, left, right)
-}
-
-// footerLeftBudget is width minus right, or 0 if right alone fills the row.
-// Callers fit left into this budget before footerSplitRow.
-func footerLeftBudget(width int, right string) int {
-	if right == "" {
-		return width
+	model := footerModelLabel(cfg.ModelName(), cfg.ActiveReasoningEffort())
+	if u := formatUsage(contextTokens, cfg.ContextWindow()); u != "" && model != "" {
+		model += " · " + u
 	}
-	rw := lipgloss.Width(right)
-	if rw <= 0 {
-		return width
-	}
-	if rw >= width {
-		return 0
-	}
-	return width - rw
-}
-
-// footerSplitRow pins right and fills the rest with left + gap.
-// left should already fit footerLeftBudget(width, right); overflow is a safety net.
-func footerSplitRow(width int, left, right string) string {
-	if width < 1 {
-		return ""
-	}
-	if right == "" {
-		return left
-	}
-	lw := lipgloss.Width(left)
-	rw := lipgloss.Width(right)
-	if lw+rw > width {
-		if lw > 0 {
-			return left
-		}
-		return right
-	}
-	if lw == 0 {
-		return lipgloss.NewStyle().Width(width).Align(lipgloss.Right).Render(right)
-	}
-	gapW := width - lw
-	return lipgloss.JoinHorizontal(lipgloss.Top,
-		left,
-		lipgloss.Place(gapW, 1, lipgloss.Right, lipgloss.Top, right),
-	)
-}
-
-// footerUsageModel is "model · effort · %" (effort/usage omitted when
-// unknown), truncated on the right to maxW.
-func footerUsageModel(contextTokens int64, contextWindow int, model, effort string, maxW int) string {
-	if maxW <= 0 {
-		return ""
-	}
-	parts := make([]string, 0, 4)
+	right := ""
 	if model != "" {
-		parts = append(parts, model)
+		right = footerModelStyle.Render(truncateRight(model, width))
 	}
-	if effort != "" {
-		parts = append(parts, config.ReasoningEffortLabel(effort))
+	leftMax := width
+	if rw := lipgloss.Width(right); rw > 0 {
+		leftMax = max(width-rw-1, 0)
 	}
-	if u := formatUsage(contextTokens, contextWindow); u != "" {
-		parts = append(parts, u)
+	left := footerPathColored(ws.Cwd, ws.Branch, leftMax)
+	top := left
+	if gap := width - lipgloss.Width(left) - lipgloss.Width(right); right != "" && gap >= 0 {
+		top = left + strings.Repeat(" ", gap) + right
 	}
-	if len(parts) == 0 {
+	return top
+}
+
+// footerModelLabel is "model effort" (effort omitted when unknown).
+func footerModelLabel(model, effort string) string {
+	if effort == "" {
+		return model
+	}
+	if model == "" {
 		return ""
 	}
-	return styles.SystemMsg.Render(truncateRight(strings.Join(parts, " · "), maxW))
+	return model + " " + config.ReasoningEffortLabel(effort)
+}
+
+// footerPathColored is footerPathLabel with the path green and branch red.
+func footerPathColored(cwd, branch string, maxW int) string {
+	label := footerPathLabel(cwd, branch, maxW)
+	if label == "" {
+		return ""
+	}
+	if branch == "" {
+		return footerPathStyle.Render(label)
+	}
+	if label == branch {
+		return footerBranchStyle.Render(label)
+	}
+	const sep = " · "
+	if path, ok := strings.CutSuffix(label, sep+branch); ok {
+		return footerPathStyle.Render(path) + styles.SystemMsg.Render(sep) + footerBranchStyle.Render(branch)
+	}
+	return footerPathStyle.Render(label)
 }
 
 // footerPathLabel is "cwd · branch" fitted into maxW.
@@ -162,22 +134,6 @@ func shortenPath(path string, maxW int) string {
 		leaf = path
 	}
 	return truncateLeft(leaf, maxW)
-}
-
-// formatDiffStats is green +N / red -M; omits zero sides; empty when both zero.
-func formatDiffStats(d lineStats) string {
-	if d.empty() {
-		return ""
-	}
-	if d.added > 0 && d.deleted > 0 {
-		return styles.DiffAdd.Render("+"+strconv.Itoa(d.added)) +
-			styles.SystemMsg.Render(" ") +
-			styles.DiffDel.Render("-"+strconv.Itoa(d.deleted))
-	}
-	if d.added > 0 {
-		return styles.DiffAdd.Render("+" + strconv.Itoa(d.added))
-	}
-	return styles.DiffDel.Render("-" + strconv.Itoa(d.deleted))
 }
 
 // formatUsage is the context fill percent, empty when tokens or the window are
