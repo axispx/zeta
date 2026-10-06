@@ -7,7 +7,6 @@ import (
 
 	"github.com/axispx/zeta/internal/ai"
 	"github.com/axispx/zeta/internal/image"
-	"github.com/axispx/zeta/internal/prompt"
 	"github.com/axispx/zeta/internal/session"
 	"github.com/axispx/zeta/internal/todo"
 	"github.com/axispx/zeta/internal/tools"
@@ -39,20 +38,20 @@ func TestCompactPrefixMatchesTurnPrefix(t *testing.T) {
 	if _, err := store.Replace([]todo.Item{{ID: "1", Subject: "A", Status: todo.Pending}}); err != nil {
 		t.Fatal(err)
 	}
-	for _, mode := range []prompt.Mode{prompt.ModeBuild, prompt.ModePlan} {
-		s := &Session{Mode: mode, Todos: store}
+	{
+		s := &Session{Todos: store}
 		got := s.CompactPrefix()
-		wantMsgs := RequestPrefix(s.WS, s.Mode)
+		wantMsgs := RequestPrefix(s.WS)
 		if !reflect.DeepEqual(got.Messages, wantMsgs) {
-			t.Fatalf("mode %v: messages = %+v, want %+v", mode, got.Messages, wantMsgs)
+			t.Fatalf("messages = %+v, want %+v", got.Messages, wantMsgs)
 		}
-		wantTools := tools.Defs(ToolsForMode(s.Mode, s.Todos))
+		wantTools := tools.Defs(TurnTools(s.Todos))
 		if len(got.Tools) != len(wantTools) {
-			t.Fatalf("mode %v: tools = %d, want %d", mode, len(got.Tools), len(wantTools))
+			t.Fatalf("tools = %d, want %d", len(got.Tools), len(wantTools))
 		}
 		for i := range wantTools {
 			if got.Tools[i].Name != wantTools[i].Name {
-				t.Fatalf("mode %v: tool %d = %q, want %q", mode, i, got.Tools[i].Name, wantTools[i].Name)
+				t.Fatalf("tool %d = %q, want %q", i, got.Tools[i].Name, wantTools[i].Name)
 			}
 		}
 	}
@@ -214,7 +213,7 @@ func TestCommitAssistantAppendsBanksAndPersists(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := &Session{Log: log, Mode: prompt.ModePlan}
+	s := &Session{Log: log}
 	usage := ai.Usage{PromptTokens: 1000, CompletionTokens: 200, TotalTokens: 1200, CachedTokens: 900, CacheReported: true}
 
 	if err := s.CommitAssistant(ai.Message{Role: ai.RoleAssistant, Text: "hi"}, usage, nil); err != nil {
@@ -243,9 +242,6 @@ func TestCommitAssistantAppendsBanksAndPersists(t *testing.T) {
 	if recs[0].Model != s.Cfg.ModelName() {
 		t.Fatalf("persisted model=%q", recs[0].Model)
 	}
-	if !recs[0].FramePlan {
-		t.Fatal("plan-mode segment should persist FramePlan")
-	}
 }
 
 // A provider that reports no token counts must not bank a measurement or write
@@ -257,7 +253,7 @@ func TestCommitAssistantWithoutUsage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := &Session{Log: log, Mode: prompt.ModeBuild}
+	s := &Session{Log: log}
 	if err := s.CommitAssistant(ai.Message{Role: ai.RoleAssistant, Text: "hi"}, ai.Usage{}, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -273,9 +269,6 @@ func TestCommitAssistantWithoutUsage(t *testing.T) {
 	}
 	if len(recs) != 1 || recs[0].Usage != nil || recs[0].Model != "" {
 		t.Fatalf("recs=%+v", recs)
-	}
-	if recs[0].FramePlan {
-		t.Fatal("build-mode segment must not frame a plan")
 	}
 }
 

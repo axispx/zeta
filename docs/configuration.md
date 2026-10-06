@@ -35,7 +35,7 @@ reports quota only on request is fetched when you run `/usage`.
 
 For the xAI device-code flow (`xai`), the panel shows a URL and a code to type.
 
-Optional: set a preferred build model after plan approve with `"defaults": { "build": "provider/model" }` in the config file. Per-model `reasoning_effort` is set from `/model` with Tab, which cycles that model's supported levels (from models.dev; e.g. `low`/`medium`/`high`/`xhigh`/`max`, or a model's shorter list). Models with no catalog effort data fall back to `low`/`medium`/`high`.
+Per-model `reasoning_effort` is set from `/model` with Tab, which cycles that model's supported levels (from models.dev; e.g. `low`/`medium`/`high`/`xhigh`/`max`, or a model's shorter list). Models with no catalog effort data fall back to `low`/`medium`/`high`.
 
 Example shape (prefer the UI over hand-editing):
 

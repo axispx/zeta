@@ -57,7 +57,7 @@ func TestAppendResume(t *testing.T) {
 	if err := s.SetName("Auth Middleware Fix"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Append(Record{Role: RoleAgent, Text: "hello", FramePlan: true}); err != nil {
+	if err := s.Append(Record{Role: RoleAgent, Text: "hello"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -83,9 +83,6 @@ func TestAppendResume(t *testing.T) {
 	}
 	if len(recs2[0].Images) != 1 || recs2[0].Images[0].URL != "data:image/png;base64,AAAA" || recs2[0].Images[0].MIME != "image/png" {
 		t.Fatalf("images = %#v", recs2[0].Images)
-	}
-	if !recs2[1].FramePlan {
-		t.Fatal("FramePlan not restored from JSONL")
 	}
 
 	// File is a single JSONL with typed events; no sidecar.

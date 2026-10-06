@@ -78,17 +78,6 @@ var (
 	Selection = lipgloss.NewStyle().
 			Reverse(true)
 
-	// StyleModeBuild and StyleModePlan are the footer mode accents. Mapping from
-	// mode → style lives in tui.
-	StyleModeBuild = lipgloss.NewStyle().Bold(true).Foreground(Blue)
-	StyleModePlan  = lipgloss.NewStyle().Bold(true).Foreground(Yellow)
-
-	// PlanFrame is the yellow left border for proposed-plan bodies in the transcript.
-	PlanFrame = lipgloss.NewStyle().
-			Border(lipgloss.ThickBorder(), false, false, false, true).
-			BorderForeground(Yellow).
-			PaddingLeft(1)
-
 	// FollowUpsHint styles queued follow-ups above the input.
 	FollowUpsHint = lipgloss.NewStyle().Foreground(Dim)
 

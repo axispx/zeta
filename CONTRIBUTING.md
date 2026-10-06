@@ -44,7 +44,6 @@ internal/session/    JSONL under ~/.zeta/sessions/
 internal/workspace/  cwd/git context, AGENTS.md, folder trust (~/.zeta/trusted.json)
 internal/search/     fuzzy filter helpers (slash palette, @ files, models)
 internal/rg/         shared ripgrep invoke (tools + @ file list)
-internal/plan/       proposed_plan extract + build seed
 internal/paths/      ZETA_HOME
 internal/image/      path normalize, sniff, data: URLs, clipboard (temp only)
 internal/styles/     lipgloss tokens + banner
@@ -91,7 +90,7 @@ Bundled today: `review` (`/review` — thermo-nuclear code quality review).
 ### Prompt cache
 
 Providers cache the request prefix, so the head of every request stays
-byte-identical: system prompt (`internal/prompt`), mode instructions, then
+byte-identical: system prompt (`internal/prompt`), agent instructions, then
 durable history. Anything that changes between turns — slash-skill playbook,
 environment, todos checklist — is appended as a trailing developer block in
 `harness.RequestMsgs`, ordered most stable first. Put new context in that tail, not the
@@ -124,7 +123,7 @@ estimate. Keep the pairing intact: `Model.contextTokens` is the provider's
 footprint for the last request and `Model.contextMsgs` is how many history
 messages it covers, so `compact.usedTokens` measures only what was appended
 since. A footprint recorded against a history that has since been rewritten
-(compaction, a model or mode switch) describes a request the session will no
+(compaction, a model switch) describes a request the session will no
 longer send — drop it rather than trusting it. `Measured` already includes the
 request envelope, so never add `Overhead` to it.
 

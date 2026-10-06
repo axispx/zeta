@@ -73,16 +73,16 @@ func TestGateAndUIShareLiveRules(t *testing.T) {
 func TestPanelExclusive(t *testing.T) {
 	var p panel
 	p.setPerm(&permissionPrompt{name: tools.Bash})
-	if p.perm == nil || p.ask != nil || p.plan != nil {
+	if p.perm == nil || p.ask != nil {
 		t.Fatalf("setPerm: %+v", p)
 	}
 	p.setAsk(newAskPrompt(sampleAskArgs()))
-	if p.ask == nil || p.perm != nil || p.plan != nil {
+	if p.ask == nil || p.perm != nil {
 		t.Fatalf("setAsk clears perm: %+v", p)
 	}
-	p.setPlan(&planPrompt{body: "x", title: "T"})
-	if p.plan == nil || p.ask != nil || p.perm != nil {
-		t.Fatalf("setPlan clears ask: %+v", p)
+	p.setPerm(&permissionPrompt{name: tools.Bash})
+	if p.perm == nil || p.ask != nil {
+		t.Fatalf("setPerm clears ask: %+v", p)
 	}
 	p.clear()
 	if p.blocked() {

@@ -389,7 +389,6 @@ func (m *Model) handleTurnDone() tea.Cmd {
 	if cmd := m.sendQueued(); cmd != nil {
 		return cmd
 	}
-	m.maybeOfferPlan()
 	m.refreshTranscript()
 	return nil
 }

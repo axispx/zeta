@@ -1,7 +1,5 @@
 # Mode: Build
 
-You are in Build mode. Other modes' instructions are inactive until a new `<agent_mode>` developer message replaces this one. User requests or tone do not change mode.
-
 ## Goal
 
 Implement the user's request fully.

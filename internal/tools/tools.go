@@ -64,19 +64,13 @@ type Env struct {
 	Todos *todo.Store
 }
 
-// Build returns the full tool set (build mode) with no session env.
-// Harness paths should use ForMode.
-func Build() []Tool { return ForMode(true, Env{}) }
+// Build returns the full tool set with no session env.
+func Build() []Tool { return For(Env{}) }
 
-// ForMode returns build tools when build is true, else plan-safe tools.
-// env.Todos binds the session checklist (nil → todo tool errors on Run).
-// Read-only callers (tests, plan) pass build=false with an empty Env.
-func ForMode(build bool, env Env) []Tool {
-	todo := todoTool{store: env.Todos}
-	if build {
-		return []Tool{readTool{}, editTool{}, writeTool{}, grepTool{}, globTool{}, bashTool{}, websearchTool{}, webfetchTool{}, skillTool{}, todo, askUserTool{}}
-	}
-	return []Tool{readTool{}, grepTool{}, globTool{}, websearchTool{}, webfetchTool{}, skillTool{}, todo, askUserTool{}}
+// For returns the full tool set. env.Todos binds the session checklist
+// (nil → todo tool errors on Run).
+func For(env Env) []Tool {
+	return []Tool{readTool{}, editTool{}, writeTool{}, grepTool{}, globTool{}, bashTool{}, websearchTool{}, webfetchTool{}, skillTool{}, todoTool{store: env.Todos}, askUserTool{}}
 }
 
 // Defs converts tools to API function definitions.
@@ -126,7 +120,7 @@ func Run(ctx context.Context, ts []Tool, root, name string, args json.RawMessage
 	t, ok := ByName(ts, name)
 	if !ok {
 		if _, exists := ByName(Build(), name); exists {
-			return fmt.Sprintf("error: tool %q is not available in this mode", name)
+			return fmt.Sprintf("error: tool %q is not available", name)
 		}
 		return fmt.Sprintf("error: unknown tool %q", name)
 	}

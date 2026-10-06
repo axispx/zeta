@@ -9,7 +9,6 @@ import (
 	"github.com/axispx/zeta/internal/classifier"
 	"github.com/axispx/zeta/internal/harness"
 	"github.com/axispx/zeta/internal/image"
-	"github.com/axispx/zeta/internal/prompt"
 )
 
 // This file owns the agent turn: starting one (submit / beginTurn) and routing
@@ -94,13 +93,6 @@ func (m *Model) markEffects(id int) bool {
 	return true
 }
 
-// planFraming is true when this turn is Plan mode. Mode is frozen while a turn
-// runs, so the same snapshot is used for the live agent row and JSONL persist.
-// Stored on the message so framing survives later mode switches and resume.
-func (m *Model) planFraming() bool {
-	return m.session.Mode == prompt.ModePlan
-}
-
 func (m *Model) handleTurnDelta(msg turnDeltaMsg) tea.Cmd {
 	if m.turn.current == nil {
 		return nil
@@ -111,9 +103,8 @@ func (m *Model) handleTurnDelta(msg turnDeltaMsg) tea.Cmd {
 		m.transcript.messages[n-1].Text += msg.text
 	} else {
 		m.transcript.messages = append(m.transcript.messages, Message{
-			Role:      RoleAgent,
-			Text:      msg.text,
-			framePlan: m.planFraming(),
+			Role: RoleAgent,
+			Text: msg.text,
 		})
 	}
 	// Ingest every token; paint at most every streamPaintEvery.
@@ -141,7 +132,6 @@ func (m *Model) handleTurnAssistant(msg turnAssistantMsg) tea.Cmd {
 		m.refreshTranscript()
 	}
 	m.reportSaveErr(m.session.CommitAssistant(msg.message, msg.usage, msg.plan))
-	m.noteProducedPlan(msg.message.Text)
 	return waitTurn(m.turn.current)
 }
 

@@ -6,7 +6,6 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/axispx/zeta/internal/plan"
 	"github.com/axispx/zeta/internal/styles"
 )
 
@@ -40,12 +39,7 @@ type Message struct {
 	Out    string     // live/final tool output (bash stdout / edit unified diff)
 	Status ToolStatus // RoleTool lifecycle; zero value is ToolRunning
 
-	// framePlan: Plan-mode ingest snapshot. Framing does not follow later mode
-	// switches. Raw Text still holds tags for API/JSONL; render splits only when true.
-	framePlan bool
-
 	// Cached markdown render for RoleAgent (keyed by source text + width).
-	// For plan-framed rows the cache stores the full composed output under m.Text.
 	md       string
 	mdWidth  int
 	mdSource string
@@ -90,79 +84,12 @@ func (m *Message) renderBody(width int, userMsg lipgloss.Style, live bool) strin
 	}
 }
 
-// renderAgent paints assistant text. framePlan gates plan framing; otherwise
-// raw markdown (tags stay ordinary text).
-//
-// Settled renders cache the full composed string under m.Text so multi-segment
-// plan rows (before / frame / after) do not thrash a single-segment cache.
+// renderAgent paints assistant text as markdown, streaming while live.
 func (m *Message) renderAgent(width int, live bool) string {
-	if m.framePlan {
-		if before, body, after, ok := plan.DisplayParts(m.Text); ok {
-			if !live {
-				if m.md != "" && m.mdWidth == width && m.mdSource == m.Text {
-					return m.md
-				}
-				out := composeAgentPlan(before, body, after, width, false, nil)
-				m.md = out
-				m.mdWidth = width
-				m.mdSource = m.Text
-				return out
-			}
-			// Live: compose each paint; streamingMarkdown may use md for the after tail only.
-			return composeAgentPlan(before, body, after, width, true, m)
-		}
-	}
 	if live {
 		return m.streamingMarkdown(m.Text, width)
 	}
 	return m.cachedMarkdown(m.Text, width)
-}
-
-// composeAgentPlan builds framed plan output. When live and msg is non-nil,
-// after uses streamingMarkdown; otherwise segments call renderMarkdown directly
-// (no multi-source cache thrash).
-func composeAgentPlan(before, body, after string, width int, live bool, msg *Message) string {
-	var parts []string
-	if strings.TrimSpace(before) != "" {
-		parts = append(parts, renderMarkdown(before, width))
-	}
-	if body != "" {
-		open := live && msg != nil && plan.Open(msg.Text)
-		parts = append(parts, renderPlanFrame(body, width, open))
-	}
-	if strings.TrimSpace(after) != "" {
-		if live && msg != nil {
-			parts = append(parts, msg.streamingMarkdown(after, width))
-		} else {
-			parts = append(parts, renderMarkdown(after, width))
-		}
-	}
-	return strings.Join(parts, "\n\n")
-}
-
-// renderPlanFrame draws plan markdown with a yellow left border (no tags).
-func renderPlanFrame(body string, width int, live bool) string {
-	innerW := width
-	// thick left border (1) + PaddingLeft(1)
-	const frameChrome = 2
-	if innerW > frameChrome {
-		innerW -= frameChrome
-	}
-	var content string
-	if live {
-		content = plainAgent(body, innerW)
-	} else {
-		content = renderMarkdown(body, innerW)
-	}
-	content = strings.TrimRight(content, "\n")
-	if content == "" {
-		return ""
-	}
-	frame := styles.PlanFrame
-	if width > 0 {
-		frame = frame.Width(width)
-	}
-	return frame.Render(content)
 }
 
 // cachedMarkdown renders source via glamour, keyed by source+width.

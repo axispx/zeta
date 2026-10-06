@@ -8,7 +8,6 @@
 | `Tab`                                  | Busy: queue the text as a follow-up for after the turn |
 | `Alt+↑` / `Alt+↓`                      | Copy queued follow-ups into the input, newest first / back toward newest |
 | `↑` / `↓` or `Ctrl+P` / `Ctrl+N`       | Prompt history                              |
-| `Shift+Tab`                            | Cycle mode (build → plan)                   |
 | `Shift+Enter` / `Ctrl+J` / `Alt+Enter` | Newline                                     |
 | `@`                                    | File mention picker (gitignore-aware; Tab/Enter insert) |
 | `Tab` (in `/model`)                    | Cycle the model's reasoning levels (off → its supported values) |
@@ -51,11 +50,11 @@ as **Type an answer**):
 Typing goes to the freeform row on its own — there is no key to focus it, and
 `↑`/`↓` hand the keys back to the list.
 
-Permission and plan prompts use the same keys (row numbers only move; `Enter`
+Permission prompts use the same keys (row numbers only move; `Enter`
 confirms). No panel binds a bare letter, so typing while a prompt is open never
 answers it — see [Permissions](permissions.md). On a permission prompt `Esc`
-denies rather than cancelling the turn (`Ctrl+C` aborts the turn); on the ask and
-plan panels `Esc` cancels as usual.
+denies rather than cancelling the turn (`Ctrl+C` aborts the turn); on the ask
+panel `Esc` cancels as usual.
 
 ## Terminal notes
 

@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/axispx/zeta/internal/ai"
-	"github.com/axispx/zeta/internal/prompt"
 	"github.com/axispx/zeta/internal/todo"
 	"github.com/axispx/zeta/internal/workspace"
 )
@@ -39,8 +38,8 @@ func TestRequestMsgsKeepsCachedPrefix(t *testing.T) {
 		{Role: ai.RoleAssistant, Text: "ok"},
 		{Role: ai.RoleUser, Text: "second"},
 	}
-	first := textOf(RequestMsgs(ws, prompt.ModeBuild, hist[:1], nil))
-	later := textOf(RequestMsgs(ws, prompt.ModeBuild, hist, nil))
+	first := textOf(RequestMsgs(ws, hist[:1], nil))
+	later := textOf(RequestMsgs(ws, hist, nil))
 
 	head := len(hist) + 2 // system + mode + history
 	if got, want := later[2:head], textOf(hist); !slices.Equal(got, want) {
@@ -68,8 +67,8 @@ func TestRequestMsgsEnvironmentTrailsBranchChange(t *testing.T) {
 	feature.Branch = "feature"
 	hist := []ai.Message{{Role: ai.RoleUser, Text: "go"}}
 
-	before := textOf(RequestMsgs(main, prompt.ModeBuild, hist, nil))
-	after := textOf(RequestMsgs(feature, prompt.ModeBuild, hist, nil))
+	before := textOf(RequestMsgs(main, hist, nil))
+	after := textOf(RequestMsgs(feature, hist, nil))
 
 	if got, want := before[:len(before)-1], after[:len(after)-1]; !slices.Equal(got, want) {
 		t.Fatalf("branch change rewrote the prefix:\n%q\n%q", got, want)
@@ -83,7 +82,7 @@ func TestRequestMsgsTodosBlock(t *testing.T) {
 	hist := []ai.Message{{Role: ai.RoleUser, Text: "go"}}
 	// empty store → no block
 	empty := todo.NewStore()
-	msgs := RequestMsgs(workspace.Context{}, prompt.ModeBuild, hist, empty)
+	msgs := RequestMsgs(workspace.Context{}, hist, empty)
 	for _, m := range msgs {
 		if m.Role == ai.RoleDeveloper && strings.Contains(m.Text, "# Session todos") {
 			t.Fatalf("unexpected todos block: %q", m.Text)
@@ -96,7 +95,7 @@ func TestRequestMsgsTodosBlock(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	msgs = RequestMsgs(workspace.Context{}, prompt.ModeBuild, hist, store)
+	msgs = RequestMsgs(workspace.Context{}, hist, store)
 	var saw, sawEnv bool
 	// should trail history so the stable prefix stays cacheable
 	envIdx, modeIdx, todoIdx, userIdx := -1, -1, -1, -1
@@ -130,7 +129,7 @@ func TestRequestMsgsTodosBlock(t *testing.T) {
 
 func TestRequestMsgsExpandsSlashSkill(t *testing.T) {
 	hist := []ai.Message{{Role: ai.RoleUser, Text: "/review"}}
-	msgs := RequestMsgs(workspace.Context{}, prompt.ModeBuild, hist, nil)
+	msgs := RequestMsgs(workspace.Context{}, hist, nil)
 	if len(msgs) < 3 {
 		t.Fatalf("len=%d", len(msgs))
 	}
@@ -156,7 +155,7 @@ func TestRequestMsgsExpandsSlashSkill(t *testing.T) {
 func TestRequestMsgsExpandsSlashSkillWithArgs(t *testing.T) {
 	const user = "/review focus on tui packaging"
 	hist := []ai.Message{{Role: ai.RoleUser, Text: user}}
-	msgs := RequestMsgs(workspace.Context{}, prompt.ModeBuild, hist, nil)
+	msgs := RequestMsgs(workspace.Context{}, hist, nil)
 	var sawUser, sawSkill bool
 	for _, m := range msgs {
 		if m.Role == ai.RoleUser && m.Text == user {
@@ -183,7 +182,7 @@ func TestRequestMsgsNoReinjectCompletedSlash(t *testing.T) {
 			{Role: ai.RoleUser, Text: user},
 			{Role: ai.RoleAssistant, Text: "done"},
 		}
-		msgs := RequestMsgs(workspace.Context{}, prompt.ModeBuild, hist, nil)
+		msgs := RequestMsgs(workspace.Context{}, hist, nil)
 		for _, m := range msgs {
 			if m.Role == ai.RoleDeveloper && strings.Contains(m.Text, "Thermo-Nuclear") {
 				t.Fatalf("re-injected completed slash %q: %+v", user, rolesOf(msgs))
@@ -194,7 +193,7 @@ func TestRequestMsgsNoReinjectCompletedSlash(t *testing.T) {
 
 func TestRequestMsgsNoopPlainUser(t *testing.T) {
 	hist := []ai.Message{{Role: ai.RoleUser, Text: "no slash"}}
-	msgs := RequestMsgs(workspace.Context{}, prompt.ModeBuild, hist, nil)
+	msgs := RequestMsgs(workspace.Context{}, hist, nil)
 	for _, m := range msgs {
 		if m.Role == ai.RoleDeveloper && strings.Contains(m.Text, "skill_content") {
 			t.Fatalf("unexpected skill inject: %+v", m)

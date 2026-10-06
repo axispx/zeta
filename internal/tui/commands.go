@@ -351,7 +351,6 @@ func (m *Model) applySession(sess *session.Session, recs []session.Record, err e
 	m.clearCompactState()
 	m.resetPromptHistory()
 	m.clearPanel()
-	m.pendingPlan = ""
 	m.clearQueue()
 	m.closeOverlay()
 	m.session.Grants = &permission.Session{}
@@ -769,4 +768,33 @@ func overlayWidths(termW int) (innerW, contentW int) {
 // paintOverlay fills the list with panel chrome so it doesn't blend into the transcript.
 func (m *Model) paintOverlay(body string, innerW int) string {
 	return m.term.chrome.OverlayPanel().Width(innerW).Render(body)
+}
+
+// renderModelChoiceList paints a scrollable model list.
+// markID + markHint label the preferred/active row.
+func renderModelChoiceList(models []config.ModelChoice, selected int, markID, markHint string, contentW, maxRows int, ink styles.OverlayInk) string {
+	if len(models) == 0 {
+		return ""
+	}
+	listH := min(maxRows, len(models))
+	start, end := windowAround(selected, len(models), listH)
+	var b strings.Builder
+	for i, e := range models[start:end] {
+		b.WriteByte('\n')
+		idx := start + i
+		b.WriteString(formatAccentRow(e.Name, modelChoiceHint(e, markID, markHint), contentW, idx == selected, e.ID() == markID, ink))
+	}
+	return b.String()
+}
+
+// modelChoiceHint is "active" plus the stored reasoning level.
+func modelChoiceHint(e config.ModelChoice, markID, markHint string) string {
+	var parts []string
+	if e.ID() == markID && markHint != "" {
+		parts = append(parts, markHint)
+	}
+	if e.Effort != "" {
+		parts = append(parts, config.ReasoningEffortLabel(e.Effort))
+	}
+	return strings.Join(parts, " · ")
 }

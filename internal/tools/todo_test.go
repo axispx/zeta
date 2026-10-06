@@ -12,9 +12,6 @@ func TestTodoToolAlwaysRegistered(t *testing.T) {
 	if _, ok := ByName(Build(), Todo); !ok {
 		t.Fatal("Build() should include todo")
 	}
-	if _, ok := ByName(ForMode(false, Env{}), Todo); !ok {
-		t.Fatal("read-only set should include todo")
-	}
 	if Interactive(Todo) {
 		t.Fatal("todo must not be interactive")
 	}
@@ -31,7 +28,7 @@ func TestTodoToolNilStore(t *testing.T) {
 
 func TestTodoToolReplace(t *testing.T) {
 	store := todo.NewStore()
-	ts := ForMode(true, Env{Todos: store})
+	ts := For(Env{Todos: store})
 	ctx := context.Background()
 
 	out := Run(ctx, ts, t.TempDir(), Todo, mustRaw(t, map[string]any{
@@ -73,7 +70,7 @@ func TestTodoToolReplace(t *testing.T) {
 
 func TestTodoToolInvalidArgs(t *testing.T) {
 	store := todo.NewStore()
-	ts := ForMode(true, Env{Todos: store})
+	ts := For(Env{Todos: store})
 	ctx := context.Background()
 	out := Run(ctx, ts, t.TempDir(), Todo, mustRaw(t, map[string]any{
 		"items": []map[string]any{{"id": "1", "subject": "x", "status": "nope"}},

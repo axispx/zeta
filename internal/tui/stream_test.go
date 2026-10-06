@@ -10,7 +10,6 @@ import (
 	"github.com/axispx/zeta/internal/ai"
 	"github.com/axispx/zeta/internal/compact"
 	"github.com/axispx/zeta/internal/harness"
-	"github.com/axispx/zeta/internal/prompt"
 	"github.com/axispx/zeta/internal/workspace"
 )
 
@@ -41,7 +40,7 @@ func TestRefreshWorkspaceKeepsAgentsSnapshot(t *testing.T) {
 	m := testModel()
 	m.session.WS = workspace.Context{Abs: dir, Cwd: dir, AgentsMD: "Use tabs."}
 	hist := []ai.Message{{Role: ai.RoleUser, Text: "go"}}
-	before := textOf(harness.RequestMsgs(m.session.WS, prompt.ModeBuild, hist, nil))
+	before := textOf(harness.RequestMsgs(m.session.WS, hist, nil))
 
 	if err := os.WriteFile(filepath.Join(dir, "AGENTS.md"), []byte("Use spaces."), 0o644); err != nil {
 		t.Fatal(err)
@@ -50,7 +49,7 @@ func TestRefreshWorkspaceKeepsAgentsSnapshot(t *testing.T) {
 	if m.session.WS.AgentsMD != "Use tabs." {
 		t.Fatalf("turn boundary reloaded AGENTS.md: %q", m.session.WS.AgentsMD)
 	}
-	if after := textOf(harness.RequestMsgs(m.session.WS, prompt.ModeBuild, hist, nil)); !slices.Equal(before, after) {
+	if after := textOf(harness.RequestMsgs(m.session.WS, hist, nil)); !slices.Equal(before, after) {
 		t.Fatalf("prefix changed mid-session:\n%q\n%q", before, after)
 	}
 
@@ -107,7 +106,7 @@ func TestCompactReloadsAgents(t *testing.T) {
 	if m.session.WS.AgentsMD != "Use spaces." {
 		t.Fatalf("compaction kept the stale AGENTS.md: %q", m.session.WS.AgentsMD)
 	}
-	msgs := harness.RequestMsgs(m.session.WS, prompt.ModeBuild, m.session.History, m.session.Todos)
+	msgs := harness.RequestMsgs(m.session.WS, m.session.History, m.session.Todos)
 	if !strings.Contains(msgs[0].Text, "Use spaces.") {
 		t.Fatalf("compacted request missing the new AGENTS.md: %q", msgs[0].Text)
 	}
@@ -154,7 +153,7 @@ func TestAutoCompactKeepsReloadedAgents(t *testing.T) {
 	if m.session.WS.AgentsMD != "Use spaces." {
 		t.Fatalf("auto-compact kept the stale AGENTS.md: %q", m.session.WS.AgentsMD)
 	}
-	if got := harness.RequestMsgs(m.session.WS, prompt.ModeBuild, m.session.History, m.session.Todos)[0].Text; !strings.Contains(got, "Use spaces.") {
+	if got := harness.RequestMsgs(m.session.WS, m.session.History, m.session.Todos)[0].Text; !strings.Contains(got, "Use spaces.") {
 		t.Fatalf("auto-compacted request missing the new AGENTS.md: %q", got)
 	}
 }

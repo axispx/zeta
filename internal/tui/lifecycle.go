@@ -19,7 +19,7 @@ func loadSession(recs []session.Record) (ui []Message, history []ai.Message) {
 			ui = append(ui, Message{Role: RoleUser, Text: userDisplayFromSession(r.Text, r.Images)})
 		case session.RoleAgent:
 			if r.Text != "" {
-				ui = append(ui, Message{Role: RoleAgent, Text: r.Text, framePlan: r.FramePlan})
+				ui = append(ui, Message{Role: RoleAgent, Text: r.Text})
 			}
 		case session.RoleTool:
 			label := r.Label

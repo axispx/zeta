@@ -9,29 +9,22 @@ import (
 	"github.com/axispx/zeta/internal/workspace"
 )
 
-// ToolsForMode is the tool set a turn runs with: read-only in plan, full in
-// every other mode.
-func ToolsForMode(mode prompt.Mode, store *todo.Store) []tools.Tool {
-	env := tools.Env{Todos: store}
-	switch mode {
-	case prompt.ModePlan:
-		return tools.ForMode(false, env)
-	default:
-		return tools.ForMode(true, env)
-	}
+// TurnTools is the tool set a turn runs with.
+func TurnTools(store *todo.Store) []tools.Tool {
+	return tools.For(tools.Env{Todos: store})
 }
 
 // RequestPrefix is the byte-stable head of every request in a session: the
-// system prompt and mode instructions. It heads the prefix providers cache, so
+// system prompt and agent instructions. It heads the prefix providers cache, so
 // it is also what compaction reuses. Nothing volatile belongs here.
-func RequestPrefix(ws workspace.Context, mode prompt.Mode) []ai.Message {
+func RequestPrefix(ws workspace.Context) []ai.Message {
 	return []ai.Message{
 		{Role: ai.RoleSystem, Text: prompt.System(ws)},
-		{Role: ai.RoleDeveloper, Text: mode.Instructions()},
+		{Role: ai.RoleDeveloper, Text: prompt.Instructions()},
 	}
 }
 
-// RequestMsgs prepends system + mode instructions to the durable history and
+// RequestMsgs prepends system + agent instructions to the durable history and
 // appends the per-request developer blocks: a trailing slash-skill playbook
 // (invoking turn only), the environment, and the todo checklist.
 //
@@ -41,9 +34,9 @@ func RequestPrefix(ws workspace.Context, mode prompt.Mode) []ai.Message {
 // invalidate the whole transcript whenever it moved. The tail is ordered by
 // volatility, most stable first: environment changes on checkout or day
 // rollover, the todos block on most tool turns.
-func RequestMsgs(ws workspace.Context, mode prompt.Mode, history []ai.Message, todos *todo.Store) []ai.Message {
+func RequestMsgs(ws workspace.Context, history []ai.Message, todos *todo.Store) []ai.Message {
 	out := make([]ai.Message, 0, len(history)+5)
-	out = append(out, RequestPrefix(ws, mode)...)
+	out = append(out, RequestPrefix(ws)...)
 	// Durable history keeps the user text (token + optional args); completed
 	// slash turns are not re-injected on later requests.
 	out = append(out, history...)

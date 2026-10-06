@@ -8,7 +8,6 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/axispx/zeta/internal/config"
-	"github.com/axispx/zeta/internal/prompt"
 	"github.com/axispx/zeta/internal/styles"
 	"github.com/axispx/zeta/internal/workspace"
 )
@@ -19,22 +18,19 @@ const footerRows = 2
 // inputFooter is two rows under the input box:
 //
 //	cwd · branch                                +N -M
-//	model · effort · %                          mode
-func inputFooter(width int, ws workspace.Context, cfg config.Config, mode prompt.Mode, contextTokens int64, diff lineStats) string {
+//	model · effort · %
+func inputFooter(width int, ws workspace.Context, cfg config.Config, contextTokens int64, diff lineStats) string {
 	if width < 1 {
 		return ""
 	}
 	top := footerPathRow(width, ws, diff)
-	bot := footerUsageRow(width, cfg, mode, contextTokens)
+	bot := footerUsageRow(width, cfg, contextTokens)
 	return lipgloss.JoinVertical(lipgloss.Left, top, bot)
 }
 
-// footerUsageRow is model · effort · % · tokens (left) and mode (right).
-func footerUsageRow(width int, cfg config.Config, mode prompt.Mode, contextTokens int64) string {
-	right := modeStyle(mode).Render(mode.Label())
-	leftMax := footerLeftBudget(width, right)
-	left := footerUsageModel(contextTokens, cfg.ContextWindow(), cfg.ModelName(), cfg.ActiveReasoningEffort(), leftMax)
-	return footerSplitRow(width, left, right)
+// footerUsageRow is model · effort · %.
+func footerUsageRow(width int, cfg config.Config, contextTokens int64) string {
+	return footerUsageModel(contextTokens, cfg.ContextWindow(), cfg.ModelName(), cfg.ActiveReasoningEffort(), width)
 }
 
 // footerPathRow is path · branch (left) and +N -M (right).
@@ -205,15 +201,6 @@ func formatTokenCount(n int64) string {
 		return fmt.Sprintf("%.1fk", float64(n)/1_000)
 	default:
 		return strconv.FormatInt(n, 10)
-	}
-}
-
-func modeStyle(m prompt.Mode) lipgloss.Style {
-	switch m {
-	case prompt.ModePlan:
-		return styles.StyleModePlan
-	default:
-		return styles.StyleModeBuild
 	}
 }
 

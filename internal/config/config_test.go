@@ -243,21 +243,6 @@ func TestSetReasoningEffort(t *testing.T) {
 	}
 }
 
-func TestPreferredBuildModel(t *testing.T) {
-	cfg := sampleConfig()
-	if got := cfg.PreferredBuildModel(); got != cfg.Active {
-		t.Fatalf("fallback active: got %q", got)
-	}
-	cfg.SetBuildDefault("xai/grok-3")
-	if got := cfg.PreferredBuildModel(); got != "xai/grok-3" {
-		t.Fatalf("defaults.build: got %q", got)
-	}
-	cfg.SetBuildDefault("nope/missing")
-	if got := cfg.PreferredBuildModel(); got != cfg.Active {
-		t.Fatalf("invalid default should fall back: got %q", got)
-	}
-}
-
 func TestValidateAllowsEmptyModels(t *testing.T) {
 	cfg := sampleConfig()
 	p := cfg.Providers["deepseek"]
@@ -333,38 +318,6 @@ func TestSaveRoundTrip(t *testing.T) {
 	}
 	if strings.Contains(s, `"id":`) {
 		t.Fatalf("provider id should be the map key, not a field: %s", data)
-	}
-	// Defaults is a struct: omitempty would still emit "defaults": {}, so the
-	// tag must be omitzero. Only Build set means the whole block is present.
-	if strings.Contains(s, `"defaults"`) {
-		t.Fatalf("zero defaults should be omitted: %s", data)
-	}
-}
-
-func TestSaveDefaultsOmittedUntilSet(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("ZETA_HOME", dir)
-
-	cfg := sampleConfig()
-	cfg.SetBuildDefault("deepseek/deepseek-chat")
-	if err := cfg.Save(); err != nil {
-		t.Fatalf("Save: %v", err)
-	}
-	data, err := os.ReadFile(filepath.Join(dir, "config.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(data), `"defaults"`) ||
-		!strings.Contains(string(data), `"build": "deepseek/deepseek-chat"`) {
-		t.Fatalf("set defaults should marshal: %s", data)
-	}
-
-	loaded, err := Load()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if loaded.Defaults.Build != "deepseek/deepseek-chat" {
-		t.Fatalf("round-trip build = %q", loaded.Defaults.Build)
 	}
 }
 

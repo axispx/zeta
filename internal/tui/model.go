@@ -50,13 +50,12 @@ type Model struct {
 	composer   composer
 
 	// Live interaction state.
-	turn        turn
-	spinner     spinner.Model
-	pendingPlan string
-	selection   selection
-	overlay     filterOverlay
-	picker      pickerState
-	config      configDialog
+	turn      turn
+	spinner   spinner.Model
+	selection selection
+	overlay   filterOverlay
+	picker    pickerState
+	config    configDialog
 
 	// Terminal environment and process lifecycle.
 	term term
@@ -362,14 +361,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case msg.String() == "alt+down" && m.queue.recalled != nil:
 			m.recallNewerQueued()
-			return m, nil
-		case msg.String() == "shift+tab":
-			if m.turn.current == nil && !m.inputBlocked() && !m.queue.hasState() {
-				m.session.Mode = m.session.Mode.Next()
-				// Mode swaps the developer message and the tool set, so the
-				// next request shares no prefix with the last one.
-				m.session.ResetContext()
-			}
 			return m, nil
 		case isPasteKey(msg):
 			if !m.inputBlocked() {

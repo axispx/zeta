@@ -13,24 +13,20 @@ import (
 const panelGutter = inputPromptWidth
 
 // panel is the exclusive occupant of the input row: at most one of the
-// permission / ask / plan / build widgets is open at a time. Open through set*
+// permission / ask widgets is open at a time. Open through set*
 // and close through clear — never assign a field ad-hoc.
 type panel struct {
-	perm  *permissionPrompt
-	ask   *askPrompt
-	plan  *planPrompt
-	build *buildPickPrompt
+	perm *permissionPrompt
+	ask  *askPrompt
 }
 
 func (p *panel) blocked() bool {
-	return p.perm != nil || p.ask != nil || p.plan != nil || p.build != nil
+	return p.perm != nil || p.ask != nil
 }
 
 func (p *panel) clear() {
 	p.perm = nil
 	p.ask = nil
-	p.plan = nil
-	p.build = nil
 }
 
 func (p *panel) setPerm(perm *permissionPrompt) {
@@ -41,16 +37,6 @@ func (p *panel) setPerm(perm *permissionPrompt) {
 func (p *panel) setAsk(ask *askPrompt) {
 	p.clear()
 	p.ask = ask
-}
-
-func (p *panel) setPlan(plan *planPrompt) {
-	p.clear()
-	p.plan = plan
-}
-
-func (p *panel) setBuild(build *buildPickPrompt) {
-	p.clear()
-	p.build = build
 }
 
 // inputBlocked reports whether a panel owns the input slot.
@@ -64,7 +50,7 @@ func (m *Model) clearPanel() {
 }
 
 // abandonPanel cancels open harness panels so the agent unblocks (deny),
-// then clears the slot. Used when the turn ends. Plan/build are post-turn.
+// then clears the slot. Used when the turn ends.
 func (m *Model) abandonPanel() {
 	if m.panel.perm != nil {
 		m.abandonPermission()
@@ -81,12 +67,6 @@ func (m *Model) abandonPanel() {
 // itself (it denies) before key routing gets here.
 func (m *Model) interruptPanel() bool {
 	switch {
-	case m.panel.build != nil:
-		m.cancelPlanBuildPick()
-		return true
-	case m.panel.plan != nil:
-		m.dismissPlan()
-		return true
 	case m.panel.ask != nil, m.panel.perm != nil:
 		return false
 	default:
@@ -102,10 +82,6 @@ func (m *Model) handlePanelKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 		return m.handlePermissionKey(msg)
 	case m.panel.ask != nil:
 		return m.handleAskKey(msg)
-	case m.panel.plan != nil:
-		return m.handlePlanKey(msg)
-	case m.panel.build != nil:
-		return m.handleBuildPickKey(msg)
 	default:
 		return nil, false
 	}
@@ -118,10 +94,6 @@ func (m *Model) handlePanelClick(msg tea.MouseClickMsg) (tea.Cmd, bool) {
 		return m.handlePermissionClick(msg)
 	case m.panel.ask != nil:
 		return m.handleAskClick(msg)
-	case m.panel.plan != nil:
-		return m.handlePlanClick(msg)
-	case m.panel.build != nil:
-		return m.handleBuildPickClick(msg)
 	default:
 		return nil, false
 	}
@@ -133,10 +105,6 @@ func (m *Model) handlePanelMotion(msg tea.MouseMotionMsg) bool {
 		return m.handlePermissionMotion(msg)
 	case m.panel.ask != nil:
 		return m.handleAskMotion(msg)
-	case m.panel.plan != nil:
-		return m.handlePlanMotion(msg)
-	case m.panel.build != nil:
-		return m.handleBuildPickMotion(msg)
 	default:
 		return false
 	}
@@ -149,10 +117,6 @@ func (m *Model) renderPanel(width int) string {
 		return m.renderPermission(width)
 	case m.panel.ask != nil:
 		return m.renderAsk(width)
-	case m.panel.plan != nil:
-		return m.renderPlanApproval(width)
-	case m.panel.build != nil:
-		return m.renderPlanBuildPick(width)
 	default:
 		return ""
 	}

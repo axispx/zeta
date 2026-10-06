@@ -18,8 +18,8 @@ var systemMD string
 // project instructions. It stays byte-stable for the life of a session (it
 // changes only when AGENTS.md does) because providers key their prompt cache
 // on the request prefix — anything volatile here would invalidate the cached
-// transcript every time it moved. Mode instructions are injected separately
-// via Mode.Instructions(); volatile environment context via Environment.
+// transcript every time it moved. Agent instructions are injected separately
+// via Instructions(); volatile environment context via Environment.
 func System(ws workspace.Context) string {
 	var b strings.Builder
 	b.WriteString(strings.TrimSpace(systemMD))

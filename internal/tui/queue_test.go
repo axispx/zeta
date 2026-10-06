@@ -87,16 +87,6 @@ func TestClearQueueOnApplySession(t *testing.T) {
 	}
 }
 
-func TestModeSwitchBlockedWithQueue(t *testing.T) {
-	m := testModel()
-	m.queue.prompts = []queuedPrompt{qp("x")}
-	before := m.session.Mode
-	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift, Text: "shift+tab"})
-	if next.(*Model).session.Mode != before {
-		t.Fatal("mode should not change with queue")
-	}
-}
-
 func enter() tea.KeyPressMsg { return tea.KeyPressMsg{Code: tea.KeyEnter, Text: "enter"} }
 
 func pendingSteers(m *Model) []string {

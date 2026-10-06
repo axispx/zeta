@@ -99,7 +99,7 @@ func (m *Model) renderFooter() string {
 
 	return lipgloss.NewStyle().
 		Margin(0, styles.InputMarginH).
-		Render(inputFooter(footerW, m.session.WS, m.session.Cfg, m.session.Mode, m.session.ContextTokens, m.transcript.sessionDiff))
+		Render(inputFooter(footerW, m.session.WS, m.session.Cfg, m.session.ContextTokens, m.transcript.sessionDiff))
 }
 
 // stackMainChrome places the main surface (transcript [+ gap] [+ pinned overlay]),

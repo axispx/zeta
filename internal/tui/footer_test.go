@@ -7,8 +7,6 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/axispx/zeta/internal/config"
-	"github.com/axispx/zeta/internal/prompt"
-	"github.com/axispx/zeta/internal/styles"
 	"github.com/axispx/zeta/internal/tools"
 	"github.com/axispx/zeta/internal/workspace"
 )
@@ -33,7 +31,7 @@ func TestInputFooterLayout(t *testing.T) {
 	cfg := testFooterCfg()
 	ws := workspace.Context{Cwd: "~/proj", Branch: "main"}
 	diff := lineStats{added: 12, deleted: 3}
-	out := inputFooter(80, ws, cfg, prompt.ModePlan, 18000, diff)
+	out := inputFooter(80, ws, cfg, 18000, diff)
 	plain := stripANSI(out)
 	lines := strings.Split(plain, "\n")
 	if len(lines) != footerRows {
@@ -68,9 +66,6 @@ func TestInputFooterLayout(t *testing.T) {
 	if !strings.Contains(lines[1], "Test GPT-4") {
 		t.Fatalf("bottom missing model: %q", lines[1])
 	}
-	if !strings.HasSuffix(strings.TrimRight(lines[1], " "), "Plan") {
-		t.Fatalf("bottom should end with mode: %q", lines[1])
-	}
 	if strings.Contains(lines[1], "proj") || strings.Contains(lines[1], "+12") {
 		t.Fatalf("bottom should be usage/model/mode only: %q", lines[1])
 	}
@@ -86,7 +81,7 @@ func TestInputFooterShowsReasoningEffort(t *testing.T) {
 	md := cfg.Providers["test"].Models["gpt-4"]
 	md.ReasoningEffort = "high"
 	cfg.Providers["test"].Models["gpt-4"] = md
-	out := stripANSI(inputFooter(80, workspace.Context{Cwd: "~/proj"}, cfg, prompt.ModeBuild, 0, lineStats{}))
+	out := stripANSI(inputFooter(80, workspace.Context{Cwd: "~/proj"}, cfg, 0, lineStats{}))
 	lines := strings.Split(out, "\n")
 	if !strings.Contains(lines[1], "Test GPT-4") || !strings.Contains(lines[1], "High") {
 		t.Fatalf("bottom missing model/effort: %q", lines[1])
@@ -100,7 +95,7 @@ func TestInputFooterShowsReasoningEffort(t *testing.T) {
 func TestInputFooterHidesEmptyDiff(t *testing.T) {
 	cfg := testFooterCfg()
 	ws := workspace.Context{Cwd: "~/proj"}
-	out := stripANSI(inputFooter(80, ws, cfg, prompt.ModeBuild, 0, lineStats{}))
+	out := stripANSI(inputFooter(80, ws, cfg, 0, lineStats{}))
 	if strings.Contains(out, "+0") || strings.Contains(out, "-0") {
 		t.Fatalf("empty diff should be omitted: %q", out)
 	}
@@ -110,9 +105,6 @@ func TestInputFooterHidesEmptyDiff(t *testing.T) {
 	}
 	if !strings.Contains(lines[0], "proj") {
 		t.Fatalf("top missing path: %q", lines[0])
-	}
-	if !strings.Contains(lines[1], "Build") {
-		t.Fatalf("bottom missing mode: %q", lines[1])
 	}
 	if !strings.Contains(lines[1], "Test GPT-4") {
 		t.Fatalf("bottom missing model when no usage: %q", lines[1])
@@ -273,21 +265,6 @@ func TestFormatTokenCount(t *testing.T) {
 	for _, tt := range tests {
 		if got := formatTokenCount(tt.n); got != tt.want {
 			t.Errorf("formatTokenCount(%d) = %q, want %q", tt.n, got, tt.want)
-		}
-	}
-}
-
-func TestModeStyle(t *testing.T) {
-	tests := []struct {
-		mode  prompt.Mode
-		style lipgloss.Style
-	}{
-		{prompt.ModeBuild, styles.StyleModeBuild},
-		{prompt.ModePlan, styles.StyleModePlan},
-	}
-	for _, tt := range tests {
-		if got, want := modeStyle(tt.mode).GetForeground(), tt.style.GetForeground(); got != want {
-			t.Errorf("modeStyle(%v) = %v, want %v", tt.mode, got, want)
 		}
 	}
 }

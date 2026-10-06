@@ -26,7 +26,6 @@ type Session struct {
 	Cfg           config.Config
 	Client        *ai.Client
 	Usage         Usage
-	Mode          prompt.Mode
 	Rules         *permission.Rules
 	Grants        *permission.Session
 	Todos         *todo.Store
@@ -73,12 +72,12 @@ func (s *Session) ReloadAgents() {
 
 // RequestMsgs builds the next model request from this session's state.
 func (s *Session) RequestMsgs() []ai.Message {
-	return RequestMsgs(s.WS, s.Mode, s.History, s.Todos)
+	return RequestMsgs(s.WS, s.History, s.Todos)
 }
 
 // Tools returns the tool set for the session's mode.
 func (s *Session) Tools() []tools.Tool {
-	return ToolsForMode(s.Mode, s.Todos)
+	return TurnTools(s.Todos)
 }
 
 // Gate reports whether the harness must decide before a tool runs, over this
@@ -125,7 +124,6 @@ func (s *Session) CommitAssistant(m ai.Message, usage ai.Usage, plan *codex.Plan
 	s.Usage.Add(s.Cfg.ModelName(), usage)
 
 	rec := RecordFromAPI(m)
-	rec.FramePlan = s.Mode == prompt.ModePlan
 	// Persisted next to the turn it belongs to, so /usage totals survive
 	// /resume. Nil when the provider reported nothing.
 	rec.Usage = UsageOrNil(usage)
@@ -236,7 +234,7 @@ func (s *Session) ApplyTitle(name string) error {
 func (s *Session) CompactConfig(cfg config.Config) compact.Config {
 	overhead := compact.Estimate([]ai.Message{
 		{Role: ai.RoleSystem, Text: prompt.System(s.WS)},
-		{Role: ai.RoleDeveloper, Text: s.Mode.Instructions()},
+		{Role: ai.RoleDeveloper, Text: prompt.Instructions()},
 		{Role: ai.RoleDeveloper, Text: prompt.Environment(s.WS)},
 	})
 	return compact.Config{
@@ -257,8 +255,8 @@ func (s *Session) CompactConfig(cfg config.Config) compact.Config {
 // forfeit that, which is why compaction snapshots this at the turn boundary.
 func (s *Session) CompactPrefix() compact.Prefix {
 	return compact.Prefix{
-		Messages: RequestPrefix(s.WS, s.Mode),
-		Tools:    tools.Defs(ToolsForMode(s.Mode, s.Todos)),
+		Messages: RequestPrefix(s.WS),
+		Tools:    tools.Defs(TurnTools(s.Todos)),
 	}
 }
 

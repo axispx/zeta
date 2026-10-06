@@ -199,13 +199,6 @@ func TestSkillToolRun(t *testing.T) {
 	if strings.HasPrefix(out, "error:") || !strings.Contains(out, "Thermo-Nuclear") {
 		t.Fatalf("got %s", out[:min(200, len(out))])
 	}
-	// Available in the read-only set too.
-	out = Run(context.Background(), ForMode(false, Env{}), root, Skill, mustRaw(t, map[string]any{
-		"name": "review",
-	}))
-	if strings.HasPrefix(out, "error:") || !strings.Contains(out, `<skill_content name="review">`) {
-		t.Fatalf("read-only: %s", out[:min(200, len(out))])
-	}
 }
 
 func TestSkillToolSummary(t *testing.T) {
@@ -217,36 +210,19 @@ func TestSkillToolSummary(t *testing.T) {
 	}
 }
 
-func TestReadOnlyToolSet(t *testing.T) {
-	ro := ForMode(false, Env{})
-	if len(ro) != 8 {
-		t.Fatalf("read-only len: %d", len(ro))
-	}
-	if len(Build()) != 11 {
-		t.Fatalf("build len: %d", len(Build()))
-	}
-	names := map[string]bool{}
-	for _, tool := range ro {
-		names[tool.Name()] = true
-	}
-	if names[Bash] || names[Edit] || names[Write] || !names[Skill] || !names[Read] || !names[Grep] || !names[Glob] || !names[WebSearch] || !names[WebFetch] || !names[Todo] || !names[AskUser] {
-		t.Fatalf("read-only names: %v", names)
-	}
-}
-
 func TestRunModeGate(t *testing.T) {
-	ro := ForMode(false, Env{})
+	ro := []Tool{readTool{}}
 	root := t.TempDir()
 	out := Run(context.Background(), ro, root, Edit, mustRaw(t, map[string]any{
 		"path": "x", "old_string": "", "new_string": "y",
 	}))
-	if !strings.Contains(out, "not available in this mode") {
+	if !strings.Contains(out, "not available") {
 		t.Fatalf("got %s", out)
 	}
 	out = Run(context.Background(), ro, root, Bash, mustRaw(t, map[string]any{
 		"command": "echo hi",
 	}))
-	if !strings.Contains(out, "not available in this mode") {
+	if !strings.Contains(out, "not available") {
 		t.Fatalf("bash gate: %s", out)
 	}
 }

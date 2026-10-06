@@ -30,7 +30,7 @@ Rows read as answers, and a row that remembers something names the exact rule it
 | Read (outside workspace) | yes · yes, this directory for session · no                     |
 | Read (`.env` / `.env.*`) | yes · yes, remember this file · no                             |
 
-Ask and Plan have no shell or edit tools, but they still prompt for outside-workspace reads. Edits and writes are always yes-or-no — every diff gets a review. The **remember** row appears only when a rule can be remembered — see [Remembered rules](#remembered-rules).
+Edits and writes are always yes-or-no — every diff gets a review. The **remember** row appears only when a rule can be remembered — see [Remembered rules](#remembered-rules).
 
 ## Prompt keys
 

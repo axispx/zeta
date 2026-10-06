@@ -14,7 +14,6 @@ import (
 	"github.com/axispx/zeta/internal/harness"
 	"github.com/axispx/zeta/internal/permission"
 	"github.com/axispx/zeta/internal/policy"
-	"github.com/axispx/zeta/internal/prompt"
 	"github.com/axispx/zeta/internal/styles"
 	"github.com/axispx/zeta/internal/tools"
 	"github.com/axispx/zeta/internal/workspace"
@@ -613,18 +612,6 @@ func TestEditOutsideWorkspacePromptFlagsOutside(t *testing.T) {
 	}
 }
 
-func TestActiveGrantsSurviveMode(t *testing.T) {
-	m := &Model{session: harness.Session{Grants: &permission.Session{}}}
-	m.session.Grants.GrantCmd("echo")
-	if !m.session.Grants.CmdGranted("echo") {
-		t.Fatal("session grant should stick")
-	}
-	m.session.Mode = prompt.ModePlan
-	if !m.session.Grants.CmdGranted("echo") {
-		t.Fatal("session grant should survive mode switch")
-	}
-}
-
 func TestReadToolStartSkipsPrompt(t *testing.T) {
 	replies := make(chan harness.Reply, 1)
 	m := testModel()
@@ -792,26 +779,6 @@ func TestReadOutsideSessionGrantSkipsLater(t *testing.T) {
 	})
 	if m.panel.perm == nil || m.panel.perm.name != tools.Edit {
 		t.Fatalf("read grant must not skip edit: %+v", m.panel.perm)
-	}
-}
-
-func TestReadOutsidePromptsInPlanMode(t *testing.T) {
-	replies := make(chan harness.Reply, 1)
-	m := testModel()
-	m.session.Mode = prompt.ModePlan
-	m.session.WS = workspace.Context{Abs: t.TempDir()}
-	m.turn.current = &turnSession{
-		activeTool: -1,
-		ch:         make(chan harness.Event),
-		reply:      replies,
-		cancel:     func() {},
-	}
-	_ = m.handleTurnToolStart(turnToolStartMsg{
-		name: tools.Read, label: "read ../x.txt", path: "../x.txt",
-		args: json.RawMessage(`{"path":"../x.txt"}`),
-	})
-	if m.panel.perm == nil {
-		t.Fatal("plan mode must still prompt outside reads")
 	}
 }
 

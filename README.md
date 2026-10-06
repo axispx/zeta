@@ -6,7 +6,6 @@ Use any OpenAI-compatible provider — OpenAI, xAI, DeepSeek, Kimi, and more, pl
 
 ## Features
 
-- **Build / Plan** — implement with tools, or plan first then approve into Build
 - **Permission prompts** — shell (read-only commands excepted), file changes, and reads outside the workspace ask before running
 - **Local sessions** — chat history stays on your machine; resume anytime with `/resume`
 - **Auto-compaction** — long chats summarize older context when the model window fills up
@@ -28,15 +27,6 @@ Then run `zeta` from a project directory.
 4. Type a prompt and press **Enter**.
 
 Each launch opens a **new session**. Use `/resume` to continue an earlier one.
-
-## Modes
-
-Cycle modes with **Shift+Tab**.
-
-| Mode      | What it does                                                                                                                                                    |
-| --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Build** | Writes code and runs commands. Shell, file edits, and outside-workspace reads ask first.                                                                |
-| **Plan**  | Plans without changing files. When ready: approve, revise, or discard. Approve picks a build model, clears context, switches to Build, and starts implementing. |
 
 ## Commands
 

@@ -58,9 +58,6 @@ type Record struct {
 	// Model is the display name of the model that produced Usage. A session can
 	// span models (/model), so /usage needs the attribution to read the totals.
 	Model string `json:"model,omitempty"`
-	// FramePlan: Plan-mode ingest snapshot; UI frames <proposed_plan> when set.
-	// Not re-derived from current mode on resume.
-	FramePlan bool `json:"frame_plan,omitempty"`
 }
 
 // event is one JSONL line: session header or a message.
@@ -80,7 +77,6 @@ type event struct {
 	Tail       int        `json:"tail,omitempty"`
 	Usage      *ai.Usage  `json:"usage,omitempty"`
 	Model      string     `json:"model,omitempty"`
-	FramePlan  bool       `json:"frame_plan,omitempty"`
 }
 
 // Session is an append-only JSONL transcript for one chat.
@@ -155,7 +151,6 @@ func (s *Session) Append(rec Record) error {
 		Tail:       rec.Tail,
 		Usage:      rec.Usage,
 		Model:      rec.Model,
-		FramePlan:  rec.FramePlan,
 	}); err != nil {
 		return err
 	}
@@ -339,7 +334,6 @@ func load(abs, path string) (*Session, []Record, error) {
 				Tail:       evt.Tail,
 				Usage:      evt.Usage,
 				Model:      evt.Model,
-				FramePlan:  evt.FramePlan,
 			})
 		default:
 			// Pre-1.0: skip deleted event types (e.g. old todos snapshots).
