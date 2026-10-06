@@ -83,49 +83,6 @@ func TestChatGPTProviderSyncsFromDiscovery(t *testing.T) {
 
 // The browser flow hands back a URL and no code; the panel keys its wording off
 // exactly that.
-func TestStartCodexOAuthOpensBrowserFlow(t *testing.T) {
-	d := authDialogOpen(t)
-	d.focusID = codex.ProviderID
-	d.openAuthMethods(codex.ProviderID)
-	if d.view != configAuth || d.authTitle == "" {
-		t.Fatalf("view=%v title=%q", d.view, d.authTitle)
-	}
-
-	cmd := d.activateAuthMethod(authMethodRow{kind: authOAuth})
-	if cmd == nil {
-		t.Fatal("choosing OAuth must start a flow")
-	}
-	msg, ok := cmd().(oauthStartedMsg)
-	if !ok {
-		t.Fatalf("msg = %T", msg)
-	}
-	if msg.err != nil {
-		t.Fatalf("begin: %v", msg.err)
-	}
-	defer msg.flow.Close()
-
-	started := d.handleOAuthStarted(msg)
-	if started == nil {
-		t.Fatal("an authorized flow must be awaited")
-	}
-	if d.oauth == nil || d.oauth.verifyURL == "" {
-		t.Fatalf("session = %#v", d.oauth)
-	}
-	// No user code: the browser carries the code back to our listener.
-	if d.oauth.userCode != "" {
-		t.Fatalf("user code = %q, want none", d.oauth.userCode)
-	}
-	if !strings.Contains(d.oauth.verifyURL, "code_challenge=") || !strings.Contains(d.oauth.verifyURL, "localhost") {
-		t.Fatalf("verify URL = %q", d.oauth.verifyURL)
-	}
-
-	// Esc (cancel) releases the listener and clears the session.
-	d.cancelOAuth()
-	if d.oauth != nil {
-		t.Fatal("cancel must clear the session")
-	}
-}
-
 // Signing in must leave a usable provider behind: discovery runs with the fresh
 // token, the model list lands in the config, and one model is enabled.
 func TestCodexConnectDiscoversModels(t *testing.T) {

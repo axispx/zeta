@@ -333,9 +333,10 @@ func (t *transcript) mainView(sel transcriptSel) string {
 
 	var inner string
 	if len(t.messages) == 0 {
-		banner := styles.Banner.Render(strings.TrimSpace(styles.BannerArt))
+		mascot := styles.Banner.Render(strings.TrimSpace(styles.MascotArt))
+		name := styles.Banner.Render("ZETA")
 		ver := styles.Placeholder.Render("v" + version.Version)
-		hero := lipgloss.JoinVertical(lipgloss.Center, banner, "", ver)
+		hero := lipgloss.JoinVertical(lipgloss.Center, mascot, "", name+" "+ver)
 		inner = lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, hero)
 	} else {
 		inner = t.viewport.View()

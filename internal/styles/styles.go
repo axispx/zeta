@@ -231,14 +231,13 @@ func (c Chrome) withPanelBG(s lipgloss.Style) lipgloss.Style {
 	return s.Background(c.Input)
 }
 
-// BannerArt is the ZETA shadow block logo.
-const BannerArt = `
-███████╗███████╗████████╗ █████╗
-╚══███╔╝██╔════╝╚══██╔══╝██╔══██╗
-  ███╔╝ █████╗     ██║   ███████║
- ███╔╝  ██╔══╝     ██║   ██╔══██║
-███████╗███████╗   ██║   ██║  ██║
-╚══════╝╚══════╝   ╚═╝   ╚═╝  ╚═╝
+// MascotArt is the yeti face: a 20x8 pixel grid in quadrant blocks (2x2 pixels
+// per cell). The eyes are gaps, so the terminal background shows through.
+const MascotArt = `
+▗▙██████▟▖
+██████████
+█▌▐████▌▐█
+▜▛██▜▛██▜▛
 `
 
 // Horizontal inset (columns per side) shared by transcript padding and wrap width.
