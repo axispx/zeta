@@ -344,6 +344,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.selection.sel.clear()
 				return m, nil
 			}
+			if m.jumpVisible() {
+				m.jumpToBottom()
+				return m, nil
+			}
 			// Pending steers interrupt the turn and go out now; otherwise
 			// Esc cancels and anything waiting returns to the composer.
 			if m.turn.current != nil && m.turn.current.steers.len() > 0 {

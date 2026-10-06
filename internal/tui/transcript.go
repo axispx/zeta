@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"github.com/axispx/zeta/internal/config"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -272,7 +273,7 @@ type mainViewCache struct {
 
 type mainViewKey struct {
 	yOff, w, h               int
-	empty                    bool
+	banner                   string // painted only while the transcript is empty
 	sel                      bool
 	aLine, aCol, hLine, hCol int
 }
@@ -285,12 +286,14 @@ func (t *transcript) invalidateMainView() {
 
 // mainViewKey is the tray of inputs the painted frame depends on. Selection
 // lives in selection, so it is passed in rather than reached for.
-func (t *transcript) mainViewKey(sel transcriptSel) mainViewKey {
+func (t *transcript) mainViewKey(sel transcriptSel, banner string) mainViewKey {
 	k := mainViewKey{
-		yOff:  t.viewport.YOffset(),
-		w:     t.viewport.Width(),
-		h:     t.viewport.Height(),
-		empty: len(t.messages) == 0,
+		yOff: t.viewport.YOffset(),
+		w:    t.viewport.Width(),
+		h:    t.viewport.Height(),
+	}
+	if len(t.messages) == 0 {
+		k.banner = banner
 	}
 	if sel.has() {
 		start, end := sel.normalized()
@@ -316,27 +319,23 @@ func (t *transcript) rejectEdgeScroll(msg tea.MouseWheelMsg) bool {
 	}
 }
 
-// mainView paints the transcript region: the banner when there is nothing to
-// show, otherwise the viewport with the drag selection highlighted.
-func (t *transcript) mainView(sel transcriptSel) string {
+// mainView paints the transcript region: the top-left banner when there is
+// nothing to show, otherwise the viewport with the drag selection highlighted.
+func (t *transcript) mainView(sel transcriptSel, banner string) string {
 	w := t.viewport.Width()
 	h := t.viewport.Height()
 	if w <= 0 || h <= 0 {
 		return ""
 	}
 
-	key := t.mainViewKey(sel)
+	key := t.mainViewKey(sel, banner)
 	if t.mainCache != nil && t.mainCache.text != "" && t.mainCache.key == key {
 		return t.mainCache.text
 	}
 
 	var inner string
 	if len(t.messages) == 0 {
-		mascot := styles.Banner.Render(strings.TrimSpace(styles.MascotArt))
-		name := styles.Banner.Render("ZETA")
-		ver := styles.Placeholder.Render("v" + version.Version)
-		hero := lipgloss.JoinVertical(lipgloss.Center, mascot, "", name+" "+ver)
-		inner = lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, hero)
+		inner = lipgloss.Place(w, h, lipgloss.Left, lipgloss.Top, banner)
 	} else {
 		inner = t.viewport.View()
 		if sel.has() {
@@ -353,7 +352,7 @@ func (t *transcript) mainView(sel transcriptSel) string {
 
 // mainView paints the transcript region with the current drag selection.
 func (m *Model) mainView() string {
-	return m.transcript.mainView(m.selection.sel)
+	return m.transcript.mainView(m.selection.sel, m.banner())
 }
 
 // Drag selection over the transcript body, and the text it copies.
@@ -717,4 +716,27 @@ func indentLines(s string, n int) string {
 // inset on each side.
 func (t *transcript) textW() int {
 	return max(t.contentW-2*styles.ContentInset, 1)
+}
+
+// banner is the startup header: the mascot beside the app name and version,
+// the active model, and the working directory.
+func (m *Model) banner() string {
+	mascot := styles.Banner.Render(strings.TrimSpace(styles.MascotArt))
+	title := styles.Banner.Render("Zeta") + " " + styles.Placeholder.Render("v"+version.Version)
+	model := m.session.Cfg.ModelName()
+	if e := m.session.Cfg.ActiveReasoningEffort(); e != "" {
+		model += " " + config.ReasoningEffortLabel(e)
+	}
+	where := lipgloss.NewStyle().Foreground(styles.Green).Render(m.session.WS.Cwd)
+	if b := m.session.WS.Branch; b != "" {
+		where += styles.SystemMsg.Render(" · ") + lipgloss.NewStyle().Foreground(styles.Red).Render(b)
+	}
+	info := lipgloss.JoinVertical(lipgloss.Left,
+		"", // the mascot's top row is just its ears; the body spans the lower three
+		title,
+		lipgloss.NewStyle().Foreground(styles.Blue).Render(model),
+		where,
+	)
+	const gap = "  "
+	return "\n" + lipgloss.JoinHorizontal(lipgloss.Center, " ", mascot, gap, info)
 }

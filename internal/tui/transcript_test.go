@@ -342,7 +342,7 @@ func TestSubmitScrollsToBottomWhenScrolledUp(t *testing.T) {
 		lines = append(lines, fmt.Sprintf("history line %02d", i))
 	}
 	m.transcript.messages = []Message{
-		{Role: RoleAgent, Text: strings.Join(lines, "\n")},
+		{Role: RoleAgent, Text: strings.Join(lines, "\n\n")},
 	}
 	m.repaintTranscript()
 	if !m.transcript.viewport.AtBottom() {
@@ -378,7 +378,7 @@ func TestStreamPaintPreservesScrollWhenNotAtBottom(t *testing.T) {
 		lines = append(lines, fmt.Sprintf("history line %02d", i))
 	}
 	m.transcript.messages = []Message{
-		{Role: RoleAgent, Text: strings.Join(lines, "\n")},
+		{Role: RoleAgent, Text: strings.Join(lines, "\n\n")},
 		{Role: RoleUser, Text: "go"},
 	}
 	m.setTranscriptContent()
@@ -425,7 +425,7 @@ func TestRepaintTranscriptResumesStickAfterScroll(t *testing.T) {
 		lines = append(lines, fmt.Sprintf("history line %02d", i))
 	}
 	m.transcript.messages = []Message{
-		{Role: RoleAgent, Text: strings.Join(lines, "\n")},
+		{Role: RoleAgent, Text: strings.Join(lines, "\n\n")},
 		{Role: RoleUser, Text: "go"},
 	}
 	m.repaintTranscript()

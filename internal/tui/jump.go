@@ -6,15 +6,13 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
-
-	"github.com/axispx/zeta/internal/styles"
 )
 
 // The "scroll to bottom" pill floats over the transcript's last row, right
 // aligned just above the input, while the user is scrolled up. It takes no
 // layout rows, so showing it never resizes the viewport.
 
-const jumpLabel = " ↓ Scroll to bottom "
+const jumpLabel = " ↓ Scroll to bottom (esc) "
 
 func (m *Model) jumpVisible() bool {
 	return len(m.transcript.messages) > 0 &&
@@ -45,7 +43,7 @@ func (m *Model) withJumpButton(surface string) string {
 	if row < 0 || row >= len(lines) || x0 < 0 {
 		return surface
 	}
-	pill := styles.SystemMsg.Reverse(true).Render(jumpLabel)
+	pill := m.term.chrome.UserMsg().Padding(0).Render(jumpLabel)
 	line := lines[row]
 	if pad := x1 - lipgloss.Width(line); pad > 0 {
 		line += strings.Repeat(" ", pad)
@@ -63,8 +61,13 @@ func (m *Model) handleJumpClick(msg tea.MouseClickMsg) bool {
 	if msg.Y != row || msg.X < x0 || msg.X >= x1 {
 		return false
 	}
+	m.jumpToBottom()
+	return true
+}
+
+// jumpToBottom scrolls the transcript to its end and drops any selection.
+func (m *Model) jumpToBottom() {
 	m.selection.sel.clear()
 	m.transcript.viewport.GotoBottom()
 	m.transcript.invalidateMainView()
-	return true
 }

@@ -17,7 +17,7 @@ func scrolledUpModel(t *testing.T) *Model {
 	for i := 0; i < 60; i++ {
 		lines = append(lines, fmt.Sprintf("history line %02d", i))
 	}
-	m.transcript.messages = []Message{{Role: RoleAgent, Text: strings.Join(lines, "\n")}}
+	m.transcript.messages = []Message{{Role: RoleAgent, Text: strings.Join(lines, "\n\n")}}
 	m.repaintTranscript()
 	return m
 }
