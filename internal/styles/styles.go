@@ -39,6 +39,10 @@ var (
 	// terminal default fg applies.
 	Banner = lipgloss.NewStyle().Bold(true).Foreground(Blue)
 
+	// Mascot is the one fixed truecolor in the UI: a warm snow white that does
+	// not follow the terminal theme, so the yeti keeps its look everywhere.
+	Mascot = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#ece9e2"))
+
 	AgentMsg = lipgloss.NewStyle()
 
 	SystemMsg = lipgloss.NewStyle().
@@ -220,7 +224,6 @@ func (c Chrome) withPanelBG(s lipgloss.Style) lipgloss.Style {
 // per cell). The eyes are gaps, so the terminal background shows through.
 const MascotArt = `
 ▗▙██████▟▖
-██████████
 █▌▐████▌▐█
 ▜▛██▜▛██▜▛
 `

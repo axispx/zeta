@@ -721,7 +721,7 @@ func (t *transcript) textW() int {
 // banner is the startup header: the mascot beside the app name and version,
 // the active model, and the working directory.
 func (m *Model) banner() string {
-	mascot := styles.Banner.Render(strings.TrimSpace(styles.MascotArt))
+	mascot := styles.Mascot.Render(strings.TrimSpace(styles.MascotArt))
 	title := styles.Banner.Render("Zeta") + " " + styles.Placeholder.Render("v"+version.Version)
 	model := m.session.Cfg.ModelName()
 	if e := m.session.Cfg.ActiveReasoningEffort(); e != "" {
@@ -738,5 +738,5 @@ func (m *Model) banner() string {
 		where,
 	)
 	const gap = "  "
-	return "\n" + lipgloss.JoinHorizontal(lipgloss.Center, " ", mascot, gap, info)
+	return lipgloss.JoinHorizontal(lipgloss.Center, " ", mascot, gap, info)
 }
