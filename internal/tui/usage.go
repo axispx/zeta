@@ -15,7 +15,7 @@ import (
 
 const (
 	usageNoneText = "No usage reported yet"
-	usageLabelW   = 13 // label column width so values line up ("cached input" is 12)
+	usageLabelW   = 15 // label column width so values line up ("weekly resets" is 13)
 )
 
 // renderUsage is the /usage transcript block for a session's token accounting.
@@ -78,8 +78,12 @@ func planLines(plan *codex.PlanUsage) []string {
 	if w := plan.Secondary; w != nil {
 		out = append(out, usageLine(windowLabel(w), windowUsed(w)))
 	}
+	now := time.Now()
 	if w := plan.Primary; w != nil && w.ResetsAt > 0 {
-		out = append(out, usageLine("resets", resetCountdown(w.ResetsAt, time.Now())))
+		out = append(out, usageLine("resets", resetCountdown(w.ResetsAt, now)))
+	}
+	if w := plan.Secondary; w != nil && w.ResetsAt > 0 {
+		out = append(out, usageLine("weekly resets", resetCountdown(w.ResetsAt, now)))
 	}
 	if c := plan.Credits; c != nil {
 		out = append(out, usageLine("credits", creditsValue(c)))
@@ -110,21 +114,31 @@ func windowLabel(w *codex.Window) string {
 	}
 }
 
-// resetCountdown is how long until the window rolls over, e.g. "2h 14m".
+// resetCountdown is how long until the window rolls over, in its two largest
+// units: "4d 19h" from a day out, "2h 34m" from an hour out, else "12m".
 func resetCountdown(resetsAt int64, now time.Time) string {
 	d := time.Unix(resetsAt, 0).Sub(now).Round(time.Minute)
 	if d <= 0 {
 		return "now"
 	}
-	h, m := int(d.Hours()), int(d.Minutes())%60
+	mins := int(d.Minutes())
+	days, hours, m := mins/1440, mins/60%24, mins%60
 	switch {
-	case h == 0:
-		return strconv.Itoa(m) + "m"
-	case m == 0:
-		return strconv.Itoa(h) + "h"
+	case days > 0:
+		return joinUnits(days, "d", hours, "h")
+	case hours > 0:
+		return joinUnits(hours, "h", m, "m")
 	default:
-		return fmt.Sprintf("%dh %dm", h, m)
+		return strconv.Itoa(m) + "m"
 	}
+}
+
+// joinUnits is "<big><bigUnit> <small><smallUnit>", dropping a zero small part.
+func joinUnits(big int, bigUnit string, small int, smallUnit string) string {
+	if small == 0 {
+		return strconv.Itoa(big) + bigUnit
+	}
+	return strconv.Itoa(big) + bigUnit + " " + strconv.Itoa(small) + smallUnit
 }
 
 func creditsValue(c *codex.Credits) string {

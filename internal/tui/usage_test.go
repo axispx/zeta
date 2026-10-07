@@ -130,11 +130,11 @@ func TestPlanLines(t *testing.T) {
 	reset := time.Now().Add(2*time.Hour + 14*time.Minute).Unix()
 	plan := &codex.PlanUsage{
 		Primary:   &codex.Window{UsedPercent: 12.5, WindowMinutes: 300, ResetsAt: reset},
-		Secondary: &codex.Window{UsedPercent: 80, WindowMinutes: 10080},
+		Secondary: &codex.Window{UsedPercent: 80, WindowMinutes: 10080, ResetsAt: time.Now().Add(4*24*time.Hour + 19*time.Hour + 30*time.Second).Unix()},
 		Credits:   &codex.Credits{HasCredits: true, Balance: "$5.00"},
 	}
 	got := strings.Join(planLines(plan), "\n")
-	for _, want := range []string{"Plan quota", "5h window", "12.5% used", "weekly", "80% used", "resets", "2h 14m", "$5.00"} {
+	for _, want := range []string{"Plan quota", "5h window", "12.5% used", "weekly", "80% used", "resets", "2h 14m", "weekly resets", "4d 19h", "$5.00"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("missing %q in:\n%s", want, got)
 		}
@@ -171,6 +171,23 @@ func TestWindowLabelAndCredits(t *testing.T) {
 	for _, tc := range credits {
 		if got := creditsValue(&tc.c); got != tc.want {
 			t.Fatalf("creditsValue(%#v) = %q, want %q", tc.c, got, tc.want)
+		}
+	}
+	now := time.Now()
+	countdowns := []struct {
+		in   time.Duration
+		want string
+	}{
+		{4*24*time.Hour + 19*time.Hour + 20*time.Minute, "4d 19h"},
+		{2 * 24 * time.Hour, "2d"},
+		{24*time.Hour + 5*time.Minute, "1d"},
+		{2*time.Hour + 34*time.Minute, "2h 34m"},
+		{3 * time.Hour, "3h"},
+		{12 * time.Minute, "12m"},
+	}
+	for _, tc := range countdowns {
+		if got := resetCountdown(now.Add(tc.in).Unix(), now); got != tc.want {
+			t.Fatalf("resetCountdown(%v) = %q, want %q", tc.in, got, tc.want)
 		}
 	}
 	// A window that already rolled over reads as "now", not a negative count.
