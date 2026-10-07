@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/axispx/zeta/internal/codex"
@@ -25,6 +26,15 @@ const maxFrameBytes = 8 << 20
 // no client timeout — a long turn is not a failure — so ctx cancellation is
 // what stops them.
 const codexRequestTimeout = 2 * time.Minute
+
+// codexSendRetries is how many times a request is resent after a transient
+// network failure before any response arrived, matching the SDK's default on
+// the Chat Completions path. codexRetryBackoff is the wait before the first
+// resend; it doubles each time.
+const (
+	codexSendRetries  = 2
+	codexRetryBackoff = time.Second
+)
 
 // codexClient runs Responses API requests against the ChatGPT Codex backend.
 //
@@ -46,6 +56,7 @@ type codexClient struct {
 	baseURL   string
 	token     string
 	accountID string
+	backoff   time.Duration // first resend delay; tests shrink it
 }
 
 func newCodexClient(p config.Provider) *codexClient {
@@ -59,6 +70,7 @@ func newCodexClient(p config.Provider) *codexClient {
 		baseURL:   strings.TrimRight(strings.TrimSpace(p.BaseURL), "/"),
 		token:     p.AuthToken(),
 		accountID: accountID,
+		backoff:   codexRetryBackoff,
 	}
 }
 
@@ -297,12 +309,42 @@ func (c *codexClient) complete(ctx context.Context, model, effort string, msgs [
 }
 
 // do posts body to the Responses endpoint and returns a successful response.
-// Failures are classified so a 401 still drives the OAuth recovery path.
+// Failures are classified so a 401 still drives the OAuth recovery path. A
+// transient network failure (see transientNetErr) is resent a few times: it
+// happens before any response, so nothing has streamed to the user yet, and
+// the usual cause is a dead pooled connection that a fresh one replaces.
 func (c *codexClient) do(ctx context.Context, client *http.Client, body *codexRequest) (*http.Response, error) {
 	payload, err := json.Marshal(body)
 	if err != nil {
 		return nil, err
 	}
+	var resp *http.Response
+	backoff := c.backoff
+	for attempt := 0; ; attempt++ {
+		resp, err = c.send(ctx, client, payload)
+		if err == nil {
+			break
+		}
+		if attempt >= codexSendRetries || ctx.Err() != nil || !transientNetErr(err) {
+			return nil, err
+		}
+		select {
+		case <-ctx.Done():
+			return nil, err
+		case <-time.After(backoff):
+		}
+		backoff *= 2
+	}
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		return resp, nil
+	}
+	defer resp.Body.Close()
+	detail, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<10))
+	return nil, codexStatusError(resp.StatusCode, detail)
+}
+
+// send makes one attempt at posting payload.
+func (c *codexClient) send(ctx context.Context, client *http.Client, payload []byte) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+codex.ResponsesPath, bytes.NewReader(payload))
 	if err != nil {
 		return nil, err
@@ -317,17 +359,22 @@ func (c *codexClient) do(ctx context.Context, client *http.Client, body *codexRe
 	if c.accountID != "" {
 		req.Header.Set("chatgpt-account-id", c.accountID)
 	}
+	return client.Do(req)
+}
 
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		return resp, nil
-	}
-	defer resp.Body.Close()
-	detail, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<10))
-	return nil, codexStatusError(resp.StatusCode, detail)
+// transientNetErr reports a connection that died underneath a request: the
+// kernel gave up retransmitting (ETIMEDOUT), the peer reset or closed it, or
+// it ended before a response. Client-side timeouts are excluded — resending
+// a request that already ran for the full codexRequestTimeout only triples
+// the wait — and so are refused connections and TLS or DNS failures, which a
+// retry a second later does not fix.
+func transientNetErr(err error) bool {
+	return errors.Is(err, syscall.ETIMEDOUT) ||
+		errors.Is(err, syscall.ECONNRESET) ||
+		errors.Is(err, syscall.ECONNABORTED) ||
+		errors.Is(err, syscall.EPIPE) ||
+		errors.Is(err, io.EOF) ||
+		errors.Is(err, io.ErrUnexpectedEOF)
 }
 
 // codexStatusError renders a backend failure, keeping 401 recoverable.

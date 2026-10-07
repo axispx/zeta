@@ -5,10 +5,17 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"os"
 	"strings"
+	"sync/atomic"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/axispx/zeta/internal/codex"
 	"github.com/axispx/zeta/internal/config"
@@ -429,5 +436,104 @@ func TestSSEFrames(t *testing.T) {
 	}
 	if _, ok, err := f.next(); ok || err != nil {
 		t.Fatalf("expected clean EOF, got ok=%v err=%v", ok, err)
+	}
+}
+
+// dropConn closes the connection without answering, the way a dead socket
+// looks to the client.
+func dropConn(t *testing.T, w http.ResponseWriter) {
+	t.Helper()
+	conn, _, err := w.(http.Hijacker).Hijack()
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	_ = conn.Close()
+}
+
+// A connection that dies before any response is resent; the caller sees only
+// the eventual success.
+func TestCodexResendsDroppedConnection(t *testing.T) {
+	t.Parallel()
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if calls.Add(1) <= codexSendRetries {
+			dropConn(t, w)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		sse(w, `{"type":"response.output_text.delta","delta":"ok"}`)
+		sse(w, `{"type":"response.completed","response":{}}`)
+	}))
+	t.Cleanup(srv.Close)
+
+	cc := newCodexClient(codexTestProvider(srv.URL))
+	cc.backoff = time.Millisecond
+	c := &Client{api: cc, model: "gpt-5.5"}
+	var text strings.Builder
+	for ev := range c.Stream(context.Background(), []Message{{Role: RoleUser, Text: "hi"}}, nil) {
+		switch ev.Type {
+		case EventErr:
+			t.Fatalf("unexpected error: %v", ev.Err)
+		case EventDelta:
+			text.WriteString(ev.Text)
+		}
+	}
+	if text.String() != "ok" {
+		t.Fatalf("text = %q", text.String())
+	}
+	if got := calls.Load(); got != codexSendRetries+1 {
+		t.Fatalf("calls = %d, want %d", got, codexSendRetries+1)
+	}
+}
+
+// Retries are bounded, and an HTTP error status is never resent.
+func TestCodexResendLimits(t *testing.T) {
+	t.Parallel()
+	var drops, rejects atomic.Int32
+	dropper := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		drops.Add(1)
+		dropConn(t, w)
+	}))
+	t.Cleanup(dropper.Close)
+	rejecter := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		rejects.Add(1)
+		http.Error(w, "nope", http.StatusInternalServerError)
+	}))
+	t.Cleanup(rejecter.Close)
+
+	for _, srv := range []*httptest.Server{dropper, rejecter} {
+		cc := newCodexClient(codexTestProvider(srv.URL))
+		cc.backoff = time.Millisecond
+		c := &Client{api: cc, model: "gpt-5.5"}
+		if _, err := c.Complete(context.Background(), []Message{{Role: RoleUser, Text: "hi"}}, nil, 32); err == nil {
+			t.Fatal("expected error")
+		}
+	}
+	if got := drops.Load(); got != codexSendRetries+1 {
+		t.Fatalf("dropped attempts = %d, want %d", got, codexSendRetries+1)
+	}
+	if got := rejects.Load(); got != 1 {
+		t.Fatalf("rejected attempts = %d, want 1", got)
+	}
+}
+
+func TestTransientNetErr(t *testing.T) {
+	t.Parallel()
+	wrap := func(err error) error {
+		return &url.Error{Op: "Post", URL: "https://x", Err: &net.OpError{Op: "read", Err: os.NewSyscallError("read", err)}}
+	}
+	for _, err := range []error{syscall.ETIMEDOUT, syscall.ECONNRESET, syscall.EPIPE} {
+		if !transientNetErr(wrap(err)) {
+			t.Errorf("%v should be transient", err)
+		}
+	}
+	for _, err := range []error{syscall.ECONNREFUSED, context.Canceled, context.DeadlineExceeded} {
+		if transientNetErr(wrap(err)) {
+			t.Errorf("%v should not be transient", err)
+		}
+	}
+	if !transientNetErr(fmt.Errorf("Post: %w", io.EOF)) {
+		t.Error("EOF should be transient")
 	}
 }
