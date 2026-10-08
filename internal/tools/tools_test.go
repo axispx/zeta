@@ -748,3 +748,24 @@ func mustRaw(t *testing.T, v any) json.RawMessage {
 	}
 	return b
 }
+
+func TestDisplayTarget(t *testing.T) {
+	root := t.TempDir()
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		t.Skip("no home dir")
+	}
+	cases := []struct{ in, want string }{
+		{"a/b.go", "a/b.go"},
+		{filepath.Join(root, "a", "b.go"), "a/b.go"},
+		{"./a/../b.go", "b.go"},
+		{filepath.Join(home, "notes", "x.md"), "~/notes/x.md"},
+		{"/etc/hosts", "/etc/hosts"},
+		{"", ""},
+	}
+	for _, tc := range cases {
+		if got := DisplayTarget(root, tc.in); got != tc.want {
+			t.Errorf("DisplayTarget(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}

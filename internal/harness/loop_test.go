@@ -3,6 +3,7 @@ package harness
 import (
 	"context"
 	"encoding/json"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -353,5 +354,23 @@ func TestSteerKeepsTurnGoingAfterFinalAnswer(t *testing.T) {
 	collect(c, []ai.Message{{Role: ai.RoleUser, Text: "go"}})
 	if len(seen) != 2 {
 		t.Fatalf("requests=%d, want 2", len(seen))
+	}
+}
+
+func TestToolLabelEditShowsWorkspacePath(t *testing.T) {
+	root := t.TempDir()
+	abs := filepath.Join(root, "internal", "x.go")
+	cases := []struct {
+		name, args, want string
+	}{
+		{tools.Edit, `{"path":"` + abs + `","old_string":"a","new_string":"b"}`, "edit internal/x.go"},
+		{tools.Edit, `{"path":"internal/x.go","old_string":"","new_string":"b"}`, "create internal/x.go"},
+		{tools.Write, `{"path":"` + abs + `","content":"b"}`, "write internal/x.go"},
+		{tools.Edit, `{"path":"/etc/hosts","old_string":"a","new_string":"b"}`, "edit /etc/hosts"},
+	}
+	for _, tc := range cases {
+		if got := toolLabel(tools.Build(), root, tc.name, json.RawMessage(tc.args)); got != tc.want {
+			t.Errorf("toolLabel(%s) = %q, want %q", tc.args, got, tc.want)
+		}
 	}
 }

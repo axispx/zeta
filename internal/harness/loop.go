@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/axispx/zeta/internal/ai"
 	"github.com/axispx/zeta/internal/codex"
@@ -253,7 +254,7 @@ func (c Config) streamOnce(ctx context.Context, history []ai.Message, defs []ai.
 
 func (c Config) execTool(ctx context.Context, call ai.ToolCall, ev chan<- Event) (label string, result ai.Message, denied bool) {
 	args := json.RawMessage(call.Arguments)
-	label = toolLabel(c.Tools, call.Name, args)
+	label = toolLabel(c.Tools, c.Root, call.Name, args)
 
 	req := Request{
 		Name:   call.Name,
@@ -329,14 +330,22 @@ var (
 	errCancelled  = errors.New("cancelled")
 )
 
-func toolLabel(ts []tools.Tool, name string, args json.RawMessage) string {
-	if t, ok := tools.ByName(ts, name); ok {
-		return t.Summary(args)
+func toolLabel(ts []tools.Tool, root, name string, args json.RawMessage) string {
+	t, ok := tools.ByName(ts, name)
+	if !ok {
+		t, ok = tools.ByName(tools.Build(), name)
 	}
-	if t, ok := tools.ByName(tools.Build(), name); ok {
-		return t.Summary(args)
+	if !ok {
+		return name
 	}
-	return name
+	label := t.Summary(args)
+	if name == tools.Edit || name == tools.Write {
+		// Summary is "<verb> <path>"; show the path relative to the workspace.
+		if verb, path, found := strings.Cut(label, " "); found {
+			label = verb + " " + tools.DisplayTarget(root, path)
+		}
+	}
+	return label
 }
 
 func denialResult(call ai.ToolCall, reason string) ai.Message {

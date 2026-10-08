@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -189,27 +188,27 @@ func renderEditCall(m Message) string {
 	return b.String()
 }
 
-// editLabel derives the UI verb and basename from the tool Summary label.
+// editLabel derives the UI verb and path from the tool Summary label. The
+// harness already made the path workspace-relative (see tools.DisplayTarget).
 // Progressive while the call is open; past tense after it finishes.
 func editLabel(text string, done bool) (verb, name string) {
 	head, path, _ := strings.Cut(strings.TrimSpace(text), " ")
-	base := filepath.Base(path)
 	switch head {
 	case "create":
 		if done {
-			return "Created", base
+			return "Created", path
 		}
-		return "Creating", base
+		return "Creating", path
 	case tools.Write:
 		if done {
-			return "Wrote", base
+			return "Wrote", path
 		}
-		return "Writing", base
+		return "Writing", path
 	default:
 		if done {
-			return "Edited", base
+			return "Edited", path
 		}
-		return "Editing", base
+		return "Editing", path
 	}
 }
 

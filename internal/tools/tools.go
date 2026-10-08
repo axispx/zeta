@@ -220,6 +220,29 @@ func displayPath(root, abs string) string {
 	return rel
 }
 
+// DisplayTarget is the path a transcript row shows for an edit/write target:
+// workspace-relative inside the workspace, absolute (home as ~) outside it, so
+// two files that share a basename stay distinguishable and an escape is visible.
+// An unresolvable path is returned as given.
+func DisplayTarget(root, argPath string) string {
+	abs, rel, outside := ResolveTarget(root, argPath)
+	switch {
+	case abs == "":
+		return argPath
+	case !outside:
+		return rel
+	}
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		if abs == home {
+			return "~"
+		}
+		if rest, ok := strings.CutPrefix(abs, home+string(filepath.Separator)); ok {
+			return "~/" + filepath.ToSlash(rest)
+		}
+	}
+	return abs
+}
+
 const (
 	// Per-tool capture limits only (silent). Model-facing size/line policy is limitToolOutput.
 	maxReadBytes   = 200 * 1024

@@ -178,20 +178,17 @@ func TestRenderEditCallCreated(t *testing.T) {
 	}
 }
 
-func TestRenderEditCallBasename(t *testing.T) {
+func TestRenderEditCallShowsPath(t *testing.T) {
 	out := stripANSI(renderEditCall(Message{
 		Role:   RoleTool,
-		Text:   "edit /Users/ashish/Developer/zeta/CONTRIBUTORS.md",
+		Text:   "edit internal/tui/tool_render.go",
 		Tool:   tools.Edit,
 		Status: ToolOK,
 		Out:    "--- a\n+++ b\n@@ -1,2 +1,3 @@\n a\n-b\n+c\n+d\n",
 	}))
 	first, _, _ := strings.Cut(out, "\n")
-	if first != "Edited  CONTRIBUTORS.md  +2  -1" {
+	if first != "Edited  internal/tui/tool_render.go  +2  -1" {
 		t.Fatalf("got %q", first)
-	}
-	if strings.Contains(first, "/") {
-		t.Fatalf("should be basename only: %q", first)
 	}
 }
 
