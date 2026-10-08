@@ -142,7 +142,7 @@ func (c Chrome) InputBox() lipgloss.Style {
 
 // UserMsg styles a user message bubble in the transcript.
 func (c Chrome) UserMsg() lipgloss.Style {
-	s := lipgloss.NewStyle().Padding(0, 1)
+	s := lipgloss.NewStyle().PaddingRight(1)
 	if c.Prompt != nil {
 		s = s.Background(c.Prompt)
 	}
