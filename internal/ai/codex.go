@@ -22,7 +22,7 @@ import (
 // tool arguments arrive as a single data line.
 const maxFrameBytes = 8 << 20
 
-// codexRequestTimeout bounds a non-streaming request. Streaming requests carry
+// codexRequestTimeout bounds a complete() request. Turn streams carry
 // no client timeout — a long turn is not a failure — so ctx cancellation is
 // what stops them.
 const codexRequestTimeout = 2 * time.Minute
@@ -111,9 +111,11 @@ type codexInputItem struct {
 	CallID  string         `json:"call_id,omitempty"`
 	Name    string         `json:"name,omitempty"`
 	// Arguments is a JSON string, so a pointer keeps `{}` distinct from absent
-	// (the API rejects a function_call without arguments).
+	// (the API rejects a function_call without arguments). Output is a pointer
+	// for the same reason: a tool that printed nothing still needs `"output":""`
+	// (the API rejects a function_call_output without one).
 	Arguments *string `json:"arguments,omitempty"`
-	Output    string  `json:"output,omitempty"`
+	Output    *string `json:"output,omitempty"`
 }
 
 type codexContent struct {
@@ -187,10 +189,11 @@ func codexInput(msgs []Message) (string, []any, error) {
 				})
 			}
 		case RoleTool:
+			output := m.Text
 			input = append(input, codexInputItem{
 				Type:   "function_call_output",
 				CallID: m.ToolCallID,
-				Output: m.Text,
+				Output: &output,
 			})
 		default:
 			return "", nil, fmt.Errorf("unknown message role %q", m.Role)
@@ -275,37 +278,39 @@ func (c *codexClient) stream(ctx context.Context, model, effort string, msgs []M
 	out <- Event{Type: EventDone, Message: acc.message(), Usage: acc.usage, Plan: plan}
 }
 
-// complete runs a non-streaming request: titles and compaction summaries.
+// complete runs a short, tool-free request for titles and compaction summaries.
+// The backend only serves streams (it rejects stream:false), so the reply is
+// read off the wire as a stream and joined; the request still carries the
+// summarizer shape (tool_choice none, no reasoning summary) and the client
+// timeout, since nothing here reaches the UI.
 func (c *codexClient) complete(ctx context.Context, model, effort string, msgs []Message, tools []Tool, maxTokens int64) (string, error) {
 	req, err := c.requestBody(model, effort, msgs, tools, maxTokens, false)
 	if err != nil {
 		return "", err
 	}
+	req.Stream = true
 	resp, err := c.do(ctx, c.http, req)
 	if err != nil {
 		return "", err
 	}
 	defer resp.Body.Close()
 
-	var body codexResponseBody
-	if err := json.NewDecoder(io.LimitReader(resp.Body, maxFrameBytes)).Decode(&body); err != nil {
-		return "", fmt.Errorf("codex response: %w", err)
-	}
-	if body.Error != nil {
-		return "", errors.New("codex: " + body.Error.text())
-	}
-	var b strings.Builder
-	for _, item := range body.Output {
-		if item.Type != "message" {
-			continue
+	acc := codexAccumulator{}
+	frames := newSSEFrames(resp.Body)
+	for {
+		payload, ok, err := frames.next()
+		if err != nil {
+			return "", fmt.Errorf("codex stream: %w", err)
 		}
-		for _, part := range item.Content {
-			if part.Type == "output_text" {
-				b.WriteString(part.Text)
-			}
+		if !ok {
+			break
 		}
+		acc.consume(payload)
 	}
-	return b.String(), nil
+	if acc.err != nil {
+		return "", acc.err
+	}
+	return acc.text.String(), nil
 }
 
 // do posts body to the Responses endpoint and returns a successful response.
@@ -534,18 +539,6 @@ func (a *codexAccumulator) message() Message {
 		Text:      a.text.String(),
 		ToolCalls: a.toolCalls,
 	}
-}
-
-// codexResponseBody is a non-streaming Responses reply.
-type codexResponseBody struct {
-	Output []struct {
-		Type    string `json:"type"`
-		Content []struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
-		} `json:"content"`
-	} `json:"output"`
-	Error *codexErrorDetail `json:"error"`
 }
 
 // sseFrames yields the data payload of each server-sent event frame.

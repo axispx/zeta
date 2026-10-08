@@ -57,6 +57,9 @@ func TestCodexRequestShape(t *testing.T) {
 			{ID: "call_2", Name: "todo", Arguments: ""},
 		}},
 		{Role: RoleTool, Text: "contents", ToolCallID: "call_1"},
+		// A tool that printed nothing must still send "output":"" — the API
+		// rejects a function_call_output without the field.
+		{Role: RoleTool, Text: "", ToolCallID: "call_2"},
 	}
 	tools := []Tool{{Name: "read", Description: "read a file", Parameters: map[string]any{
 		"type":       "object",
@@ -85,7 +88,7 @@ func TestCodexRequestShape(t *testing.T) {
 	body := string(raw)
 	for _, want := range []string{
 		`"type":"function_call"`, `"call_id":"call_1"`, `"arguments":"{\"path\":\"a.go\"}"`,
-		`"arguments":""`, `"type":"function_call_output"`, `"output":"contents"`,
+		`"arguments":""`, `"type":"function_call_output"`, `"output":"contents"`, `"call_id":"call_2","output":""`,
 		`"type":"input_text"`, `"output_text"`, `"store":false`, `"stream":true`,
 	} {
 		if !strings.Contains(body, want) {
@@ -354,14 +357,16 @@ func TestCodexNoPlanFetchDuringStream(t *testing.T) {
 
 func TestCodexComplete(t *testing.T) {
 	t.Parallel()
-	var gotStore bool
+	var gotStream bool
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			Stream bool `json:"stream"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&body)
-		gotStore = body.Stream
-		_, _ = w.Write([]byte(`{"output":[{"type":"reasoning"},{"type":"message","content":[{"type":"output_text","text":"a title"}]}]}`))
+		gotStream = body.Stream
+		_, _ = w.Write([]byte("data: {\"type\":\"response.output_text.delta\",\"delta\":\"a \"}\n\n" +
+			"data: {\"type\":\"response.output_text.delta\",\"delta\":\"title\"}\n\n" +
+			"data: {\"type\":\"response.completed\",\"response\":{}}\n\n"))
 	}))
 	t.Cleanup(srv.Close)
 
@@ -373,12 +378,12 @@ func TestCodexComplete(t *testing.T) {
 	if got != "a title" {
 		t.Fatalf("completion = %q", got)
 	}
-	if gotStore {
-		t.Fatal("Complete must not stream")
+	if !gotStream {
+		t.Fatal("the backend rejects stream:false, so Complete must request a stream")
 	}
 
 	srvErr := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"error":{"message":"nope"}}`))
+		_, _ = w.Write([]byte("data: {\"type\":\"error\",\"error\":{\"message\":\"nope\"}}\n\n"))
 	}))
 	t.Cleanup(srvErr.Close)
 	c = codexClientFor(srvErr.URL)
