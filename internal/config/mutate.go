@@ -35,16 +35,18 @@ func (c *Config) Clone() Config {
 	return out
 }
 
+// Enabled reports whether the auto review of shell commands is on.
+func (r ReviewConfig) Enabled() bool { return !r.Disabled }
+
 // SetReviewEnabled turns the auto review of shell commands on or off. Does not
 // Save.
-func (c *Config) SetReviewEnabled(enabled bool) { c.Review.Enabled = enabled }
+func (c *Config) SetReviewEnabled(enabled bool) { c.Review.Disabled = !enabled }
 
 // SetReviewBackend names the review backend (ReviewBackendJev or
-// ReviewBackendModel); empty resolves automatically. Does not Save.
+// ReviewBackendModel); empty is the active model. Does not Save.
 func (c *Config) SetReviewBackend(backend string) { c.Review.Backend = strings.TrimSpace(backend) }
 
-// SetJevAPIKey stores the TypeSafe Jev key; empty clears it so the review falls
-// back to TYPESAFE_API_KEY. Does not Save.
+// SetJevAPIKey stores the TypeSafe Jev key; empty clears it. Does not Save.
 func (c *Config) SetJevAPIKey(key string) { c.Review.JevAPIKey = strings.TrimSpace(key) }
 
 // PutProvider adds or replaces a provider by id, including its Models map.

@@ -16,30 +16,28 @@ import (
 type Config struct {
 	Active    string              `json:"active"` // provider/model eg: openai/gpt-5.6-luna
 	Providers map[string]Provider `json:"providers"`
-	// Review is the optional auto review of shell commands that would otherwise
-	// prompt. Off unless Enabled.
+	// Review is the auto review of shell commands that would otherwise prompt.
+	// On unless Disabled.
 	Review ReviewConfig `json:"review,omitzero"`
 }
 
-// ReviewConfig controls the auto review of shell commands. A command a rule or
-// the read-only list does not settle is classified, and approved without a
-// prompt only when the classifier is confident it is safe; everything else
-// still asks.
 // Review backend ids stored in ReviewConfig.Backend.
 const (
 	ReviewBackendJev   = "jev"
 	ReviewBackendModel = "model"
 )
 
-// ReviewConfig is the auto review setting: whether it is on and where commands go.
+// ReviewConfig controls the auto review of shell commands. A command a rule or
+// the read-only list does not settle is classified, and approved without a
+// prompt only when the classifier is confident it is safe; everything else
+// still asks. It is on by default, judged by the active chat model.
 type ReviewConfig struct {
-	Enabled bool `json:"enabled,omitempty"`
-	// Backend names where reviewed commands are sent: ReviewBackendJev or
-	// ReviewBackendModel. Empty resolves automatically — Jev when a key is set,
-	// otherwise the active chat model.
+	// Disabled turns the review off, so every unsettled command prompts.
+	Disabled bool `json:"disabled,omitempty"`
+	// Backend names where reviewed commands are sent: ReviewBackendModel or
+	// ReviewBackendJev. Empty is the active chat model; Jev is opt-in.
 	Backend string `json:"backend,omitempty"`
 	// JevAPIKey is the TypeSafe Jev key, used when Backend is ReviewBackendJev.
-	// Empty falls back to the TYPESAFE_API_KEY environment variable.
 	JevAPIKey string `json:"jev_api_key,omitempty"`
 	// Allow lists the labels approved without a prompt: read_only,
 	// local_reversible, network_fetch, risky.

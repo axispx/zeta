@@ -31,7 +31,7 @@ internal/ai/         OpenAI-compatible streaming + tools (chat.go), Codex Respon
 internal/harness/    agent harness: tool loop + permission gate, decision gate, request assembly, session state and the durable write path, approvals, usage, client construction
 internal/permission/ allow | deny for side-effect tools
 internal/policy/     persisted permission rules (~/.zeta/permissions.json)
-internal/classifier/ optional auto review of shell commands (Jev or chat model; approve-or-ask)
+internal/classifier/ auto review of shell commands (chat model by default, Jev opt-in; approve-or-ask)
 internal/compact/    context compaction
 internal/tools/      read / edit / write / grep / glob / bash / websearch / webfetch / skill / todo / ask_user
 internal/todo/       session-scoped checklist store (model-owned)

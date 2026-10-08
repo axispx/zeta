@@ -282,7 +282,6 @@ func TestOpenModelsSyncsCatalogOnce(t *testing.T) {
 
 func TestAutoReviewToggleAndJevKey(t *testing.T) {
 	t.Setenv("ZETA_HOME", t.TempDir())
-	t.Setenv("TYPESAFE_API_KEY", "")
 	d := configDialog{active: true, presets: []config.Preset{{ID: "x", Name: "X"}}}
 
 	for _, r := range d.connectRows() {
@@ -295,42 +294,47 @@ func TestAutoReviewToggleAndJevKey(t *testing.T) {
 		t.Fatalf("tab = %v, want settings", d.tab)
 	}
 
-	// Turning it on asks where commands go before enabling anything.
+	// On by default with the active model; Enter opens the chooser on that row.
+	if !d.draft.Review.Enabled() || d.reviewBackendName() != "Active model" {
+		t.Fatalf("review default = %+v", d.draft.Review)
+	}
 	d.handleKey(tea.KeyPressMsg{Code: tea.KeyEnter})
-	if d.view != configReview {
-		t.Fatalf("view = %v, want the backend chooser", d.view)
+	if d.view != configReview || d.selected != int(reviewChoiceModel) {
+		t.Fatalf("view = %v selected = %d, want the chooser on Active model", d.view, d.selected)
 	}
-	if d.draft.Review.Enabled {
-		t.Fatal("chooser should not enable review before a choice")
-	}
-	d.handleKey(tea.KeyPressMsg{Code: tea.KeyDown}) // "Active model" is the second row.
+
+	// Off is a row in the chooser.
+	d.selected = int(reviewChoiceOff)
 	d.handleKey(tea.KeyPressMsg{Code: tea.KeyEnter})
-	if !d.draft.Review.Enabled || d.draft.Review.Backend != config.ReviewBackendModel {
-		t.Fatalf("review = %+v", d.draft.Review)
+	if d.draft.Review.Enabled() {
+		t.Fatal("choosing Off did not disable review")
 	}
-	if d.saved == nil || !d.saved.Review.Enabled || d.saved.Review.Backend != config.ReviewBackendModel {
+	if d.saved == nil || d.saved.Review.Enabled() {
 		t.Fatalf("choice not saved: %+v", d.saved)
+	}
+
+	// Reopening selects Off; Active model turns it back on.
+	d.handleKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if d.selected != int(reviewChoiceOff) {
+		t.Fatalf("selected = %d, want Off", d.selected)
+	}
+	d.selected = int(reviewChoiceModel)
+	d.handleKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if !d.draft.Review.Enabled() || d.draft.Review.Backend != config.ReviewBackendModel {
+		t.Fatalf("review = %+v", d.draft.Review)
 	}
 	if !strings.Contains(d.status, "active chat model") {
 		t.Fatalf("status = %q", d.status)
 	}
 
-	// Enter on an enabled row turns it off.
-	d.handleKey(tea.KeyPressMsg{Code: tea.KeyEnter})
-	if d.draft.Review.Enabled {
-		t.Fatal("second enter did not disable review")
-	}
-
 	// Choosing Jev with no key asks for the key.
 	d.handleKey(tea.KeyPressMsg{Code: tea.KeyEnter})
-	if d.view != configReview {
-		t.Fatalf("view = %v, want the backend chooser", d.view)
-	}
-	d.handleKey(tea.KeyPressMsg{Code: tea.KeyEnter}) // "Jev" is the first row.
+	d.selected = int(reviewChoiceJev)
+	d.handleKey(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if !d.isForm() {
 		t.Fatal("choosing Jev with no key should open the key form")
 	}
-	if !d.draft.Review.Enabled || d.draft.Review.Backend != config.ReviewBackendJev {
+	if !d.draft.Review.Enabled() || d.draft.Review.Backend != config.ReviewBackendJev {
 		t.Fatalf("review = %+v", d.draft.Review)
 	}
 	d.form.fields[0].SetValue("jv_abc")

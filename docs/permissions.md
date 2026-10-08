@@ -92,7 +92,7 @@ Before a command is judged, a fixed set of wrappers that only run the rest of th
 
 ## Auto review
 
-Off by default. When on, a shell command that rules and the read-only list did not settle is classified before the prompt, and runs without one only when the classifier is confident it is safe. Everything else gets the prompt exactly as it would without review.
+On by default, judged by the model you are chatting with. A shell command that rules and the read-only list did not settle is classified before the prompt, and runs without one only when the classifier is confident it is safe. Everything else gets the prompt exactly as it would without review.
 
 It only ever says yes. It is never asked about a call a `deny` rule rejected, it cannot override a rule, and a risky label, a low-confidence answer, a timeout or an error all fall back to the prompt (each of those shows a one-line reason under the command in the prompt; an approval is silent).
 
@@ -111,14 +111,14 @@ The network is not risky in itself: what matters is what goes out and what runs 
 
 These never reach the classifier and always prompt, whatever it would say: a command it cannot split (file redirect, here-doc, `$(…)`, subshell), a dotenv secret, and a path outside the workspace.
 
-Two backends, chosen when you turn the setting on (or by `backend` in the config):
+Two backends, chosen in `/config` (or by `backend` in the config):
 
-- **Jev** (TypeSafe) — needs `jev_api_key` in the config or `TYPESAFE_API_KEY` in the environment; choosing it without a key prompts for one. It returns a probability per label; a command is approved when the allowed labels together reach 80%, so a command split between `read_only` and `local_reversible` still passes. Jev returns no reason, so its prompts show a generic one.
-- **Active model** — the model you are chatting with. It has no probabilities, so it must answer with a label and `high` certainty.
+- **Active model** (default) — the model you are chatting with. It has no probabilities, so it must answer with a label and `high` certainty.
+- **Jev** (TypeSafe), opt-in — needs `jev_api_key` in the config; choosing it without a key prompts for one. It returns a probability per label; a command is approved when the allowed labels together reach 80%, so a command split between `read_only` and `local_reversible` still passes. Jev returns no reason, so its prompts show a generic one.
 
-With `backend` unset, Jev answers when a key is set and the active chat model otherwise.
+Having a Jev key does not switch backends: commands go to Jev only when you choose it. Choose **Off** in `/config` (or set `"disabled": true`) to be asked about every unsettled command.
 
-Either way the command, its unsettled parts, the git branch, the working directory and your latest message (capped at 1000 characters) are sent to that backend. Your message is the only text treated as trusted: a command that goes beyond what it asked for is pushed toward a riskier label. Turn it on only if you are comfortable with that.
+Either way the command, its unsettled parts, the git branch, the working directory and your latest message (capped at 1000 characters) are sent to that backend. Your message is the only text treated as trusted: a command that goes beyond what it asked for is pushed toward a riskier label. Turn it off if you are not comfortable with that.
 
 ## Remembered rules
 

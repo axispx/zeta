@@ -87,12 +87,12 @@ ChatGPT account the tokens are scoped to and is required by the backend:
 
 ## Auto review
 
-Optional, off by default; see [Permissions](permissions.md#auto-review) for what it does. Toggle it in `/config` on the **Settings** tab (`Tab` switches tabs; `Enter` toggles Auto review). Turning it on first asks where commands go — **Jev** or the **Active model** — and choosing Jev prompts for its key when none is set; `Ctrl+K` on the row sets the key directly. Changes apply to the next tool call.
+On by default, using the active model; see [Permissions](permissions.md#auto-review) for what it does. Toggle it in `/config` on the **Settings** tab (`Tab` switches tabs; `Enter` on Auto review opens the chooser). Pick where commands go — the **Active model** (default) or **Jev** — or **Off**. Choosing Jev prompts for its key when none is set; `Ctrl+K` on the row sets the key directly. Changes apply to the next tool call.
 
 ```json
 {
   "review": {
-    "enabled": true,
+    "disabled": false,
     "backend": "jev",
     "jev_api_key": "jv_...",
     "allow": ["read_only", "local_reversible", "network_fetch"]
@@ -100,7 +100,7 @@ Optional, off by default; see [Permissions](permissions.md#auto-review) for what
 }
 ```
 
-`backend` is `jev` or `model`; it names where reviewed commands are sent. `jev_api_key` (or `TYPESAFE_API_KEY`) is the Jev key. `allow` is optional and defaults to the three labels shown; the full set is `read_only`, `local_reversible`, `network_fetch` and `risky`.
+`disabled` turns the review off. `backend` is `model` (default when unset) or `jev`; it names where reviewed commands are sent. `jev_api_key` is the Jev key. `allow` is optional and defaults to the three labels shown; the full set is `read_only`, `local_reversible`, `network_fetch` and `risky`.
 
 ## Web search
 

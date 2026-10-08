@@ -58,18 +58,17 @@ func TestReviewRequest(t *testing.T) {
 }
 
 func TestReviewerFollowsConfig(t *testing.T) {
-	t.Setenv("TYPESAFE_API_KEY", "")
 	s := reviewSession()
-	if s.Reviewer() != nil {
-		t.Fatal("review is off by default")
-	}
-	s.Cfg.Review = config.ReviewConfig{Enabled: true, JevAPIKey: "k"}
-	if s.Reviewer() == nil {
-		t.Fatal("enabled with a key")
-	}
-	// No key and no client: a nil *ai.Client must not become a live backend.
-	s.Cfg.Review = config.ReviewConfig{Enabled: true}
+	// No client: a nil *ai.Client must not become a live backend.
 	if s.Reviewer() != nil {
 		t.Fatal("no backend available")
+	}
+	s.Cfg.Review = config.ReviewConfig{Backend: config.ReviewBackendJev, JevAPIKey: "k"}
+	if s.Reviewer() == nil {
+		t.Fatal("jev chosen with a key")
+	}
+	s.Cfg.Review = config.ReviewConfig{Disabled: true, Backend: config.ReviewBackendJev, JevAPIKey: "k"}
+	if s.Reviewer() != nil {
+		t.Fatal("disabled review must not build a reviewer")
 	}
 }

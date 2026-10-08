@@ -227,38 +227,31 @@ func TestModelBackend(t *testing.T) {
 }
 
 func TestNewPicksBackend(t *testing.T) {
-	t.Setenv("TYPESAFE_API_KEY", "")
 	client := &fakeCompleter{}
 
-	if New(config.ReviewConfig{}, client) != nil {
-		t.Error("review is off unless enabled")
+	if New(config.ReviewConfig{Disabled: true}, client) != nil {
+		t.Error("review is off when disabled")
 	}
-	if New(config.ReviewConfig{Enabled: true}, nil) != nil {
-		t.Error("no key and no client: nothing to review with")
+	if New(config.ReviewConfig{}, nil) != nil {
+		t.Error("no client: nothing to review with")
 	}
-	if r := New(config.ReviewConfig{Enabled: true}, client); r == nil || r.Backend.Name() != "model" {
-		t.Errorf("want the session model, got %+v", r)
+	if r := New(config.ReviewConfig{}, client); r == nil || r.Backend.Name() != "model" {
+		t.Errorf("review is on by default with the session model, got %+v", r)
 	}
+	// A Jev key alone does not move commands off the active model.
+	if r := New(config.ReviewConfig{JevAPIKey: "cfg-key"}, client); r == nil || r.Backend.Name() != "model" {
+		t.Errorf("a key without choosing Jev should stay on the model, got %+v", r)
+	}
+	// The environment is never consulted for a key.
 	t.Setenv("TYPESAFE_API_KEY", "env-key")
-	if r := New(config.ReviewConfig{Enabled: true}, client); r == nil || r.Backend.Name() != "jev" {
-		t.Errorf("env key should select jev, got %+v", r)
+	if r := New(config.ReviewConfig{Backend: config.ReviewBackendJev}, client); r != nil {
+		t.Errorf("explicit jev backend without a config key has nothing to review with, got %+v", r)
 	}
-	r := New(config.ReviewConfig{Enabled: true, JevAPIKey: "cfg-key", Allow: []string{"read_only", "bogus"}}, client)
+	r := New(config.ReviewConfig{Backend: config.ReviewBackendJev, JevAPIKey: "cfg-key", Allow: []string{"read_only", "bogus"}}, client)
 	if j, ok := r.Backend.(Jev); !ok || j.Key != "cfg-key" {
-		t.Errorf("config key should win: %+v", r.Backend)
+		t.Errorf("config key should be used: %+v", r.Backend)
 	}
 	if len(r.Allow) != 1 || r.Allow[0] != ReadOnly {
 		t.Errorf("allow = %v", r.Allow)
-	}
-	// An explicit backend overrides what the credentials would resolve to.
-	if r := New(config.ReviewConfig{Enabled: true, Backend: config.ReviewBackendModel}, client); r == nil || r.Backend.Name() != "model" {
-		t.Errorf("explicit model backend should ignore the env key, got %+v", r)
-	}
-	if r := New(config.ReviewConfig{Enabled: true, Backend: config.ReviewBackendJev}, client); r == nil || r.Backend.Name() != "jev" {
-		t.Errorf("explicit jev backend should use the env key, got %+v", r)
-	}
-	t.Setenv("TYPESAFE_API_KEY", "")
-	if r := New(config.ReviewConfig{Enabled: true, Backend: config.ReviewBackendJev}, client); r != nil {
-		t.Errorf("explicit jev backend without a key has nothing to review with, got %+v", r)
 	}
 }

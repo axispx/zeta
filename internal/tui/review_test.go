@@ -17,7 +17,6 @@ import (
 func reviewModel(t *testing.T) (*Model, chan harness.Reply) {
 	t.Helper()
 	isolateZetaHome(t)
-	t.Setenv("TYPESAFE_API_KEY", "")
 	m := testModel()
 	m.session.WS = workspace.Context{Abs: t.TempDir()}
 	m.session.Grants = &permission.Session{}
@@ -29,6 +28,7 @@ func reviewModel(t *testing.T) (*Model, chan harness.Reply) {
 
 func TestReviewOffOpensPrompt(t *testing.T) {
 	m, _ := reviewModel(t)
+	m.session.Cfg.Review = config.ReviewConfig{Disabled: true}
 	_ = m.handleTurnToolStart(turnToolStartMsg{id: 1, name: tools.Bash, label: "bash make build", args: bashArgs("make build")})
 	if m.panel.perm == nil {
 		t.Fatal("with review off the prompt opens at once")
@@ -37,7 +37,7 @@ func TestReviewOffOpensPrompt(t *testing.T) {
 
 func TestReviewHoldsPromptUntilVerdict(t *testing.T) {
 	m, replies := reviewModel(t)
-	m.session.Cfg.Review = config.ReviewConfig{Enabled: true, JevAPIKey: "k"}
+	m.session.Cfg.Review = config.ReviewConfig{Backend: config.ReviewBackendJev, JevAPIKey: "k"}
 
 	cmd := m.handleTurnToolStart(turnToolStartMsg{id: 1, name: tools.Bash, label: "bash make build", args: bashArgs("make build")})
 	if cmd == nil || m.panel.perm != nil {

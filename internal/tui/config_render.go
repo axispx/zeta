@@ -81,7 +81,7 @@ func (d *configDialog) settingsBody(innerW int, ink styles.OverlayInk) (body str
 	var b strings.Builder
 	b.WriteString(d.tabsTitle(innerW, ink))
 	b.WriteByte('\n')
-	b.WriteString(ink.Hint.Render("Enter to toggle"))
+	b.WriteString(ink.Hint.Render("Enter to change"))
 	b.WriteByte('\n')
 	for i, row := range rows {
 		b.WriteByte('\n')
@@ -233,12 +233,12 @@ func (d *configDialog) modelsBody(innerW int, chrome styles.Chrome, ink styles.O
 	return b.String(), footer
 }
 
-// reviewBody is the auto review backend chooser shown when review is turned on.
+// reviewBody is the auto review chooser: where commands go, or off.
 func (d *configDialog) reviewBody(innerW int, ink styles.OverlayInk) (body string, footer DialogFooter) {
 	var b strings.Builder
 	b.WriteString(configEscTitle("Auto review", innerW, ink))
 	b.WriteByte('\n')
-	b.WriteString(ink.Hint.Render("Send commands to:"))
+	b.WriteString(ink.Hint.Render("Review commands with:"))
 	rows := reviewBackendRows()
 	for i, row := range rows {
 		b.WriteByte('\n')

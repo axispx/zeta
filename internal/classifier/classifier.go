@@ -13,7 +13,6 @@ package classifier
 import (
 	"context"
 	"fmt"
-	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -252,32 +251,20 @@ func (v Verdict) Summary() string {
 }
 
 // New builds the reviewer cfg asks for, or nil when review is off or no backend
-// is available. cfg.Backend picks the backend explicitly; empty resolves
-// automatically — Jev when a key is set (cfg, then TYPESAFE_API_KEY), otherwise
-// client, the session's own model, when there is one.
+// is available. The backend is client, the session's own model, unless cfg
+// names Jev, which needs cfg.JevAPIKey.
 func New(cfg config.ReviewConfig, client Completer) *Reviewer {
-	if !cfg.Enabled {
+	if !cfg.Enabled() {
 		return nil
-	}
-	key := strings.TrimSpace(cfg.JevAPIKey)
-	if key == "" {
-		key = strings.TrimSpace(os.Getenv("TYPESAFE_API_KEY"))
 	}
 	var backend Backend
 	switch strings.TrimSpace(cfg.Backend) {
 	case config.ReviewBackendJev:
-		if key != "" {
+		if key := strings.TrimSpace(cfg.JevAPIKey); key != "" {
 			backend = Jev{Key: key}
-		}
-	case config.ReviewBackendModel:
-		if client != nil {
-			backend = Model{Client: client}
 		}
 	default:
-		switch {
-		case key != "":
-			backend = Jev{Key: key}
-		case client != nil:
+		if client != nil {
 			backend = Model{Client: client}
 		}
 	}
