@@ -59,12 +59,12 @@ func TestTurnStatusLine(t *testing.T) {
 	if !strings.Contains(got, statusWaiting) {
 		t.Fatalf("busy status missing Waiting: %q", got)
 	}
-	// blank + spinner + blank
+	// blank + spinner
 	if h := lipgloss.Height(got); h != busyStatusRows {
 		t.Fatalf("busy status height=%d, want %d: %q", h, busyStatusRows, got)
 	}
 	lines := strings.Split(got, "\n")
-	if len(lines) != busyStatusRows || strings.TrimSpace(lines[0]) != "" || strings.TrimSpace(lines[2]) != "" {
+	if len(lines) != busyStatusRows || strings.TrimSpace(lines[0]) != "" {
 		t.Fatalf("expected blank padding rows: %q", got)
 	}
 	m.transcript.messages = []Message{{Role: RoleTool, Tool: tools.Read}}

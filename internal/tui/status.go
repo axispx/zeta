@@ -17,9 +17,9 @@ const (
 	statusSearching = "Searching"
 	statusFetching  = "Fetching"
 
-	// busyStatusRows is blank + spinner + blank so the label is not flush
-	// against the transcript or input. layout() sizes the viewport for this.
-	busyStatusRows = 3
+	// busyStatusRows is blank + spinner so the label is not flush against the
+	// transcript. layout() sizes the viewport for this.
+	busyStatusRows = 2
 )
 
 // turnStatusLine is the busy indicator above the input while a turn runs.
@@ -29,10 +29,8 @@ func (m *Model) turnStatusLine() string {
 	if label == "" {
 		return ""
 	}
-	status := lipgloss.NewStyle().
-		Margin(0, styles.InputMarginH).
-		Render(styles.SystemMsg.Render(m.spinner.View() + " " + label))
-	return lipgloss.JoinVertical(lipgloss.Left, "", status, "")
+	status := styles.SystemMsg.Render(m.spinner.View() + " " + label)
+	return lipgloss.JoinVertical(lipgloss.Left, "", status)
 }
 
 // gapContent is the in-flow slot between transcript and input: panel

@@ -123,13 +123,13 @@ func (m *Model) renderPanel(width int) string {
 }
 
 // renderPanelFrame wraps option-list body in the shared panel chrome
-// (top rule + margin + overlay panel padding). Used by permission/ask/plan.
+// (top rule + margin + overlay panel). Used by permission/ask/plan.
 func renderPanelFrame(chrome styles.Chrome, width int, body string) string {
 	innerW, _ := overlayWidths(width)
 	panel := lipgloss.NewStyle().
 		MarginBottom(styles.InputMarginB).
 		Render(chrome.OverlayPanel().
-			Padding(1, styles.OverlayPadRight, 0, 0).
+			Padding(0, styles.OverlayPadRight, 0, 0).
 			Width(innerW).
 			Render(body))
 	rule := lipgloss.NewStyle().Foreground(styles.Dim).Render(strings.Repeat("─", max(width, 1)))
@@ -178,8 +178,8 @@ func optionLineAt(x, y, viewportH, termW int) int {
 	if x < 0 || x >= termW {
 		return -1
 	}
-	// top rule + OverlayPanel top pad; gap starts right after the transcript.
-	return y - viewportH - 1 - 1
+	// top rule; gap starts right after the transcript.
+	return y - viewportH - 1
 }
 
 // afterPanelChange re-lays out when a panel opens/closes while the TUI is ready.

@@ -483,8 +483,8 @@ func TestHandlePermissionClick(t *testing.T) {
 		panel:      panel{perm: newPermissionPrompt("", tools.Bash, "")},
 		turn:       turn{current: &turnSession{reply: replies, activeTool: -1, cancel: func() {}}},
 	}
-	// y=15 is Deny for bash (3 options)
-	if _, ok := m.handlePermissionClick(tea.MouseClickMsg{X: 2, Y: 15, Button: tea.MouseLeft}); !ok {
+	// y=14 is Deny for bash (3 options)
+	if _, ok := m.handlePermissionClick(tea.MouseClickMsg{X: 2, Y: 14, Button: tea.MouseLeft}); !ok {
 		t.Fatal("expected click handled")
 	}
 	if allow := <-replies; allow.Kind != harness.ReplyDeny {

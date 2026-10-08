@@ -412,7 +412,7 @@ func TestHandleAskClickOnDescriptionLine(t *testing.T) {
 	m.panel.ask.lists[0].selected = 0
 	titleH := m.askTitleH()
 	// Rows are label · description, so row 1's description is line 3.
-	y := m.transcript.viewport.Height() + 2 + titleH + 3
+	y := m.transcript.viewport.Height() + 1 + titleH + 3
 	if _, ok := m.handleAskClick(tea.MouseClickMsg{X: 1, Y: y, Button: tea.MouseLeft}); !ok {
 		t.Fatal("expected click handled")
 	}

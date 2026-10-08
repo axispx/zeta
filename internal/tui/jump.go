@@ -20,13 +20,17 @@ func (m *Model) jumpVisible() bool {
 		!m.filterOverlayOpen()
 }
 
-// jumpBounds returns the pill's cell range. It sits centered on the idle gap
-// row, flush against the input; when the gap holds status or a panel it falls
-// back to the transcript's last row.
+// jumpBounds returns the pill's cell range. It sits centered on the busy
+// status row (the spinner, under the gap's leading blank) or, when idle, on the
+// gap row flush against the input; when the gap holds a panel it falls back to
+// the transcript's last row.
 func (m *Model) jumpBounds() (row, x0, x1 int) {
 	w := lipgloss.Width(jumpLabel)
 	row = m.transcript.viewport.Height() - 1
-	if m.gapContent() == "" {
+	switch {
+	case !m.inputBlocked() && m.turnStatusLine() != "":
+		row += 2
+	case m.gapContent() == "":
 		row++
 	}
 	x0 = (m.term.width - w) / 2

@@ -62,3 +62,19 @@ func TestJumpClickScrollsToBottom(t *testing.T) {
 		t.Fatal("pill should disappear once at the bottom")
 	}
 }
+
+// While a turn runs the pill sits on the spinner row, not the transcript's
+// last row, so it reads as part of the status.
+func TestJumpPillOnStatusRowWhileBusy(t *testing.T) {
+	m := scrolledUpModel(t)
+	m.transcript.viewport.ScrollUp(10)
+	idle, _, _ := m.jumpBounds()
+	m.turn.current = &turnSession{activeTool: -1}
+	row, _, _ := m.jumpBounds()
+	if want := m.transcript.viewport.Height() + 1; row != want {
+		t.Fatalf("busy pill row=%d, want spinner row %d", row, want)
+	}
+	if row <= idle-1 {
+		t.Fatalf("busy row %d should be below the transcript's last row", row)
+	}
+}
