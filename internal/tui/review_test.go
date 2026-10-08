@@ -80,12 +80,12 @@ func TestReviewVerdicts(t *testing.T) {
 	rows := len(m.transcript.messages)
 	m.handleReviewDone(reviewDoneMsg{id: 1, start: start, verdict: classifier.Verdict{
 		Result:  classifier.Result{Label: classifier.ReadOnly, Source: "jev"},
-		Concern: classifier.RunsUnknownCode,
+		Concern: classifier.Risky,
 	}})
 	if m.panel.perm == nil {
 		t.Fatal("a refused review falls back to the prompt")
 	}
-	const want = "Auto review: runs code it can't see"
+	const want = "Auto review: may be destructive or send data out"
 	if m.panel.perm.review != want {
 		t.Fatalf("prompt review line = %q", m.panel.perm.review)
 	}

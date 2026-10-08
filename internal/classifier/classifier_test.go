@@ -42,16 +42,16 @@ func TestReviewApproval(t *testing.T) {
 	}{
 		{"read only, sure", probs(ReadOnly, 0.97), nil, true},
 		{"reversible, sure", probs(LocalReversible, 0.95), nil, true},
-		{"destructive never by default", probs(LocalDestructive, 0.99), nil, false},
-		{"external", probs(ExternalEffect, 0.99), nil, false},
-		{"sends data out", probs(SendsDataOut, 0.99), nil, false},
-		{"unknown code", probs(RunsUnknownCode, 0.99), nil, false},
+		{"fetch, sure", probs(NetworkFetch, 0.95), nil, true},
+		{"risky never by default", probs(Risky, 0.99), nil, false},
 		{"at the bar", probs(ReadOnly, 0.8), nil, true},
 		{"under the bar", probs(ReadOnly, 0.79), nil, false},
 		{"split between safe labels", probs(ReadOnly, 0.5, LocalReversible, 0.4), nil, true},
-		{"split with a risky label", probs(ReadOnly, 0.5, LocalReversible, 0.2, ExternalEffect, 0.3), nil, false},
+		{"split with a risky label", probs(ReadOnly, 0.5, LocalReversible, 0.2, Risky, 0.3), nil, false},
+		{"split between fetch and reversible", probs(NetworkFetch, 0.5, LocalReversible, 0.4), nil, true},
 		{"narrowed allow list", probs(LocalReversible, 0.99), []Label{ReadOnly}, false},
-		{"widened allow list", probs(ExternalEffect, 0.99), []Label{ExternalEffect}, true},
+		{"narrowed away from fetch", probs(NetworkFetch, 0.99), []Label{ReadOnly, LocalReversible}, false},
+		{"widened allow list", probs(Risky, 0.99), []Label{Risky}, true},
 	}
 	for _, tc := range cases {
 		r := &Reviewer{Backend: &fakeBackend{res: tc.res}, Allow: tc.allow}
@@ -78,9 +78,9 @@ func TestVerdictSaysWhyItAsks(t *testing.T) {
 		res  Result
 		want string
 	}{
-		{"risky top label", probs(ExternalEffect, 0.97), "Auto review: reaches outside the project"},
-		{"data out", probs(SendsDataOut, 0.9), "Auto review: may send files or secrets out"},
-		{"safe on top, risk underneath", probs(ReadOnly, 0.6, RunsUnknownCode, 0.3, LocalDestructive, 0.1), "Auto review: runs code it can't see"},
+		{"risky top label", probs(Risky, 0.97), "Auto review: may be destructive or send data out"},
+		{"safe on top, risk underneath", probs(ReadOnly, 0.6, Risky, 0.4), "Auto review: may be destructive or send data out"},
+		{"backend's reason wins", Result{Label: Risky, Probs: map[Label]float64{Risky: 1}, Reason: "Pushes\nto origin   main"}, "Auto review: Pushes to origin main"},
 		{"safe split, no risk", probs(ReadOnly, 0.4, LocalReversible, 0.3), "Auto review: no confident verdict"},
 		{"chat model, low certainty", Result{Label: ReadOnly}, "Auto review: no confident verdict"},
 	} {
@@ -127,7 +127,7 @@ func TestJevRequestAndReply(t *testing.T) {
 		auth = r.Header.Get("Authorization")
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		_, _ = w.Write([]byte(`{"model":"jev-1.13.0","answers":{"risk":{"type":"choice","choice":"local_reversible","confidence":0.9,` +
-			`"probabilities":{"read_only":0.05,"local_reversible":0.93,"local_destructive":0.01,"external_effect":0.01,"sends_data_out":0,"runs_unknown_code":0}}},"usage":{"input_tokens":1,"output_tokens":1}}`))
+			`"probabilities":{"read_only":0.05,"local_reversible":0.93,"network_fetch":0.01,"risky":0.01}}},"usage":{"input_tokens":1,"output_tokens":1}}`))
 	}))
 	defer srv.Close()
 
@@ -203,6 +203,7 @@ func TestModelBackend(t *testing.T) {
 	}{
 		{`{"label":"read_only","certainty":"high"}`, probs(ReadOnly, 1), false},
 		{"```json\n{\"label\": \"local_reversible\", \"certainty\": \"HIGH\"}\n```", probs(LocalReversible, 1), false},
+		{`{"reason":"fetches docs","label":"network_fetch","certainty":"high"}`, Result{Label: NetworkFetch, Probs: map[Label]float64{NetworkFetch: 1}, Reason: "fetches docs"}, false},
 		{`{"label":"read_only","certainty":"low"}`, Result{Label: ReadOnly}, false},
 		{`{"label":"read_only"}`, Result{Label: ReadOnly}, false},
 		{`{"label":"safe","certainty":"high"}`, Result{}, true},
@@ -211,7 +212,7 @@ func TestModelBackend(t *testing.T) {
 	for _, tc := range cases {
 		c := &fakeCompleter{reply: tc.reply}
 		res, err := Model{Client: c}.Classify(context.Background(), Request{Command: "ls", Pending: []string{"ls"}})
-		if (err != nil) != tc.wantError || res.Label != tc.want.Label || res.Probs[res.Label] != tc.want.Probs[tc.want.Label] {
+		if (err != nil) != tc.wantError || res.Label != tc.want.Label || res.Reason != tc.want.Reason || res.Probs[res.Label] != tc.want.Probs[tc.want.Label] {
 			t.Errorf("reply %q: got %+v, %v", tc.reply, res, err)
 		}
 		if len(c.msgs) != 2 || !strings.Contains(c.msgs[1].Text, "<command_facts>") || !strings.Contains(c.msgs[0].Text, "untrusted") {

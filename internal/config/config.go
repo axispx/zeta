@@ -42,8 +42,8 @@ type ReviewConfig struct {
 	// Empty falls back to the TYPESAFE_API_KEY environment variable.
 	JevAPIKey string `json:"jev_api_key,omitempty"`
 	// Allow lists the labels approved without a prompt: read_only,
-	// local_reversible, local_destructive, external_effect, runs_unknown_code.
-	// Empty means read_only and local_reversible.
+	// local_reversible, network_fetch, risky.
+	// Empty means read_only, local_reversible and network_fetch.
 	Allow []string `json:"allow,omitempty"`
 }
 

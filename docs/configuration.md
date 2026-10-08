@@ -95,12 +95,12 @@ Optional, off by default; see [Permissions](permissions.md#auto-review) for what
     "enabled": true,
     "backend": "jev",
     "jev_api_key": "jv_...",
-    "allow": ["read_only", "local_reversible"]
+    "allow": ["read_only", "local_reversible", "network_fetch"]
   }
 }
 ```
 
-`backend` is `jev` or `model`; it names where reviewed commands are sent. `jev_api_key` (or `TYPESAFE_API_KEY`) is the Jev key. `allow` is optional and defaults to the two labels shown.
+`backend` is `jev` or `model`; it names where reviewed commands are sent. `jev_api_key` (or `TYPESAFE_API_KEY`) is the Jev key. `allow` is optional and defaults to the three labels shown; the full set is `read_only`, `local_reversible`, `network_fetch` and `risky`.
 
 ## Web search
 

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 )
 
 // JevURL is TypeSafe's System One endpoint.
@@ -121,4 +122,14 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return s[:n] + "…"
+}
+
+// oneLine collapses s to a single trimmed line of at most n runes, so a
+// backend's free text cannot break the prompt it is shown in.
+func oneLine(s string, n int) string {
+	s = strings.Join(strings.Fields(s), " ")
+	if r := []rune(s); len(r) > n {
+		s = string(r[:n]) + "…"
+	}
+	return s
 }

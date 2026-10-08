@@ -96,24 +96,24 @@ Off by default. When on, a shell command that rules and the read-only list did n
 
 It only ever says yes. It is never asked about a call a `deny` rule rejected, it cannot override a rule, and a risky label, a low-confidence answer, a timeout or an error all fall back to the prompt (each of those shows a one-line reason under the command in the prompt; an approval is silent).
 
-A command is classified by what the worst thing in it would do:
+A command is classified by what the worst thing in it clearly does:
 
-| Label               | Meaning                                                                 |
-| ------------------- | ----------------------------------------------------------------------- |
-| `read_only`         | only reads or prints                                                    |
-| `local_reversible`  | writes inside the project in a way git or a rebuild undoes (builds, formatting, caches) |
-| `local_destructive` | deletes or overwrites files or history in a way that is not easily undone |
-| `external_effect`   | reaches outside the project: network writes, push, publish, install, `sudo` |
-| `sends_data_out`    | sends files, secrets or the environment off the machine: `curl -d @file`, `nc`, `scp` of keys |
-| `runs_unknown_code` | runs code the command text does not show: `curl \| sh`, `eval`, a script  |
+| Label              | Meaning                                                                 |
+| ------------------ | ----------------------------------------------------------------------- |
+| `read_only`        | only reads or prints                                                    |
+| `local_reversible` | writes inside the project in a way git or a rebuild undoes: builds, tests, formatting, caches, ordinary project scripts, deleting build output |
+| `network_fetch`    | uses the network only to download or look up, sending nothing out: `curl` GET, `git fetch` / `pull` / `clone`, installing the project's dependencies |
+| `risky`            | could do serious or hard-to-undo harm, or leak data: deleting or rewriting work (`rm -rf` of source, `git reset --hard`, force push), changing remote state (`git push`, publish, deploy, `POST`), sending files or secrets out (`curl -d @file`, `nc`), running code the text does not show (`curl \| sh`), `sudo`, system-wide installs |
 
-`read_only` and `local_reversible` are approved by default (`allow` in the config narrows or widens that). Only the sub-commands no rule covers are put to the classifier, so `go test ./... && make build` asks about `make build` alone.
+The network is not risky in itself: what matters is what goes out and what runs afterwards. A download is `network_fetch`; a request that carries local files or secrets, or changes something remote, is `risky`. Judgement follows what the command text shows, not what it could conceivably do, and anything the classifier cannot place is `risky`.
+
+`read_only`, `local_reversible` and `network_fetch` are approved by default (`allow` in the config narrows or widens that). When a command is not approved, the prompt shows the classifier's one-line reason where the backend gives one. Only the sub-commands no rule covers are put to the classifier, so `go test ./... && make build` asks about `make build` alone.
 
 These never reach the classifier and always prompt, whatever it would say: a command it cannot split (file redirect, here-doc, `$(…)`, subshell), a dotenv secret, and a path outside the workspace.
 
 Two backends, chosen when you turn the setting on (or by `backend` in the config):
 
-- **Jev** (TypeSafe) — needs `jev_api_key` in the config or `TYPESAFE_API_KEY` in the environment; choosing it without a key prompts for one. It returns a probability per label; a command is approved when the allowed labels together reach 80%, so a command split between `read_only` and `local_reversible` still passes.
+- **Jev** (TypeSafe) — needs `jev_api_key` in the config or `TYPESAFE_API_KEY` in the environment; choosing it without a key prompts for one. It returns a probability per label; a command is approved when the allowed labels together reach 80%, so a command split between `read_only` and `local_reversible` still passes. Jev returns no reason, so its prompts show a generic one.
 - **Active model** — the model you are chatting with. It has no probabilities, so it must answer with a label and `high` certainty.
 
 With `backend` unset, Jev answers when a key is set and the active chat model otherwise.
