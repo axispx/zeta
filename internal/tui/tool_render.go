@@ -8,6 +8,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/axispx/zeta/internal/styles"
+	"github.com/axispx/zeta/internal/todo"
 	"github.com/axispx/zeta/internal/tools"
 )
 
@@ -143,16 +144,42 @@ func renderTodoRun(msgs []Message) string {
 	return renderTodoCall(msgs[len(msgs)-1])
 }
 
-// renderTodoCall shows the model-facing Format body (no second UI dialect).
+// renderTodoCall draws the checklist from the model-facing Format body in
+// Message.Out (resume stores the same text), so the UI never diverges from it.
 func renderTodoCall(m Message) string {
+	var b strings.Builder
+	b.WriteString(styles.Todo.Render("Todos"))
 	if m.Status == ToolDenied {
-		return styles.ToolMsg.Render(tools.Todo) + "  " + styles.SystemMsg.Render("denied")
+		b.WriteString("  ")
+		b.WriteString(styles.SystemMsg.Render("denied"))
+		return b.String()
 	}
 	body := strings.TrimSpace(m.Out)
 	if body == "" {
-		return styles.ToolMsg.Render(tools.Todo)
+		return b.String()
 	}
-	return styles.ToolMsg.Render(body)
+	items, warning, ok := todo.ParseFormat(body)
+	if !ok {
+		// Unexpected shape: show the raw body rather than drop the row.
+		b.WriteByte('\n')
+		b.WriteString(body)
+		return b.String()
+	}
+	for _, it := range items {
+		b.WriteByte('\n')
+		b.WriteString(styles.Todo.Render(todo.Glyph(it.Status)))
+		b.WriteString(" ")
+		b.WriteString(it.Subject)
+		if d := strings.TrimSpace(it.Description); d != "" {
+			b.WriteString(" — ")
+			b.WriteString(d)
+		}
+	}
+	if warning != "" {
+		b.WriteByte('\n')
+		b.WriteString(styles.SystemMsg.Render(warning))
+	}
+	return b.String()
 }
 
 // renderEditCall formats an edit as "Editing|Creating|…" while open, then

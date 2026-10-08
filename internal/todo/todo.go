@@ -138,6 +138,78 @@ func Format(items []Item) string {
 	return b.String()
 }
 
+// Glyph is the transcript status mark for st.
+func Glyph(st Status) string {
+	switch st {
+	case Pending:
+		return "○"
+	case InProgress:
+		return "◐"
+	case Completed:
+		return "●"
+	case Cancelled:
+		return "✗"
+	default:
+		return "·"
+	}
+}
+
+// ParseFormat parses Format output (and an optional trailing "warning:" line)
+// for the transcript. ok is false when s is not Format-shaped. Keep it in step
+// with Format; TestParseFormatRoundTrip pins the pair.
+func ParseFormat(s string) (items []Item, warning string, ok bool) {
+	s = strings.TrimSpace(s)
+	lines := strings.Split(s, "\n")
+	if !strings.HasPrefix(strings.TrimSpace(lines[0]), "Todos (") {
+		return nil, "", false
+	}
+	for _, line := range lines[1:] {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "warning:") {
+			warning = line
+			continue
+		}
+		it, err := parseFormatLine(line)
+		if err != nil {
+			return nil, "", false
+		}
+		items = append(items, it)
+	}
+	return items, warning, true
+}
+
+func parseFormatLine(line string) (Item, error) {
+	if !strings.HasPrefix(line, "[") {
+		return Item{}, fmt.Errorf("missing status")
+	}
+	end := strings.IndexByte(line, ']')
+	if end < 0 {
+		return Item{}, fmt.Errorf("bad status")
+	}
+	st, err := parseStatus(line[1:end])
+	if err != nil {
+		return Item{}, err
+	}
+	id, rest, cut := strings.Cut(strings.TrimSpace(line[end+1:]), ": ")
+	if !cut || strings.TrimSpace(id) == "" {
+		return Item{}, fmt.Errorf("missing id")
+	}
+	subject, desc, _ := strings.Cut(rest, " — ")
+	subject = strings.TrimSpace(subject)
+	if subject == "" {
+		return Item{}, fmt.Errorf("missing subject")
+	}
+	return Item{
+		ID:          strings.TrimSpace(id),
+		Subject:     subject,
+		Description: strings.TrimSpace(desc),
+		Status:      st,
+	}, nil
+}
+
 // PromptBlock is a markdown checklist for developer-message injection.
 // Empty string when there are no items.
 func PromptBlock(items []Item) string {

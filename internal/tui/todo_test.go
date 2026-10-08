@@ -88,13 +88,18 @@ func TestRenderTodoCall(t *testing.T) {
 		Status: ToolOK,
 		Out:    "Todos (2):\n[in_progress] 1: Wire store\n[pending] 2: Persist — detail",
 	}))
-	if !strings.Contains(out, "Todos (2):") || !strings.Contains(out, "[in_progress] 1: Wire store") {
-		t.Fatalf("body: %q", out)
+	for _, want := range []string{"Todos", "◐ Wire store", "○ Persist — detail"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("missing %q in %q", want, out)
+		}
+	}
+	if strings.Contains(out, "[in_progress]") {
+		t.Fatalf("raw Format leaked: %q", out)
 	}
 	denied := stripANSI(renderTodoCall(Message{
 		Role: RoleTool, Tool: tools.Todo, Status: ToolDenied,
 	}))
-	if !strings.Contains(denied, "todo") || !strings.Contains(denied, "denied") {
+	if !strings.Contains(denied, "Todos") || !strings.Contains(denied, "denied") {
 		t.Fatalf("denied: %q", denied)
 	}
 	if !toolHasOut(tools.Todo) {

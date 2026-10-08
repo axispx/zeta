@@ -167,3 +167,27 @@ func TestParseArgs(t *testing.T) {
 		t.Fatal("bad status")
 	}
 }
+
+func TestParseFormatRoundTrip(t *testing.T) {
+	in := []Item{
+		{ID: "1", Subject: "Wire store", Status: InProgress},
+		{ID: "2", Subject: "Persist", Description: "JSONL: one line", Status: Pending},
+		{ID: "3", Subject: "Tests", Status: Completed},
+		{ID: "4", Subject: "Drop it", Status: Cancelled},
+	}
+	got, warn, ok := ParseFormat(Format(in) + "\nwarning: 2 items in_progress")
+	if !ok || warn != "warning: 2 items in_progress" {
+		t.Fatalf("ok=%v warn=%q", ok, warn)
+	}
+	if len(got) != len(in) {
+		t.Fatalf("got %d items, want %d", len(got), len(in))
+	}
+	for i := range in {
+		if got[i] != in[i] {
+			t.Fatalf("item %d: got %+v want %+v", i, got[i], in[i])
+		}
+	}
+	if _, _, ok := ParseFormat("not a list"); ok {
+		t.Fatal("non-Format text parsed")
+	}
+}
