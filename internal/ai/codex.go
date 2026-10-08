@@ -84,7 +84,6 @@ type codexRequest struct {
 	ToolChoice        string          `json:"tool_choice,omitempty"`
 	ParallelToolCalls bool            `json:"parallel_tool_calls"`
 	Reasoning         *codexReasoning `json:"reasoning,omitempty"`
-	MaxOutputTokens   int64           `json:"max_output_tokens,omitempty"`
 	Store             bool            `json:"store"`
 	Stream            bool            `json:"stream"`
 }
@@ -124,21 +123,21 @@ type codexContent struct {
 	ImageURL string `json:"image_url,omitempty"`
 }
 
-// requestBody assembles the request for msgs. tools may be empty; maxTokens > 0
-// caps the completion.
-func (c *codexClient) requestBody(model, effort string, msgs []Message, tools []Tool, maxTokens int64, stream bool) (*codexRequest, error) {
+// requestBody assembles the request for msgs. tools may be empty. The request
+// carries no output cap: the ChatGPT Codex backend does not take one (the Codex
+// CLI sends none), so a caller's limit is enforced on the returned text instead.
+func (c *codexClient) requestBody(model, effort string, msgs []Message, tools []Tool, stream bool) (*codexRequest, error) {
 	instructions, input, err := codexInput(msgs)
 	if err != nil {
 		return nil, err
 	}
 	req := &codexRequest{
-		Model:           model,
-		Instructions:    instructions,
-		Input:           input,
-		MaxOutputTokens: maxTokens,
-		Reasoning:       &codexReasoning{Effort: effort},
-		Store:           false,
-		Stream:          stream,
+		Model:        model,
+		Instructions: instructions,
+		Input:        input,
+		Reasoning:    &codexReasoning{Effort: effort},
+		Store:        false,
+		Stream:       stream,
 	}
 	if stream {
 		req.Reasoning.Summary = "auto"
@@ -234,7 +233,7 @@ func codexTools(tools []Tool) []codexTool {
 }
 
 func (c *codexClient) stream(ctx context.Context, model, effort string, msgs []Message, tools []Tool, out chan<- Event) {
-	req, err := c.requestBody(model, effort, msgs, tools, 0, true)
+	req, err := c.requestBody(model, effort, msgs, tools, true)
 	if err != nil {
 		out <- Event{Type: EventErr, Err: err}
 		return
@@ -283,8 +282,8 @@ func (c *codexClient) stream(ctx context.Context, model, effort string, msgs []M
 // read off the wire as a stream and joined; the request still carries the
 // summarizer shape (tool_choice none, no reasoning summary) and the client
 // timeout, since nothing here reaches the UI.
-func (c *codexClient) complete(ctx context.Context, model, effort string, msgs []Message, tools []Tool, maxTokens int64) (string, error) {
-	req, err := c.requestBody(model, effort, msgs, tools, maxTokens, false)
+func (c *codexClient) complete(ctx context.Context, model, effort string, msgs []Message, tools []Tool, _ int64) (string, error) {
+	req, err := c.requestBody(model, effort, msgs, tools, false)
 	if err != nil {
 		return "", err
 	}

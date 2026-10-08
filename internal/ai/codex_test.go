@@ -67,7 +67,7 @@ func TestCodexRequestShape(t *testing.T) {
 	}}}
 
 	c := newCodexClient(codexTestProvider("https://chatgpt.com/backend-api/codex"))
-	req, err := c.requestBody("gpt-5.5", "high", msgs, tools, 0, true)
+	req, err := c.requestBody("gpt-5.5", "high", msgs, tools, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,18 +107,18 @@ func TestCodexRequestBody(t *testing.T) {
 	t.Parallel()
 	c := newCodexClient(codexTestProvider("https://chatgpt.com/backend-api/codex"))
 	tools := []Tool{{Name: "read"}}
-	req, err := c.requestBody("m", "", []Message{{Role: RoleUser, Text: "hi"}}, tools, 128, false)
+	req, err := c.requestBody("m", "", []Message{{Role: RoleUser, Text: "hi"}}, tools, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if req.Stream || req.ToolChoice != "none" || req.MaxOutputTokens != 128 {
+	if req.Stream || req.ToolChoice != "none" {
 		t.Fatalf("request = %#v", req)
 	}
 	if req.Reasoning == nil || req.Reasoning.Summary != "" || req.Reasoning.Effort != "" {
 		t.Fatalf("reasoning = %#v", req.Reasoning)
 	}
 	// A tool-less streaming request omits tool_choice entirely.
-	req, err = c.requestBody("m", "", []Message{{Role: RoleUser, Text: "hi"}}, nil, 0, true)
+	req, err = c.requestBody("m", "", []Message{{Role: RoleUser, Text: "hi"}}, nil, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,7 +126,7 @@ func TestCodexRequestBody(t *testing.T) {
 		t.Fatalf("request = %#v", req)
 	}
 
-	if _, err := c.requestBody("m", "", []Message{{Role: "bogus"}}, nil, 0, true); err == nil {
+	if _, err := c.requestBody("m", "", []Message{{Role: "bogus"}}, nil, true); err == nil {
 		t.Fatal("expected unknown-role error")
 	}
 }
