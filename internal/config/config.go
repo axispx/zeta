@@ -84,8 +84,22 @@ type ModelDef struct {
 	// ReasoningEffort is sent as reasoning_effort (e.g. "low"/"medium"/"high").
 	// Empty means omit (provider default).
 	ReasoningEffort string `json:"reasoning_effort,omitempty"`
+	// FastTier is the service_tier id that selects the model's fast mode, from
+	// the provider's catalog. Empty means the model has no fast mode.
+	FastTier string `json:"fast_tier,omitempty"`
+	// Fast turns fast mode on (toggled with /fast). Ignored without FastTier.
+	Fast bool `json:"fast,omitempty"`
 	// Disabled keeps the model listed but excludes it from /model and Active.
 	Disabled bool `json:"disabled,omitempty"`
+}
+
+// ServiceTier is the service_tier to send with requests: FastTier while fast
+// mode is on, otherwise empty (provider default).
+func (m ModelDef) ServiceTier() string {
+	if m.Fast {
+		return strings.TrimSpace(m.FastTier)
+	}
+	return ""
 }
 
 // EffortChoices is the reasoning_effort values this model accepts, with the
@@ -498,6 +512,16 @@ func (c *Config) ActiveReasoningEffort() string {
 		return ""
 	}
 	return strings.TrimSpace(p.Models[id].ReasoningEffort)
+}
+
+// ActiveFast reports whether fast mode is on for the active model.
+func (c *Config) ActiveFast() bool {
+	p, ok := c.ActiveProvider()
+	id := c.ActiveModelID()
+	if !ok || id == "" {
+		return false
+	}
+	return p.Models[id].ServiceTier() != ""
 }
 
 // SetActive sets the active model as provider_id/model_id.

@@ -128,12 +128,16 @@ type Client struct {
 // everything else speaks OpenAI-compatible Chat Completions.
 func New(p config.Provider, model string) *Client {
 	effort := ""
+	tier := ""
 	if md, ok := p.Models[model]; ok {
 		effort = strings.TrimSpace(md.ReasoningEffort)
+		tier = md.ServiceTier()
 	}
 	var api apiClient
 	if codex.IsEndpoint(p.BaseURL) {
-		api = newCodexClient(p)
+		cc := newCodexClient(p)
+		cc.serviceTier = tier
+		api = cc
 	} else {
 		api = &chatClient{api: openai.NewClient(
 			option.WithBaseURL(strings.TrimRight(p.BaseURL, "/")),

@@ -187,6 +187,37 @@ func (c *Config) SetReasoningEffort(providerID, modelID, effort string) error {
 	})
 }
 
+// SetFast turns fast mode on or off for a model. Turning it on errors when the
+// model has no fast tier. Does not Save.
+func (c *Config) SetFast(providerID, modelID string, on bool) error {
+	return c.withProvider(providerID, func(p *Provider) error {
+		md, ok := p.Models[modelID]
+		if !ok {
+			return fmt.Errorf("model %q not in provider %q", modelID, providerID)
+		}
+		if on && strings.TrimSpace(md.FastTier) == "" {
+			return fmt.Errorf("%s has no Fast mode", md.DisplayName(modelID))
+		}
+		md.Fast = on
+		p.Models[modelID] = md
+		return nil
+	})
+}
+
+// SetFastTiers records the fast service tier a provider's catalog reports for
+// each model id; a model absent from tiers (or mapped to "") has none, and
+// loses its fast opt-in with it. Does not Save.
+func (c *Config) SetFastTiers(providerID string, tiers map[string]string) error {
+	return c.withProvider(providerID, func(p *Provider) error {
+		for id, md := range p.Models {
+			md.FastTier = strings.TrimSpace(tiers[id])
+			md.Fast = md.Fast && md.FastTier != ""
+			p.Models[id] = md
+		}
+		return nil
+	})
+}
+
 // DeleteModel removes a model from a provider. The provider is kept even if it
 // has no models left. If the model was active, Active is reselected or cleared.
 func (c *Config) DeleteModel(providerID, modelID string) error {
@@ -204,7 +235,7 @@ func (c *Config) DeleteModel(providerID, modelID string) error {
 }
 
 // MergeCatalogModels builds provider models from catalog defs. Existing Disabled
-// flags and ReasoningEffort in prev are preserved; new catalog models arrive
+// flags, ReasoningEffort and Fast in prev are preserved; new catalog models arrive
 // Disabled; ids absent from catalog are dropped. Invalid catalog entries
 // (empty id / ctx<=0) skipped.
 func MergeCatalogModels(catalog, prev map[string]ModelDef) map[string]ModelDef {
@@ -219,6 +250,7 @@ func MergeCatalogModels(catalog, prev map[string]ModelDef) map[string]ModelDef {
 			if strings.TrimSpace(old.ReasoningEffort) != "" {
 				def.ReasoningEffort = old.ReasoningEffort
 			}
+			def.Fast = old.Fast && strings.TrimSpace(def.FastTier) != ""
 		}
 		next[mid] = def
 	}

@@ -28,7 +28,7 @@ func inputFooter(width int, ws workspace.Context, cfg config.Config, contextToke
 	if width < 1 {
 		return ""
 	}
-	model := footerModelLabel(cfg.ModelName(), cfg.ActiveReasoningEffort())
+	model := footerModelLabel(cfg.ModelName(), cfg.ActiveReasoningEffort(), cfg.ActiveFast())
 	if u := formatUsage(contextTokens, cfg.ContextWindow()); u != "" && model != "" {
 		model += " · " + u
 	}
@@ -48,15 +48,19 @@ func inputFooter(width int, ws workspace.Context, cfg config.Config, contextToke
 	return top
 }
 
-// footerModelLabel is "model effort" (effort omitted when unknown).
-func footerModelLabel(model, effort string) string {
-	if effort == "" {
-		return model
-	}
+// footerModelLabel is "model effort Fast": effort and the Fast marker are
+// omitted when unknown or off.
+func footerModelLabel(model, effort string, fast bool) string {
 	if model == "" {
 		return ""
 	}
-	return model + " " + config.ReasoningEffortLabel(effort)
+	if effort != "" {
+		model += " " + config.ReasoningEffortLabel(effort)
+	}
+	if fast {
+		model += " Fast"
+	}
+	return model
 }
 
 // footerPathColored is footerPathLabel with the path green and branch red.

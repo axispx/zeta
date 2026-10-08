@@ -56,7 +56,11 @@ type codexClient struct {
 	baseURL   string
 	token     string
 	accountID string
-	backoff   time.Duration // first resend delay; tests shrink it
+	// serviceTier is sent as service_tier ("priority" is fast mode); empty
+	// omits it. It rides every request, summarizer included, so the cached
+	// prefix is served the same way it was written.
+	serviceTier string
+	backoff     time.Duration // first resend delay; tests shrink it
 }
 
 func newCodexClient(p config.Provider) *codexClient {
@@ -84,6 +88,7 @@ type codexRequest struct {
 	ToolChoice        string          `json:"tool_choice,omitempty"`
 	ParallelToolCalls bool            `json:"parallel_tool_calls"`
 	Reasoning         *codexReasoning `json:"reasoning,omitempty"`
+	ServiceTier       string          `json:"service_tier,omitempty"`
 	Store             bool            `json:"store"`
 	Stream            bool            `json:"stream"`
 }
@@ -136,6 +141,7 @@ func (c *codexClient) requestBody(model, effort string, msgs []Message, tools []
 		Instructions: instructions,
 		Input:        input,
 		Reasoning:    &codexReasoning{Effort: effort},
+		ServiceTier:  c.serviceTier,
 		Store:        false,
 		Stream:       stream,
 	}

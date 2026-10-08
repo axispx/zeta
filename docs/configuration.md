@@ -85,6 +85,10 @@ ChatGPT account the tokens are scoped to and is required by the backend:
 }
 ```
 
+## Fast mode
+
+Codex models that advertise a fast tier (the backend lists it per model, e.g. "1.5x speed, increased usage") can be switched to it with **`/fast`**. It toggles the active model, shows `Fast` next to the model in the footer, and sends `service_tier` with every request. It is off by default because it uses more of your plan's quota. The setting is stored per model (`"fast": true`); `fast_tier` is the tier id the backend reported. A model with no recorded tier (connected before fast mode existed) reads it from the Codex catalog the first time you run `/fast`, so no reconnect is needed.
+
 ## Auto review
 
 On by default, using the active model; see [Permissions](permissions.md#auto-review) for what it does. Toggle it in `/config` on the **Settings** tab (`Tab` switches tabs; `Enter` on Auto review opens the chooser). Pick where commands go — the **Active model** (default) or **Jev** — or **Off**. Choosing Jev prompts for its key when none is set; `Ctrl+K` on the row sets the key directly. Changes apply to the next tool call.

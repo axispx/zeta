@@ -250,6 +250,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case authRetryResultMsg:
 		return m, m.handleAuthRetryResult(msg)
 
+	case fastTiersMsg:
+		m.handleFastTiers(msg)
+		return m, nil
+
 	case planUsageMsg:
 		m.handlePlanUsage(msg)
 		return m, nil

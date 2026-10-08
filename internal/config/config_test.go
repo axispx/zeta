@@ -643,3 +643,74 @@ func TestPresetsFromModels(t *testing.T) {
 		t.Fatalf("reasoning efforts = %#v", got)
 	}
 }
+
+func TestSetFast(t *testing.T) {
+	cfg := sampleConfig()
+	if err := cfg.SetFast("deepseek", "deepseek-v4-flash", true); err == nil {
+		t.Fatal("expected error for a model without a fast tier")
+	}
+	if cfg.ActiveFast() {
+		t.Fatal("rejected set must not turn fast on")
+	}
+
+	p := cfg.Providers["deepseek"]
+	md := p.Models["deepseek-v4-flash"]
+	md.FastTier = "priority"
+	p.Models["deepseek-v4-flash"] = md
+	cfg.Providers["deepseek"] = p
+
+	if md.ServiceTier() != "" {
+		t.Fatalf("tier before opt-in = %q", md.ServiceTier())
+	}
+	if err := cfg.SetFast("deepseek", "deepseek-v4-flash", true); err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.ActiveFast() || cfg.Providers["deepseek"].Models["deepseek-v4-flash"].ServiceTier() != "priority" {
+		t.Fatal("fast should be on")
+	}
+	if err := cfg.SetFast("deepseek", "deepseek-v4-flash", false); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ActiveFast() {
+		t.Fatal("fast should be off")
+	}
+}
+
+func TestMergeCatalogModelsKeepsFast(t *testing.T) {
+	prev := map[string]ModelDef{
+		"a": {ContextWindow: 1, FastTier: "priority", Fast: true},
+		"b": {ContextWindow: 1, FastTier: "priority", Fast: true},
+	}
+	catalog := map[string]ModelDef{
+		"a": {ContextWindow: 2, FastTier: "priority"},
+		// The catalog dropped b's fast tier, so the stale opt-in goes too.
+		"b": {ContextWindow: 2},
+	}
+	got := MergeCatalogModels(catalog, prev)
+	if !got["a"].Fast || got["b"].Fast {
+		t.Fatalf("merged = %#v", got)
+	}
+}
+
+func TestSetFastTiers(t *testing.T) {
+	cfg := sampleConfig()
+	p := cfg.Providers["deepseek"]
+	md := p.Models["deepseek-v4-flash"]
+	md.FastTier, md.Fast = "priority", true
+	p.Models["deepseek-v4-flash"] = md
+	cfg.Providers["deepseek"] = p
+
+	// A refreshed catalog without the tier clears the tier and the opt-in.
+	if err := cfg.SetFastTiers("deepseek", map[string]string{}); err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.Providers["deepseek"].Models["deepseek-v4-flash"]; got.FastTier != "" || got.Fast {
+		t.Fatalf("model = %#v", got)
+	}
+	if err := cfg.SetFastTiers("deepseek", map[string]string{"deepseek-v4-flash": " priority "}); err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.Providers["deepseek"].Models["deepseek-v4-flash"]; got.FastTier != "priority" || got.Fast {
+		t.Fatalf("model = %#v", got)
+	}
+}

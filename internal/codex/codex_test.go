@@ -43,7 +43,8 @@ func TestModelsParse(t *testing.T) {
 	raw := modelsResponse{}
 	if err := json.Unmarshal([]byte(`{"models":[
 		{"slug":"gpt-5.3-codex","display_name":"GPT-5.3 Codex","visibility":"list","context_window":272000,
-		 "supported_reasoning_levels":[{"effort":"low"},{"effort":"high"}]},
+		 "supported_reasoning_levels":[{"effort":"low"},{"effort":"high"}],
+		 "service_tiers":[{"id":"flex","name":"Flex"},{"id":"priority","name":"Fast"}]},
 		{"slug":"gpt-5.5","display_name":"","visibility":"list","max_context_window":400000},
 		{"slug":"gpt-secret","display_name":"Secret","visibility":"hidden","context_window":1000},
 		{"slug":"gpt-5.3-codex","display_name":"dup","visibility":"list","context_window":1},
@@ -60,6 +61,9 @@ func TestModelsParse(t *testing.T) {
 	}
 	if strings.Join(got[0].Efforts, ",") != "low,high" {
 		t.Fatalf("efforts = %#v", got[0].Efforts)
+	}
+	if got[0].FastTier != "priority" || got[1].FastTier != "" {
+		t.Fatalf("fast tiers = %q, %q", got[0].FastTier, got[1].FastTier)
 	}
 	// Empty display name falls back to the slug; missing window to max/default.
 	if got[1].Slug != "gpt-5.5" || got[1].Name != "gpt-5.5" || got[1].ContextWindow != 400000 {

@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"github.com/axispx/zeta/internal/config"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -723,10 +722,7 @@ func (t *transcript) textW() int {
 func (m *Model) banner() string {
 	mascot := styles.Mascot.Render(strings.TrimSpace(styles.MascotArt))
 	title := styles.Banner.Render("Zeta") + " " + styles.Placeholder.Render("v"+version.Version)
-	model := m.session.Cfg.ModelName()
-	if e := m.session.Cfg.ActiveReasoningEffort(); e != "" {
-		model += " " + config.ReasoningEffortLabel(e)
-	}
+	model := footerModelLabel(m.session.Cfg.ModelName(), m.session.Cfg.ActiveReasoningEffort(), m.session.Cfg.ActiveFast())
 	where := lipgloss.NewStyle().Foreground(styles.Green).Render(m.session.WS.Cwd)
 	if b := m.session.WS.Branch; b != "" {
 		where += styles.SystemMsg.Render(" · ") + lipgloss.NewStyle().Foreground(styles.Red).Render(b)

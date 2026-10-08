@@ -80,6 +80,9 @@ type Model struct {
 	ContextWindow int
 	// Efforts are the reasoning_effort values the model accepts.
 	Efforts []string
+	// FastTier is the service_tier id that turns on the model's fast mode
+	// (higher speed, more plan usage). Empty means the model has none.
+	FastTier string
 }
 
 // Models lists the account's models from the backend. The list is
@@ -133,6 +136,10 @@ type modelsResponse struct {
 		SupportedReasoningLevels []struct {
 			Effort string `json:"effort"`
 		} `json:"supported_reasoning_levels"`
+		ServiceTiers []struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"service_tiers"`
 	} `json:"models"`
 }
 
@@ -164,7 +171,14 @@ func (r modelsResponse) models() []Model {
 				efforts = append(efforts, e)
 			}
 		}
-		out = append(out, Model{Slug: slug, Name: name, ContextWindow: ctx, Efforts: efforts})
+		var fast string
+		for _, t := range m.ServiceTiers {
+			if strings.EqualFold(strings.TrimSpace(t.Name), "fast") {
+				fast = strings.TrimSpace(t.ID)
+				break
+			}
+		}
+		out = append(out, Model{Slug: slug, Name: name, ContextWindow: ctx, Efforts: efforts, FastTier: fast})
 	}
 	return out
 }

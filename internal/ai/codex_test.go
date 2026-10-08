@@ -542,3 +542,27 @@ func TestTransientNetErr(t *testing.T) {
 		t.Error("EOF should be transient")
 	}
 }
+
+// Fast mode rides every request as service_tier, and is absent otherwise.
+func TestCodexRequestServiceTier(t *testing.T) {
+	t.Parallel()
+	c := newCodexClient(codexTestProvider("https://chatgpt.com/backend-api/codex"))
+	msgs := []Message{{Role: RoleUser, Text: "hi"}}
+	req, err := c.requestBody("m", "", msgs, nil, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if body, _ := json.Marshal(req); strings.Contains(string(body), "service_tier") {
+		t.Fatalf("default request carries a tier: %s", body)
+	}
+	c.serviceTier = "priority"
+	for _, stream := range []bool{true, false} {
+		req, err := c.requestBody("m", "", msgs, nil, stream)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if body, _ := json.Marshal(req); !strings.Contains(string(body), `"service_tier":"priority"`) {
+			t.Fatalf("stream=%v request missing tier: %s", stream, body)
+		}
+	}
+}

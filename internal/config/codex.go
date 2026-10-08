@@ -25,6 +25,7 @@ func CodexPreset(models []codex.Model) Preset {
 			Name:             strings.TrimSpace(m.Name),
 			ContextWindow:    m.ContextWindow,
 			ReasoningEfforts: m.Efforts,
+			FastTier:         strings.TrimSpace(m.FastTier),
 		}
 		ids = append(ids, slug)
 	}

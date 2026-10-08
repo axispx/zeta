@@ -81,7 +81,7 @@ func TestEnsureOAuthFreshCodexKeepsRefreshToken(t *testing.T) {
 func TestCodexPreset(t *testing.T) {
 	t.Parallel()
 	pre := CodexPreset([]codex.Model{
-		{Slug: "gpt-6-sol", Name: "GPT-6 Sol", ContextWindow: 272000, Efforts: []string{"low", "high"}},
+		{Slug: "gpt-6-sol", Name: "GPT-6 Sol", ContextWindow: 272000, Efforts: []string{"low", "high"}, FastTier: "priority"},
 		{Slug: "gpt-5.5", ContextWindow: 272000},
 		// Dropped: unusable entries and duplicates.
 		{Slug: "", ContextWindow: 1},
@@ -95,7 +95,7 @@ func TestCodexPreset(t *testing.T) {
 		t.Fatalf("preset = %#v", pre)
 	}
 	m := pre.Models["gpt-6-sol"]
-	if m.ContextWindow != 272000 || len(m.ReasoningEfforts) != 2 {
+	if m.ContextWindow != 272000 || len(m.ReasoningEfforts) != 2 || m.FastTier != "priority" {
 		t.Fatalf("model = %#v", m)
 	}
 	// A discovery result with nothing usable still yields a connectable preset

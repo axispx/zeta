@@ -39,6 +39,7 @@ Type `/` for autocomplete.
 | `/usage`   | Session token totals, by model (input, output, cached) |
 | `/resume`  | Open a previous session                          |
 | `/model`   | Switch model; Tab cycles the model's reasoning levels (off → its supported values) |
+| `/fast`    | Toggle Fast mode for the active model (Codex models that offer it) |
 | `/config`  | Manage providers and models                      |
 | `/update`  | Update to the latest release, restarting zeta   |
 | `/review`  | Strict code-quality review of the current branch |

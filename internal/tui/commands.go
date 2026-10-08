@@ -1,12 +1,14 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/axispx/zeta/internal/codex"
 	"github.com/axispx/zeta/internal/config"
 	"github.com/axispx/zeta/internal/harness"
 	"github.com/axispx/zeta/internal/image"
@@ -32,6 +34,7 @@ var builtinCommands = []command{
 	{name: "/usage", desc: "session token usage"},
 	{name: "/resume", desc: "open a previous session"},
 	{name: "/model", desc: "switch model"},
+	{name: "/fast", desc: "toggle Fast mode"},
 	{name: "/config", desc: "manage providers & models"},
 	{name: "/update", desc: "update to latest version"},
 }
@@ -291,6 +294,8 @@ func (m *Model) runCommand(name string) tea.Cmd {
 		m.openPicker()
 	case "/model":
 		m.openModelOverlay()
+	case "/fast":
+		return m.toggleFast()
 	case "/config":
 		return m.openConfigDialog()
 	case "/update":
@@ -411,6 +416,85 @@ func (m *Model) selectModel() {
 	m.session.ApplyClient()
 	m.cancelOverlay()
 	m.refreshTranscript()
+}
+
+// toggleFast flips fast mode on the active model and persists it. A Codex model
+// with no tier recorded (connected before fast mode existed, or a stale model
+// cache) first re-reads the account's catalog rather than making the user sign
+// in again. The tier is a request field, not part of the cached prefix, so the
+// context is kept.
+func (m *Model) toggleFast() tea.Cmd {
+	choice, ok := m.session.Cfg.ActiveChoice()
+	if !ok {
+		m.noteError("no active model")
+		return nil
+	}
+	p, _ := m.session.Cfg.Provider(choice.ProviderID)
+	if !m.session.Cfg.ActiveFast() && p.Models[choice.ModelID].FastTier == "" && codex.IsEndpoint(p.BaseURL) {
+		return m.refreshFastTiers(choice)
+	}
+	m.setFast(choice, !m.session.Cfg.ActiveFast())
+	return nil
+}
+
+// setFast applies and saves fast mode for choice, then reports it.
+func (m *Model) setFast(choice config.ModelChoice, on bool) {
+	if err := m.session.Cfg.SetFast(choice.ProviderID, choice.ModelID, on); err != nil {
+		m.noteError(err.Error())
+		return
+	}
+	if err := m.session.Cfg.Save(); err != nil {
+		_ = m.session.Cfg.SetFast(choice.ProviderID, choice.ModelID, !on)
+		m.noteError("config save: " + err.Error())
+		return
+	}
+	m.session.ApplyClient()
+	if on {
+		m.noteSystem("Fast mode on for " + choice.Name + " (faster, uses more of your plan)")
+	} else {
+		m.noteSystem("Fast mode off")
+	}
+}
+
+// fastTiersMsg is the outcome of re-reading the Codex model catalog for /fast.
+type fastTiersMsg struct {
+	choice config.ModelChoice
+	models []codex.Model
+	err    error
+}
+
+// refreshFastTiers reads the account's Codex catalog with the current token.
+// The cmd works on a clone: Update must not share the live config with another
+// goroutine.
+func (m *Model) refreshFastTiers(choice config.ModelChoice) tea.Cmd {
+	cfg := m.session.Cfg.Clone()
+	return func() tea.Msg {
+		p, _ := cfg.Provider(choice.ProviderID)
+		var accountID string
+		if p.OAuth != nil {
+			accountID = p.OAuth.AccountID
+		}
+		models, err := codex.Models(context.Background(), p.AuthToken(), accountID)
+		return fastTiersMsg{choice: choice, models: models, err: err}
+	}
+}
+
+// handleFastTiers records the freshly read tiers, then turns fast mode on.
+func (m *Model) handleFastTiers(msg fastTiersMsg) {
+	if msg.err != nil {
+		m.noteError("Fast mode: " + msg.err.Error())
+		return
+	}
+	_ = codex.SaveModels(msg.models)
+	tiers := make(map[string]string, len(msg.models))
+	for _, cm := range msg.models {
+		tiers[cm.Slug] = cm.FastTier
+	}
+	if err := m.session.Cfg.SetFastTiers(msg.choice.ProviderID, tiers); err != nil {
+		m.noteError(err.Error())
+		return
+	}
+	m.setFast(msg.choice, true)
 }
 
 // cycleModelReasoning walks the highlighted /model row's effort over the
