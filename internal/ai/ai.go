@@ -28,6 +28,9 @@ const (
 	RoleSystem    Role = "system"
 	RoleDeveloper Role = "developer"
 	RoleTool      Role = "tool"
+	// RoleCompaction is a provider-made checkpoint standing in for the history
+	// before it. Only the Message.Compaction payload is meaningful.
+	RoleCompaction Role = "compaction"
 )
 
 // ToolCall is one function invocation requested by the model.
@@ -54,6 +57,16 @@ type Message struct {
 	Images     []Image    // user messages only; data: URLs
 	ToolCalls  []ToolCall // assistant messages that request tools
 	ToolCallID string     // tool result messages
+	// Compaction is set on RoleCompaction messages.
+	Compaction *Compaction
+}
+
+// Compaction is a provider-made, opaque checkpoint of a conversation. It cannot
+// be read or edited, and only the model that produced it can use it, so it is
+// sent to that model alone and dropped everywhere else.
+type Compaction struct {
+	Content string // the provider's encrypted_content, verbatim
+	Model   string // model id that produced it
 }
 
 // EventType identifies a streaming event.
@@ -157,6 +170,36 @@ func (c *Client) Stream(ctx context.Context, msgs []Message, tools []Tool) <-cha
 		c.api.stream(ctx, c.model, c.effort, msgs, tools, out)
 	}()
 	return out
+}
+
+// ErrNoNativeCompaction reports a provider with no compaction of its own.
+var ErrNoNativeCompaction = errors.New("provider has no native compaction")
+
+// nativeCompactor is implemented by transports whose provider compacts a
+// conversation itself.
+type nativeCompactor interface {
+	compactNative(ctx context.Context, model, effort string, msgs []Message, tools []Tool) (Compaction, Usage, error)
+}
+
+// Model is the model id this client sends.
+func (c *Client) Model() string { return c.model }
+
+// NativeCompaction reports whether the provider compacts conversations itself
+// (the Responses API's compaction), so callers can prefer it to summarizing.
+func (c *Client) NativeCompaction() bool {
+	_, ok := c.api.(nativeCompactor)
+	return ok
+}
+
+// CompactNative asks the provider to compact msgs, which should be a live
+// request: the conversation's own prefix and tools, so the provider serves it
+// from cache. The returned checkpoint replaces everything it covered.
+func (c *Client) CompactNative(ctx context.Context, msgs []Message, tools []Tool) (Compaction, Usage, error) {
+	nc, ok := c.api.(nativeCompactor)
+	if !ok {
+		return Compaction{}, Usage{}, ErrNoNativeCompaction
+	}
+	return nc.compactNative(ctx, c.model, c.effort, msgs, tools)
 }
 
 // Complete runs a non-streaming chat completion and returns the assistant text.

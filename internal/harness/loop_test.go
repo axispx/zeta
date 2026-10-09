@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -372,5 +373,108 @@ func TestToolLabelEditShowsWorkspacePath(t *testing.T) {
 		if got := toolLabel(tools.Build(), root, tc.name, json.RawMessage(tc.args)); got != tc.want {
 			t.Errorf("toolLabel(%s) = %q, want %q", tc.args, got, tc.want)
 		}
+	}
+}
+
+// meteredStream replays replies, reporting totals[i] as the provider's count
+// for request i (0 reports no usage).
+func meteredStream(replies []ai.Message, totals []int64, requests *int) func(context.Context, []ai.Message, []ai.Tool) <-chan ai.Event {
+	return func(context.Context, []ai.Message, []ai.Tool) <-chan ai.Event {
+		i := *requests
+		*requests++
+		ch := make(chan ai.Event, 1)
+		ch <- ai.Event{Type: ai.EventDone, Message: replies[i], Usage: ai.Usage{TotalTokens: totals[i]}}
+		close(ch)
+		return ch
+	}
+}
+
+func toolRound() ai.Message {
+	return ai.Message{Role: ai.RoleAssistant, ToolCalls: []ai.ToolCall{{ID: "c1", Name: tools.Bash, Arguments: `{"command":"true"}`}}}
+}
+
+func kindsOf(evs []Event) []EventKind {
+	var ks []EventKind
+	for _, e := range evs {
+		ks = append(ks, e.Kind)
+	}
+	return ks
+}
+
+func TestLoopHandsBackWhenNextRequestWontFit(t *testing.T) {
+	var requests int
+	c := Config{
+		Tools: tools.Build(), Root: t.TempDir(), Budget: 1_000,
+		StreamFn: meteredStream([]ai.Message{toolRound(), {Role: ai.RoleAssistant, Text: "done"}}, []int64{1_000, 0}, &requests),
+	}
+	evs := collect(c, []ai.Message{{Role: ai.RoleUser, Text: "go"}})
+	ks := kindsOf(evs)
+	if requests != 1 {
+		t.Fatalf("requests=%d, want 1 (the loop must stop before the second)", requests)
+	}
+	if n := len(ks); n == 0 || ks[n-1] != KindCompact {
+		t.Fatalf("kinds=%v, want to end with KindCompact", ks)
+	}
+	// The tool result was recorded before the hand-back, so history is whole.
+	var sawTool bool
+	for _, k := range ks {
+		sawTool = sawTool || k == KindTool
+		if k == KindDone {
+			t.Fatalf("a handed-back turn must not report done: %v", ks)
+		}
+	}
+	if !sawTool {
+		t.Fatalf("kinds=%v, want the tool result before the hand-back", ks)
+	}
+}
+
+func TestLoopWithinBudgetKeepsGoing(t *testing.T) {
+	var requests int
+	c := Config{
+		Tools: tools.Build(), Root: t.TempDir(), Budget: 1_000_000,
+		StreamFn: meteredStream([]ai.Message{toolRound(), {Role: ai.RoleAssistant, Text: "done"}}, []int64{1_000, 1_100}, &requests),
+	}
+	evs := collect(c, []ai.Message{{Role: ai.RoleUser, Text: "go"}})
+	if requests != 2 || evs[len(evs)-1].Kind != KindDone {
+		t.Fatalf("requests=%d kinds=%v", requests, kindsOf(evs))
+	}
+}
+
+func TestLoopBudgetZeroDisablesCheck(t *testing.T) {
+	var requests int
+	c := Config{
+		Tools: tools.Build(), Root: t.TempDir(),
+		StreamFn: meteredStream([]ai.Message{toolRound(), {Role: ai.RoleAssistant, Text: "done"}}, []int64{9_000_000, 0}, &requests),
+	}
+	evs := collect(c, []ai.Message{{Role: ai.RoleUser, Text: "go"}})
+	if requests != 2 || evs[len(evs)-1].Kind != KindDone {
+		t.Fatalf("requests=%d kinds=%v", requests, kindsOf(evs))
+	}
+}
+
+// The first request is submit's call: the loop has nothing to hand back yet,
+// and stopping there would loop compaction forever on a history it cannot shrink.
+func TestLoopSendsFirstRequestOverBudget(t *testing.T) {
+	var requests int
+	c := Config{
+		Budget:   1,
+		StreamFn: meteredStream([]ai.Message{{Role: ai.RoleAssistant, Text: "done"}}, []int64{0}, &requests),
+	}
+	evs := collect(c, []ai.Message{{Role: ai.RoleUser, Text: strings.Repeat("big ", 5_000)}})
+	if requests != 1 || evs[len(evs)-1].Kind != KindDone {
+		t.Fatalf("requests=%d kinds=%v", requests, kindsOf(evs))
+	}
+}
+
+// A provider that reports no usage still gets the check, from the estimate.
+func TestLoopEstimatesWithoutUsage(t *testing.T) {
+	var requests int
+	c := Config{
+		Tools: tools.Build(), Root: t.TempDir(), Budget: 3_000,
+		StreamFn: meteredStream([]ai.Message{toolRound(), {Role: ai.RoleAssistant, Text: "done"}}, []int64{0, 0}, &requests),
+	}
+	evs := collect(c, []ai.Message{{Role: ai.RoleUser, Text: strings.Repeat("big ", 5_000)}})
+	if requests != 1 || evs[len(evs)-1].Kind != KindCompact {
+		t.Fatalf("requests=%d kinds=%v", requests, kindsOf(evs))
 	}
 }

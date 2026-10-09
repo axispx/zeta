@@ -127,7 +127,7 @@ func TestLoadSessionImages(t *testing.T) {
 				{URL: testPNGDataURL, MIME: "image/png", Name: "x.png"},
 			},
 		},
-	})
+	}, "")
 	if len(ui) != 1 || !strings.Contains(ui[0].Text, "[Image 1 · x.png]") {
 		t.Fatalf("ui=%+v", ui)
 	}

@@ -50,7 +50,7 @@ func TestLoadSessionRebuildsAfterCompact(t *testing.T) {
 		follow,
 	}
 
-	ui, hist := loadSession(recs)
+	ui, hist := loadSession(recs, "")
 
 	if len(ui) < 4 {
 		t.Fatalf("ui len=%d", len(ui))
@@ -90,7 +90,7 @@ func TestLoadSessionCompactEmptyTail(t *testing.T) {
 		{Role: session.RoleUser, Text: "recent"},
 		{Role: session.RoleCompact, Text: "## Task\n- x", Tail: 0},
 	}
-	_, hist := loadSession(recs)
+	_, hist := loadSession(recs, "")
 	if len(hist) != 1 || !compact.IsCheckpoint(hist[0]) {
 		t.Fatalf("hist=%+v", hist)
 	}
@@ -101,7 +101,7 @@ func TestLoadSessionNoCompact(t *testing.T) {
 		{Role: session.RoleUser, Text: "hi"},
 		{Role: session.RoleAgent, Text: "hello"},
 	}
-	ui, hist := loadSession(recs)
+	ui, hist := loadSession(recs, "")
 	if len(ui) != 2 || len(hist) != 2 {
 		t.Fatalf("ui=%d hist=%d", len(ui), len(hist))
 	}
@@ -115,7 +115,7 @@ func TestLoadSessionDeniedTool(t *testing.T) {
 		{Role: session.RoleTool, Text: "rejected: the user denied this call", Label: "bash echo", Tool: tools.Bash, Denied: true},
 		{Role: session.RoleTool, Text: "ok", Label: "edit a.go", Tool: tools.Edit, Denied: false},
 	}
-	ui, _ := loadSession(recs)
+	ui, _ := loadSession(recs, "")
 	if len(ui) != 2 {
 		t.Fatalf("ui=%d", len(ui))
 	}

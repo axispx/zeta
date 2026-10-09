@@ -7,7 +7,12 @@ import (
 
 // RebuildAPIHistory reconstructs the model-facing transcript from session records.
 // Compact events replace the running history with checkpoint + retained tail, applied in order.
-func RebuildAPIHistory(log []session.Record) []ai.Message {
+//
+// nativeModel is the model that may use a provider checkpoint ("" for none). A
+// native compaction made by another model is skipped, so the history it covered
+// stays raw and the active model starts from what actually happened rather than
+// from a checkpoint it cannot read.
+func RebuildAPIHistory(log []session.Record, nativeModel string) []ai.Message {
 	var hist []ai.Message
 	for _, r := range log {
 		switch r.Role {
@@ -36,6 +41,12 @@ func RebuildAPIHistory(log []session.Record) []ai.Message {
 				ToolCallID: r.ToolCallID,
 			})
 		case session.RoleCompact:
+			if r.Native != "" {
+				if nativeModel != "" && r.NativeModel == nativeModel {
+					hist = NativeHistory(hist, ai.Compaction{Content: r.Native, Model: r.NativeModel})
+				}
+				continue
+			}
 			tail := retainedTail(hist, r.Tail)
 			hist = append([]ai.Message{CheckpointMessage(r.Text)}, tail...)
 		}

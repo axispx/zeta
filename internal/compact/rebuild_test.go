@@ -21,7 +21,7 @@ func TestRebuildAPIHistoryWithTail(t *testing.T) {
 		follow,
 	}
 
-	hist := RebuildAPIHistory(log)
+	hist := RebuildAPIHistory(log, "")
 	if len(hist) != 1+tailCount+1 {
 		t.Fatalf("hist len=%d: %+v", len(hist), hist)
 	}
@@ -46,7 +46,7 @@ func TestRebuildAPIHistoryEmptyTail(t *testing.T) {
 		{Role: session.RoleUser, Text: "recent"},
 		{Role: session.RoleCompact, Text: "## Task\n- x", Tail: 0},
 	}
-	hist := RebuildAPIHistory(log)
+	hist := RebuildAPIHistory(log, "")
 	if len(hist) != 1 || !IsCheckpoint(hist[0]) {
 		t.Fatalf("hist=%+v", hist)
 	}
@@ -62,7 +62,7 @@ func TestRebuildAPIHistoryImages(t *testing.T) {
 			},
 		},
 	}
-	hist := RebuildAPIHistory(log)
+	hist := RebuildAPIHistory(log, "")
 	if len(hist) != 1 {
 		t.Fatalf("hist=%+v", hist)
 	}
@@ -76,7 +76,7 @@ func TestRebuildAPIHistoryNoCompact(t *testing.T) {
 		{Role: session.RoleUser, Text: "hi"},
 		{Role: session.RoleAgent, Text: "hello"},
 	}
-	hist := RebuildAPIHistory(log)
+	hist := RebuildAPIHistory(log, "")
 	if len(hist) != 2 || hist[0].Role != ai.RoleUser || hist[1].Role != ai.RoleAssistant {
 		t.Fatalf("hist=%+v", hist)
 	}
@@ -93,7 +93,7 @@ func TestRebuildAPIHistoryMultipleCompacts(t *testing.T) {
 		{Role: session.RoleCompact, Text: "sum2", Tail: 1},
 		{Role: session.RoleUser, Text: "c"},
 	}
-	hist := RebuildAPIHistory(log)
+	hist := RebuildAPIHistory(log, "")
 	// After second compact: checkpoint(sum2) + last 1 of then-history + "c"
 	// then-history = [cp1, a2, b1, b2] → tail 1 = b2
 	if len(hist) != 3 {
@@ -123,7 +123,7 @@ func TestRebuildAPIHistoryCancelledToolRound(t *testing.T) {
 		{Role: session.RoleTool, ToolCallID: "c2", Text: "ok"},
 		{Role: session.RoleAgent, Text: "Yes."},
 	}
-	hist := RebuildAPIHistory(log)
+	hist := RebuildAPIHistory(log, "")
 	pending := 0
 	for i, m := range hist {
 		switch m.Role {

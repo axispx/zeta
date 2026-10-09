@@ -3,9 +3,12 @@ package harness
 import (
 	"context"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/axispx/zeta/internal/ai"
+	"github.com/axispx/zeta/internal/codex"
+	"github.com/axispx/zeta/internal/config"
 	"github.com/axispx/zeta/internal/image"
 	"github.com/axispx/zeta/internal/session"
 	"github.com/axispx/zeta/internal/todo"
@@ -296,5 +299,109 @@ func TestCommitToolAppendsHistoryAndPersistsRow(t *testing.T) {
 	}
 	if recs[0].Label != "bash ls" || recs[0].Tool != tools.Bash || !recs[0].Denied {
 		t.Fatalf("row fields=%+v", recs[0])
+	}
+}
+
+func codexSessionClient(model string) *ai.Client {
+	return ai.New(config.Provider{
+		BaseURL: codex.BaseURL,
+		OAuth:   &config.OAuthCredential{AccessToken: "t", AccountID: "a"},
+		Models:  map[string]config.ModelDef{model: {ContextWindow: 30_000}},
+	}, model)
+}
+
+func windowedCfg(base string, window int) config.Config {
+	return config.Config{
+		Active: "p/m",
+		Providers: map[string]config.Provider{
+			"p": {BaseURL: base, APIKey: "k", Models: map[string]config.ModelDef{"m": {ContextWindow: window}}},
+		},
+	}
+}
+
+// A native provider compacts the whole history, so being over budget is the
+// only condition: it does not wait for a head the summarizer could free.
+func TestShouldAutoCompactNative(t *testing.T) {
+	long := []ai.Message{{Role: ai.RoleUser, Text: "go"}}
+	for i := 0; i < 30; i++ {
+		id := string(rune('a' + i))
+		long = append(long,
+			ai.Message{Role: ai.RoleAssistant, ToolCalls: []ai.ToolCall{{ID: id, Name: "read", Arguments: `{}`}}},
+			ai.Message{Role: ai.RoleTool, ToolCallID: id, Text: strings.Repeat("word ", 1000)},
+		)
+	}
+	cfg := windowedCfg(codex.BaseURL, 30_000)
+	client := codexSessionClient("m")
+
+	s := &Session{History: long, Cfg: cfg}
+	if !s.ShouldAutoCompact(client, cfg) {
+		t.Fatal("an over-budget history must compact")
+	}
+	s = &Session{History: long[:5], Cfg: cfg}
+	if s.ShouldAutoCompact(client, cfg) {
+		t.Fatal("a history within budget must not compact")
+	}
+	// Only one message: nothing a summarizer could split, but still over budget.
+	one := []ai.Message{{Role: ai.RoleUser, Text: strings.Repeat("word ", 30_000)}}
+	s = &Session{History: one, Cfg: cfg}
+	if s.ShouldAutoCompact(ai.New(config.Provider{BaseURL: "https://api.example.com/v1", APIKey: "k"}, "m"), cfg) {
+		t.Fatal("the summarizer has nothing to free in a single message")
+	}
+	if !s.ShouldAutoCompact(client, cfg) {
+		t.Fatal("a native provider is asked even when the summarizer could not split")
+	}
+}
+
+// A checkpoint is opaque and bound to its model. When the model changes the
+// history is rebuilt from the log, with that checkpoint skipped.
+func TestReconcileCompactionRebuildsFromLog(t *testing.T) {
+	t.Setenv("ZETA_HOME", t.TempDir())
+	cwd := t.TempDir()
+	log, err := session.New(cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range []session.Record{
+		{Role: session.RoleUser, Text: "first"},
+		{Role: session.RoleAgent, Text: "ok"},
+		{Role: session.RoleUser, Text: "second"},
+		{Role: session.RoleCompact, Native: "ENC", NativeModel: "gpt-5.5"},
+	} {
+		if err := log.Append(r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	checkpointed := []ai.Message{
+		{Role: ai.RoleUser, Text: "first"},
+		{Role: ai.RoleUser, Text: "second"},
+		{Role: ai.RoleCompaction, Compaction: &ai.Compaction{Content: "ENC", Model: "gpt-5.5"}},
+	}
+
+	// The same model keeps its checkpoint.
+	s := &Session{Log: log, History: append([]ai.Message(nil), checkpointed...), Client: codexSessionClient("gpt-5.5")}
+	s.ReconcileCompaction()
+	if len(s.History) != 3 || s.History[2].Role != ai.RoleCompaction {
+		t.Fatalf("own checkpoint was dropped: %d messages", len(s.History))
+	}
+
+	// A model that cannot read it gets the covered turns back, raw.
+	s = &Session{Log: log, History: append([]ai.Message(nil), checkpointed...),
+		Client: ai.New(config.Provider{BaseURL: "https://api.example.com/v1", APIKey: "k"}, "m")}
+	s.ReconcileCompaction()
+	if len(s.History) != 3 || s.History[1].Role != ai.RoleAssistant || s.History[1].Text != "ok" {
+		t.Fatalf("history = %d messages, want the raw turns back", len(s.History))
+	}
+	for _, m := range s.History {
+		if m.Role == ai.RoleCompaction {
+			t.Fatal("a checkpoint survived a model that cannot read it")
+		}
+	}
+
+	// With no log to rebuild from, the checkpoint is dropped and the rest kept.
+	s = &Session{History: append([]ai.Message(nil), checkpointed...),
+		Client: ai.New(config.Provider{BaseURL: "https://api.example.com/v1", APIKey: "k"}, "m")}
+	s.ReconcileCompaction()
+	if len(s.History) != 2 {
+		t.Fatalf("history = %d messages, want the 2 user messages", len(s.History))
 	}
 }

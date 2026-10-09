@@ -113,6 +113,12 @@ type Result struct {
 	Summary   string       // raw summary text (empty if !Compacted)
 	TailCount int          // messages retained after the checkpoint (persist for rebuild)
 	Compacted bool
+	// Native is the provider's own checkpoint when it compacted the history
+	// (RunNative). History is then the retained user messages plus that item, and
+	// Summary and TailCount are unused: the log rebuilds it with NativeHistory.
+	Native *ai.Compaction
+	// Usage is what a native compaction request billed.
+	Usage ai.Usage
 }
 
 // EstimateTokens approximates token count from text (chars/4, min 1 if non-empty).
@@ -182,6 +188,9 @@ func ceilDiv(n, d int) int {
 
 func estimateMsg(m ai.Message) int {
 	n := EstimateTokens(m.Text) + EstimateTokens(string(m.Role)) + EstimateTokens(m.ToolCallID)
+	if m.Compaction != nil {
+		n += EstimateTokens(m.Compaction.Content)
+	}
 	for _, tc := range m.ToolCalls {
 		n += EstimateTokens(tc.ID) + EstimateTokens(tc.Name) + EstimateTokens(tc.Arguments)
 	}
@@ -192,12 +201,27 @@ func estimateMsg(m ai.Message) int {
 	return n + 4
 }
 
+// Budget is how many tokens a request may carry before history should be
+// compacted: the window less the reply/tool-loop buffer. Zero means there is no
+// usable window to check against.
+func (c Config) Budget() int {
+	if c.ContextWindow <= 0 {
+		return 0
+	}
+	return max(c.ContextWindow-c.buffer(), 0)
+}
+
+// OverBudget reports whether history exceeds the usable window. Unlike Needed it
+// does not ask for a head to summarize: a provider that compacts a conversation
+// itself (RunNative) has no use for one.
+func OverBudget(history []ai.Message, cfg Config) bool { return overBudget(history, cfg) }
+
 // overBudget reports whether estimated history exceeds the usable window.
 func overBudget(history []ai.Message, cfg Config) bool {
 	if cfg.ContextWindow <= 0 || len(history) == 0 {
 		return false
 	}
-	budget := cfg.ContextWindow - cfg.buffer()
+	budget := cfg.Budget()
 	if budget <= 0 {
 		return true
 	}
@@ -277,8 +301,9 @@ type Split struct {
 //
 // The tail is built from whole user turns (a user message and every following
 // non-user message until the next user), newest first, until keepTokens is
-// full. That way the cut never lands mid-exchange. If even the newest turn
-// alone exceeds the budget, it is still kept intact.
+// full. That way the cut lands between exchanges. When the newest turn alone
+// exceeds keepTokens — one prompt that set off a long tool loop — whole turns
+// cannot free anything, so the cut moves inside it (see splitTurn).
 func Select(history []ai.Message, keepTokens int) Split {
 	if keepTokens <= 0 {
 		keepTokens = DefaultKeep
@@ -288,13 +313,12 @@ func Select(history []ai.Message, keepTokens int) Split {
 		return Split{PreviousSummary: prev}
 	}
 
+	// History that does not open on a user message is the rest of a turn whose
+	// prompt an earlier compaction already summarized. It counts as a turn of its
+	// own, or a turn compacted once could never be compacted again.
 	starts := userTurnStarts(rest)
-	if len(starts) == 0 {
-		// No user turns to anchor on — keep everything raw (nothing to summarize).
-		return Split{
-			Tail:            append([]ai.Message(nil), rest...),
-			PreviousSummary: prev,
-		}
+	if len(starts) == 0 || starts[0] != 0 {
+		starts = append([]int{0}, starts...)
 	}
 
 	// Greedily take whole turns from the end while under budget.
@@ -317,11 +341,41 @@ func Select(history []ai.Message, keepTokens int) Split {
 	}
 
 	i := starts[first]
+	if first == len(starts)-1 && turnTokens(rest, starts, first) > keepTokens {
+		if cut, ok := splitTurn(rest, i, keepTokens); ok {
+			i = cut
+		}
+	}
 	return Split{
 		Head:            append([]ai.Message(nil), rest[:i]...),
 		Tail:            append([]ai.Message(nil), rest[i:]...),
 		PreviousSummary: prev,
 	}
+}
+
+// splitTurn finds a cut inside the turn that begins at rest[start], for a turn
+// too large to keep whole. The tail starts at an assistant message, so a tool
+// call is never separated from its results, and the turn's opening user message
+// stays in the head with everything before the cut.
+//
+// It takes the earliest assistant message whose suffix fits keepTokens. The
+// last one is taken even when it does not fit: the latest round is what the
+// next request continues from. ok is false when the turn has no assistant
+// message to cut at.
+func splitTurn(rest []ai.Message, start, keepTokens int) (cut int, ok bool) {
+	cut = -1
+	tokens := 0
+	for i := len(rest) - 1; i > start; i-- {
+		tokens += estimateMsg(rest[i])
+		if rest[i].Role != ai.RoleAssistant {
+			continue
+		}
+		if cut >= 0 && tokens > keepTokens {
+			break
+		}
+		cut = i
+	}
+	return cut, cut >= 0
 }
 
 // peelCheckpoint removes a leading checkpoint and returns its summary.
@@ -406,8 +460,16 @@ func RunForced(ctx context.Context, c Completer, history []ai.Message, cfg Confi
 	return run(ctx, c, history, cfg, true)
 }
 
+// maxPasses bounds a chunked compaction: each pass summarizes one window-sized
+// slice of the head, so a history several windows long needs a few.
+const maxPasses = 6
+
 // run summarizes history into a checkpoint + recent tail.
 // force=false requires over-budget; force=true only needs a non-empty head.
+//
+// When the head is too large for one summarizer request, it is summarized
+// oldest-first in slices that fit (see summarize), and the loop repeats until
+// the history is within budget. The rest of the head stays raw in between.
 func run(ctx context.Context, c Completer, history []ai.Message, cfg Config, force bool) (Result, error) {
 	if c == nil {
 		return Result{}, fmt.Errorf("compact: nil completer")
@@ -417,33 +479,96 @@ func run(ctx context.Context, c Completer, history []ai.Message, cfg Config, for
 		return Result{History: history}, nil
 	}
 
-	prompt := BuildPrompt(cfg.Prefix.Messages, split.Head, split.PreviousSummary)
-	// When a window is known, refuse if the summarizer prompt itself can't fit.
+	var out Result
+	for pass := 0; ; pass++ {
+		next, summary, partial, err := summarize(ctx, c, split, cfg)
+		if err != nil {
+			if pass > 0 {
+				break // keep what the earlier passes achieved
+			}
+			return Result{}, err
+		}
+		out = Result{
+			History:   next,
+			Summary:   summary,
+			TailCount: len(next) - 1, // everything after the checkpoint
+			Compacted: true,
+		}
+		if !partial || pass+1 >= maxPasses {
+			break
+		}
+		// next is a new history: the provider's count described the old one.
+		cfg.Measured, cfg.MeasuredMsgs = 0, 0
+		if split, ok = plan(next, cfg, false); !ok {
+			break
+		}
+	}
+	return out, nil
+}
+
+// summarize runs one summarizer request over split.Head and returns the history
+// that replaces it: a checkpoint, then whatever of the head it did not cover,
+// then the tail.
+//
+// partial reports that the head did not fit one request, so only its oldest
+// slice was summarized. The slice is a prefix of the head, not its newest part:
+// the request stays a prefix of the live conversation, so the provider's prompt
+// cache still serves it. Dropping the oldest messages instead would diverge at
+// the first one and forfeit the hit on a request as long as the window.
+func summarize(ctx context.Context, c Completer, split Split, cfg Config) (next []ai.Message, summary string, partial bool, err error) {
+	head := split.Head
+	prompt := BuildPrompt(cfg.Prefix.Messages, head, split.PreviousSummary)
+	// When a window is known, a prompt that can't fit is cut down to one that does.
 	if cfg.ContextWindow > 0 {
 		room := cfg.ContextWindow - SummaryMaxTokens
 		if room > 0 && Estimate(prompt) > room {
-			return Result{}, fmt.Errorf("compact: history too large to summarize")
+			k := fitHead(head, room, cfg.Prefix.Messages, split.PreviousSummary)
+			if k == 0 {
+				return nil, "", false, fmt.Errorf("compact: history too large to summarize")
+			}
+			head, partial = head[:k], true
+			prompt = BuildPrompt(cfg.Prefix.Messages, head, split.PreviousSummary)
 		}
 	}
 
 	text, err := c.Complete(ctx, prompt, cfg.Prefix.Tools, int64(SummaryMaxTokens))
 	if err != nil {
-		return Result{}, fmt.Errorf("compact: %w", err)
+		return nil, "", false, fmt.Errorf("compact: %w", err)
 	}
-	summary := strings.TrimSpace(text)
+	summary = strings.TrimSpace(text)
 	if summary == "" {
-		return Result{}, fmt.Errorf("compact: empty summary")
+		return nil, "", false, fmt.Errorf("compact: empty summary")
 	}
 
-	out := make([]ai.Message, 0, 1+len(split.Tail))
-	out = append(out, CheckpointMessage(summary))
-	out = append(out, split.Tail...)
-	return Result{
-		History:   out,
-		Summary:   summary,
-		TailCount: len(split.Tail),
-		Compacted: true,
-	}, nil
+	next = make([]ai.Message, 0, 1+len(split.Head)-len(head)+len(split.Tail))
+	next = append(next, CheckpointMessage(summary))
+	next = append(next, split.Head[len(head):]...)
+	next = append(next, split.Tail...)
+	return next, summary, partial, nil
+}
+
+// fitHead returns how many leading messages of head fit one summarizer request
+// of at most room tokens, or 0 when not even the first does. A slice ends before
+// a tool result, never between a call and its answer.
+//
+// Estimates are chars/4, which under-counts code, and the request also carries
+// tool definitions, so the slice is held well under room: a slice that lands on
+// the limit by estimate would be rejected by the provider.
+func fitHead(head []ai.Message, room int, prefix []ai.Message, previousSummary string) int {
+	limit := room - room/8 - DefaultToolsOverhead
+	used := Estimate(BuildPrompt(prefix, nil, previousSummary))
+	k := 0
+	for i, m := range head {
+		used += estimateMsg(m)
+		if used > limit {
+			break
+		}
+		if i+1 < len(head) && head[i+1].Role == ai.RoleTool {
+			continue
+		}
+		k = i + 1
+	}
+	return k
 }
 
 func extractTag(s, openTag, closeTag string) (string, bool) {

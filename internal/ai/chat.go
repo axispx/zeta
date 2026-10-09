@@ -262,6 +262,10 @@ func toAPIMessages(msgs []Message) ([]openai.ChatCompletionMessageParamUnion, er
 			apiMsgs = append(apiMsgs, openai.SystemMessage(m.Text))
 		case RoleTool:
 			apiMsgs = append(apiMsgs, openai.ToolMessage(m.Text, m.ToolCallID))
+		case RoleCompaction:
+			// Opaque to Chat Completions providers; the harness rebuilds history
+			// from the session log when the model changes, so this is a backstop.
+			continue
 		default:
 			return nil, fmt.Errorf("unknown message role %q", m.Role)
 		}

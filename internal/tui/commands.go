@@ -330,6 +330,7 @@ func (m *Model) updateConfigDialog(msg tea.Msg) (tea.Cmd, bool) {
 		m.session.ApplyClient()
 		// A saved model change switches the prefix (and the provider cache).
 		m.session.ResetContext()
+		m.session.ReconcileCompaction()
 	}
 	return cmd, handled
 }
@@ -342,7 +343,7 @@ func (m *Model) applySession(sess *session.Session, recs []session.Record, err e
 		m.session.SeedTodos(nil)
 	} else {
 		m.session.Log = sess
-		m.transcript.messages, m.session.History = loadSession(recs)
+		m.transcript.messages, m.session.History = loadSession(recs, m.session.NativeModel())
 		m.session.SeedTodos(harness.TodosFromRecords(recs))
 	}
 	// A session boundary is when project instructions are read: /clear and
@@ -414,6 +415,7 @@ func (m *Model) selectModel() {
 	}
 	m.session.ResetContext()
 	m.session.ApplyClient()
+	m.session.ReconcileCompaction()
 	m.cancelOverlay()
 	m.refreshTranscript()
 }

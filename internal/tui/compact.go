@@ -8,6 +8,7 @@ import (
 
 	"github.com/axispx/zeta/internal/ai"
 	"github.com/axispx/zeta/internal/compact"
+	"github.com/axispx/zeta/internal/harness"
 	"github.com/axispx/zeta/internal/session"
 )
 
@@ -20,12 +21,14 @@ const (
 	compactCancelledText = "Compaction cancelled"
 )
 
-// compactKind distinguishes manual /compact from auto-before-turn.
+// compactKind distinguishes manual /compact, auto-before-turn, and a turn
+// handed back mid-way because its next request would not fit.
 type compactKind int
 
 const (
 	compactManual compactKind = iota
 	compactAuto
+	compactResume
 )
 
 // compactDoneMsg is the result of a compact run (manual /compact or auto).
@@ -84,13 +87,7 @@ func (m *Model) runCompact(kind compactKind, titlePrompt string) tea.Cmd {
 	m.layoutPreservingBottom()
 
 	return tea.Batch(func() tea.Msg {
-		var res compact.Result
-		var err error
-		if force {
-			res, err = compact.RunForced(ctx, client, hist, cfg)
-		} else {
-			res, err = compact.RunIfNeeded(ctx, client, hist, cfg)
-		}
+		res, err := runCompaction(ctx, client, hist, cfg, force)
 		return compactDoneMsg{
 			result:      res,
 			err:         err,
@@ -98,6 +95,70 @@ func (m *Model) runCompact(kind compactKind, titlePrompt string) tea.Cmd {
 			titlePrompt: titlePrompt,
 		}
 	}, m.spinner.Tick)
+}
+
+// handleTurnCompact takes a turn the loop handed back at a tool boundary
+// because its next request would not fit, compacts the history it has recorded
+// so far, and resumes it. The loop has already ended, so everything it did is in
+// history and the transcript.
+func (m *Model) handleTurnCompact() tea.Cmd {
+	if m.turn.current == nil {
+		return nil
+	}
+	m.turn.carried = m.turn.current.steers.drain()
+	m.finishTurn()
+	if err := m.session.EnsureFreshClient(context.Background()); err != nil {
+		m.turn.restoreCarried(&m.queue)
+		m.noteError(err.Error())
+		return nil
+	}
+	m.session.RefreshWorkspace()
+	return m.runCompact(compactResume, "")
+}
+
+// resumeTurn starts the agent loop again on the compacted history, for the turn
+// handleTurnCompact interrupted. It is not beginTurn: the turn's streamed and
+// effect marks stay, so a credential failure still cannot replay it.
+func (m *Model) resumeTurn() tea.Cmd {
+	if m.session.Client == nil {
+		return nil
+	}
+	m.session.RefreshWorkspace()
+	cmds := []tea.Cmd{m.turn.start(m.session.Client, &m.session), m.spinner.Tick}
+	for _, p := range m.turn.carried {
+		m.turn.current.steers.push(p)
+	}
+	m.turn.carried = nil
+	m.afterQueueChange()
+	m.layoutPreservingBottom()
+	return tea.Batch(cmds...)
+}
+
+// restoreCarried returns carried steers to the front of the queue (they were
+// sent before anything queued).
+func (t *turn) restoreCarried(q *queue) {
+	if len(t.carried) > 0 {
+		q.prompts = append(t.carried, q.prompts...)
+		t.carried = nil
+	}
+}
+
+// runCompaction compacts hist: with the provider's own compaction when it has
+// one, which keeps what the model understood of the work rather than a note
+// about it, and otherwise (or when that fails) by summarizing.
+func runCompaction(ctx context.Context, client *ai.Client, hist []ai.Message, cfg compact.Config, force bool) (compact.Result, error) {
+	if client.NativeCompaction() {
+		res, err := compact.RunNative(ctx, client, hist, cfg, force)
+		if err == nil || ctx.Err() != nil {
+			return res, err
+		}
+		// A failed native request leaves the history untouched; the summarizer
+		// reads the same history, so it is a safe second try.
+	}
+	if force {
+		return compact.RunForced(ctx, client, hist, cfg)
+	}
+	return compact.RunIfNeeded(ctx, client, hist, cfg)
 }
 
 // cancelCompact aborts an in-flight compact (Esc). The async cmd still returns
@@ -127,11 +188,24 @@ func (m *Model) handleCompactDone(msg compactDoneMsg) tea.Cmd {
 		m.noteSystem(compactCancelledText)
 	case msg.err != nil && msg.kind == compactManual:
 		m.noteError(msg.err.Error())
-	case msg.err != nil && msg.kind == compactAuto && !errors.Is(msg.err, context.Canceled):
+	case msg.err != nil && msg.kind != compactManual && !errors.Is(msg.err, context.Canceled):
 		// Don't block the user turn — continue with full history.
 		m.noteSystem(compactAutoFailText)
 	}
 
+	if msg.kind == compactResume {
+		if errors.Is(msg.err, context.Canceled) {
+			// Esc during the compaction cancels the turn it interrupted.
+			m.turn.restoreCarried(&m.queue)
+			m.restoreQueuedIntoComposer()
+			m.noteSystem(turnCancelledText)
+			return nil
+		}
+		// A compaction that freed nothing will free nothing next round either:
+		// run the rest of the turn without asking again.
+		m.session.HoldCompact = !msg.result.Compacted
+		return m.resumeTurn()
+	}
 	if msg.kind == compactAuto {
 		// Compact can take a while, and the agent may have checked out a
 		// branch in the meantime. AGENTS.md stays the session snapshot.
@@ -155,11 +229,26 @@ func (m *Model) applyCompactResult(res compact.Result) {
 	m.session.ContextTokens = int64(compact.Estimate(res.History) + m.session.CompactConfig(m.session.Cfg).Overhead)
 	m.session.ContextMsgs = len(m.session.History)
 	m.transcript.messages = append(m.transcript.messages, Message{Role: RoleSystem, Text: compactDividerText})
-	m.persist(session.Record{
+	rec := session.Record{
 		Role: session.RoleCompact,
 		Text: res.Summary,
 		Tail: res.TailCount,
-	})
+	}
+	if res.Native != nil {
+		// The checkpoint is what rebuilds this history on /resume (see
+		// compact.NativeHistory); Text and Tail do not apply. The request's
+		// usage rides on the record so /usage still totals a resumed session.
+		rec = session.Record{
+			Role:        session.RoleCompact,
+			Native:      res.Native.Content,
+			NativeModel: res.Native.Model,
+		}
+	}
+	if u := harness.UsageOrNil(res.Usage); u != nil {
+		rec.Usage, rec.Model = u, m.session.Cfg.ModelName()
+		m.session.Usage.Add(rec.Model, res.Usage)
+	}
+	m.persist(rec)
 	m.refreshTranscript()
 }
 

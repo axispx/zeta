@@ -368,23 +368,65 @@ func TestSelectSnapsToUserTurn(t *testing.T) {
 	}
 }
 
-func TestSelectKeepsOversizedNewestTurn(t *testing.T) {
-	// One user turn larger than keep — still keep it whole (no mid-turn cut).
+func TestSelectKeepsOversizedTurnWithoutAssistant(t *testing.T) {
+	// One user message larger than keep, nothing after it to cut at — kept whole.
 	u := ai.Message{Role: ai.RoleUser, Text: strings.Repeat("q ", 200)}
-	a := ai.Message{
-		Role: ai.RoleAssistant,
-		ToolCalls: []ai.ToolCall{
-			{ID: "1", Name: "read", Arguments: `{}`},
-		},
+	sp := Select([]ai.Message{u}, 10)
+	if len(sp.Head) != 0 || len(sp.Tail) != 1 {
+		t.Fatalf("head=%v tail=%v", roles(sp.Head), roles(sp.Tail))
 	}
-	tool := ai.Message{Role: ai.RoleTool, ToolCallID: "1", Text: strings.Repeat("out ", 200)}
-	keep := 10 // tiny
-	sp := Select([]ai.Message{u, a, tool}, keep)
-	if len(sp.Head) != 0 {
-		t.Fatalf("head should be empty, got %v", roles(sp.Head))
+}
+
+func TestSelectSplitsOversizedNewestTurn(t *testing.T) {
+	// One prompt, then a long tool loop. Whole turns free nothing, so the cut
+	// moves inside the turn: it lands on an assistant message, never between a
+	// call and its result, and the prompt goes to the head.
+	round := func(id string) []ai.Message {
+		return []ai.Message{
+			{Role: ai.RoleAssistant, ToolCalls: []ai.ToolCall{{ID: id, Name: "read", Arguments: `{}`}}},
+			{Role: ai.RoleTool, ToolCallID: id, Text: strings.Repeat("out ", 100)},
+		}
 	}
-	if len(sp.Tail) != 3 || sp.Tail[0].Role != ai.RoleUser {
+	hist := []ai.Message{{Role: ai.RoleUser, Text: "do the thing"}}
+	for _, id := range []string{"1", "2", "3", "4"} {
+		hist = append(hist, round(id)...)
+	}
+	keep := 2*(estimateMsg(hist[1])+estimateMsg(hist[2])) + 1 // two rounds fit, three do not
+
+	sp := Select(hist, keep)
+	if len(sp.Head) != 5 || sp.Head[0].Role != ai.RoleUser {
+		t.Fatalf("head=%v", roles(sp.Head))
+	}
+	if len(sp.Tail) != 4 || sp.Tail[0].Role != ai.RoleAssistant || sp.Tail[0].ToolCalls[0].ID != "3" {
 		t.Fatalf("tail=%v", roles(sp.Tail))
+	}
+}
+
+func TestSelectOversizedLastRoundStaysWhole(t *testing.T) {
+	// Even one round larger than keep is kept: the next request continues from it.
+	hist := []ai.Message{
+		{Role: ai.RoleUser, Text: "go"},
+		{Role: ai.RoleAssistant, ToolCalls: []ai.ToolCall{{ID: "1", Name: "read", Arguments: `{}`}}},
+		{Role: ai.RoleTool, ToolCallID: "1", Text: strings.Repeat("out ", 200)},
+	}
+	sp := Select(hist, 10)
+	if len(sp.Head) != 1 || len(sp.Tail) != 2 || sp.Tail[0].Role != ai.RoleAssistant {
+		t.Fatalf("head=%v tail=%v", roles(sp.Head), roles(sp.Tail))
+	}
+}
+
+func TestBudget(t *testing.T) {
+	if got := (Config{}).Budget(); got != 0 {
+		t.Fatalf("no window: %d", got)
+	}
+	if got := (Config{ContextWindow: 100_000}).Budget(); got != 100_000-DefaultBuffer {
+		t.Fatalf("default buffer: %d", got)
+	}
+	if got := (Config{ContextWindow: 100_000, Buffer: 5_000}).Budget(); got != 95_000 {
+		t.Fatalf("custom buffer: %d", got)
+	}
+	if got := (Config{ContextWindow: 1_000}).Budget(); got != 0 {
+		t.Fatalf("window under buffer: %d", got)
 	}
 }
 
@@ -634,4 +676,153 @@ func roles(msgs []ai.Message) []ai.Role {
 		out[i] = m.Role
 	}
 	return out
+}
+
+// seqCompleter answers each request with the next text and records the prompts.
+type seqCompleter struct {
+	texts []string
+	calls [][]ai.Message
+}
+
+func (s *seqCompleter) Complete(_ context.Context, msgs []ai.Message, _ []ai.Tool, _ int64) (string, error) {
+	i := len(s.calls)
+	s.calls = append(s.calls, append([]ai.Message(nil), msgs...))
+	if i >= len(s.texts) {
+		i = len(s.texts) - 1
+	}
+	return s.texts[i], nil
+}
+
+// longTurn is one prompt followed by n tool rounds of about 1.3k tokens each.
+func longTurn(n int) []ai.Message {
+	h := []ai.Message{{Role: ai.RoleUser, Text: "go"}}
+	for i := 0; i < n; i++ {
+		id := string(rune('a'+i%26)) + string(rune('a'+i/26))
+		h = append(h,
+			ai.Message{Role: ai.RoleAssistant, ToolCalls: []ai.ToolCall{{ID: id, Name: "read", Arguments: `{}`}}},
+			ai.Message{Role: ai.RoleTool, ToolCallID: id, Text: strings.Repeat("word ", 1000)},
+		)
+	}
+	return h
+}
+
+var overshootCfg = Config{ContextWindow: 20_000, Buffer: 2_000, Keep: 1_000}
+
+// A history already past the window cannot go to the summarizer whole. It is
+// summarized oldest-first, so the request is still a prefix of the live
+// conversation (and the provider's cache still serves it), and the rest of the
+// head stays raw.
+func TestRunChunksHeadPastWindow(t *testing.T) {
+	hist := longTurn(20) // ~26k tokens against a 20k window
+	if Estimate(hist) <= overshootCfg.ContextWindow {
+		t.Fatalf("setup: history %d fits the window", Estimate(hist))
+	}
+	stub := &seqCompleter{texts: []string{"## Task\n- go"}}
+	res, err := RunIfNeeded(context.Background(), stub, hist, overshootCfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Compacted || len(stub.calls) != 1 {
+		t.Fatalf("compacted=%v calls=%d", res.Compacted, len(stub.calls))
+	}
+
+	// The request is the head's oldest messages, in order, plus the instruction.
+	req := stub.calls[0]
+	k := len(req) - 1
+	if k < 2 || k >= len(hist)-2 {
+		t.Fatalf("slice of %d messages, want a proper prefix of the head", k)
+	}
+	for i := 0; i < k; i++ {
+		if req[i].Role != hist[i].Role || req[i].Text != hist[i].Text || req[i].ToolCallID != hist[i].ToolCallID {
+			t.Fatalf("request[%d] is not history[%d]", i, i)
+		}
+	}
+	if Estimate(req) > overshootCfg.ContextWindow-SummaryMaxTokens {
+		t.Fatalf("request %d tokens does not fit", Estimate(req))
+	}
+
+	// What was not summarized stays raw, after the checkpoint, in order.
+	if !IsCheckpoint(res.History[0]) || res.TailCount != len(res.History)-1 {
+		t.Fatalf("checkpoint=%v tail=%d len=%d", IsCheckpoint(res.History[0]), res.TailCount, len(res.History))
+	}
+	rest := res.History[1:]
+	want := hist[len(hist)-len(rest):]
+	for i := range rest {
+		if rest[i].Role != want[i].Role || rest[i].ToolCallID != want[i].ToolCallID {
+			t.Fatalf("rest[%d] is not the history suffix", i)
+		}
+	}
+	if rest[0].Role == ai.RoleTool {
+		t.Fatal("a tool result was separated from its call")
+	}
+	if got := Estimate(res.History); got > overshootCfg.ContextWindow-overshootCfg.Buffer {
+		t.Fatalf("still %d tokens, over the %d budget", got, overshootCfg.ContextWindow-overshootCfg.Buffer)
+	}
+}
+
+// A history several windows long takes more than one slice. Each pass carries
+// the previous summary forward.
+func TestRunChunksAcrossPasses(t *testing.T) {
+	hist := longTurn(45) // ~58k tokens
+	stub := &seqCompleter{texts: []string{"## Task\n- first", "## Task\n- second", "## Task\n- third"}}
+	res, err := RunIfNeeded(context.Background(), stub, hist, overshootCfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stub.calls) < 2 {
+		t.Fatalf("calls=%d, want a second pass", len(stub.calls))
+	}
+	second := stub.calls[1]
+	if last := second[len(second)-1].Text; !strings.Contains(last, "<previous-summary>") || !strings.Contains(last, "- first") {
+		t.Fatalf("second pass did not carry the first summary: %q", last)
+	}
+	// The checkpoint holds the last pass's note, not an intermediate one.
+	if want := stub.texts[min(len(stub.calls), len(stub.texts))-1]; res.Summary != want {
+		t.Fatalf("summary=%q after %d calls, want %q", res.Summary, len(stub.calls), want)
+	}
+	if got := Estimate(res.History); got > overshootCfg.ContextWindow-overshootCfg.Buffer {
+		t.Fatalf("still %d tokens after %d passes", got, len(stub.calls))
+	}
+	if res.TailCount != len(res.History)-1 {
+		t.Fatalf("TailCount=%d len=%d", res.TailCount, len(res.History))
+	}
+}
+
+// A single message larger than the window cannot be cut at a message boundary.
+func TestRunFailsWhenFirstMessageExceedsWindow(t *testing.T) {
+	hist := []ai.Message{
+		{Role: ai.RoleUser, Text: strings.Repeat("word ", 40_000)}, // ~50k tokens
+		{Role: ai.RoleAssistant, Text: "ok"},
+		{Role: ai.RoleUser, Text: "recent"},
+	}
+	stub := &seqCompleter{texts: []string{"x"}}
+	_, err := RunIfNeeded(context.Background(), stub, hist, overshootCfg)
+	if err == nil || !strings.Contains(err.Error(), "too large") {
+		t.Fatalf("err=%v", err)
+	}
+	if len(stub.calls) != 0 {
+		t.Fatalf("summarizer was called %d times", len(stub.calls))
+	}
+}
+
+// After a compaction mid-turn the history reads checkpoint, assistant, tool…:
+// the prompt that opened the turn is in the summary. The turn must still be
+// compactable, or it could only be compacted once.
+func TestSelectRecompactsRestOfTurn(t *testing.T) {
+	rounds := longTurn(8)[1:] // assistant/tool rounds, no user message
+	hist := append([]ai.Message{CheckpointMessage("## Task\n- earlier")}, rounds...)
+
+	sp := Select(hist, 1_000)
+	if sp.PreviousSummary == "" {
+		t.Fatal("previous summary was not peeled")
+	}
+	if len(sp.Head) == 0 {
+		t.Fatalf("nothing to summarize: tail=%v", roles(sp.Tail))
+	}
+	if sp.Tail[0].Role != ai.RoleAssistant {
+		t.Fatalf("tail opens with %s, want an assistant message", sp.Tail[0].Role)
+	}
+	if len(sp.Head)+len(sp.Tail) != len(rounds) {
+		t.Fatalf("head+tail=%d, want %d", len(sp.Head)+len(sp.Tail), len(rounds))
+	}
 }

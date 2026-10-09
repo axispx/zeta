@@ -39,6 +39,11 @@ type Session struct {
 	TitlePending  bool
 	Streamed      bool
 	Effects       bool
+	// HoldCompact turns off the loop's budget check for the rest of the turn.
+	// Set when a mid-turn compaction freed nothing (it failed, or there was
+	// nothing older to summarize), so the loop is not handed back every round to
+	// try again. Cleared by BeginTurn.
+	HoldCompact bool
 	// Plan is the provider's subscription quota as last reported, for providers
 	// that meter by ChatGPT-style plan windows. Live state, not session
 	// history: it is not persisted, and a resumed session refills it from the
@@ -172,6 +177,9 @@ func (s *Session) Run(ctx context.Context, client *ai.Client, d Decider, steer f
 		Gate:    s.Gate(),
 		Steer:   steer,
 	}
+	if !s.HoldCompact {
+		cfg.Budget = compact.Config{ContextWindow: s.Cfg.ContextWindow()}.Budget()
+	}
 	return cfg.Run(ctx, s.RequestMsgs())
 }
 
@@ -199,7 +207,7 @@ func (s *Session) Busy(turnActive bool) bool {
 func (s *Session) Exclusive() bool { return s.Compacting }
 
 // BeginTurn resets the per-turn progress facts.
-func (s *Session) BeginTurn() { s.Streamed, s.Effects = false, false }
+func (s *Session) BeginTurn() { s.Streamed, s.Effects, s.HoldCompact = false, false, false }
 
 // MarkStreamed records visible output from the current turn.
 func (s *Session) MarkStreamed() { s.Streamed = true }
@@ -277,5 +285,57 @@ func (s *Session) ShouldAutoCompact(client *ai.Client, cfg config.Config) bool {
 	if c.ContextWindow <= 0 {
 		return false
 	}
+	if client.NativeCompaction() {
+		// The provider compacts the whole history, so there is no head to find:
+		// being over budget is enough.
+		return compact.OverBudget(s.History, c)
+	}
 	return compact.Needed(s.History, c)
+}
+
+// NativeModel is the model whose provider checkpoints this session can use, or
+// "" when the active provider has none.
+func (s *Session) NativeModel() string {
+	if s.Client != nil && s.Client.NativeCompaction() {
+		return s.Client.Model()
+	}
+	return ""
+}
+
+// ReconcileCompaction replaces history that holds a provider checkpoint the
+// active model cannot use. Call it after the client changes.
+//
+// A checkpoint is opaque and tied to the model that made it, so nothing can
+// translate it. The durable log still has every record, though, so the history
+// is rebuilt from it with that checkpoint skipped: the covered turns come back
+// raw, and the normal budget check compacts them again if they do not fit.
+func (s *Session) ReconcileCompaction() {
+	native := s.NativeModel()
+	if !holdsForeignCompaction(s.History, native) {
+		return
+	}
+	if s.Log != nil && s.Log.Persisted() {
+		if _, recs, err := session.OpenID(s.Log.Cwd, s.Log.ID); err == nil {
+			s.History = compact.RebuildAPIHistory(recs, native)
+			return
+		}
+	}
+	// No log to rebuild from: the checkpoint is unusable, so drop it and keep
+	// the user messages that rode alongside it.
+	kept := s.History[:0:0]
+	for _, m := range s.History {
+		if m.Role != ai.RoleCompaction {
+			kept = append(kept, m)
+		}
+	}
+	s.History = kept
+}
+
+func holdsForeignCompaction(history []ai.Message, model string) bool {
+	for _, m := range history {
+		if m.Role == ai.RoleCompaction && (m.Compaction == nil || m.Compaction.Model != model) {
+			return true
+		}
+	}
+	return false
 }

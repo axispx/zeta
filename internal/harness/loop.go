@@ -9,6 +9,7 @@ import (
 
 	"github.com/axispx/zeta/internal/ai"
 	"github.com/axispx/zeta/internal/codex"
+	"github.com/axispx/zeta/internal/compact"
 	"github.com/axispx/zeta/internal/tools"
 )
 
@@ -40,6 +41,10 @@ const (
 	// KindSteer is a user message the loop took in mid-turn (Message). The
 	// caller records it; the loop has already added it to the request.
 	KindSteer
+	// KindCompact means the loop stopped at a tool boundary because the next
+	// request would not fit the window. The turn is unfinished: the caller
+	// compacts the history it has recorded so far and runs the loop again.
+	KindCompact
 )
 
 // eventBuffer absorbs bursts of KindToolOut without stalling tool I/O.
@@ -130,6 +135,10 @@ type Config struct {
 	// added to the request as user turns and the loop keeps going, even when
 	// the model had no tool calls left to make.
 	Steer func() []ai.Message
+	// Budget is how many tokens a request may carry. When the next one would
+	// exceed it, the loop ends with KindCompact instead of sending it. Zero
+	// disables the check. See compact.Config.Budget.
+	Budget int
 	// StreamFn replaces Client.Stream when set (tests).
 	StreamFn func(context.Context, []ai.Message, []ai.Tool) <-chan ai.Event
 }
@@ -150,10 +159,20 @@ func (c Config) Run(ctx context.Context, history []ai.Message) <-chan Event {
 func (c Config) run(ctx context.Context, history []ai.Message, out chan<- Event) {
 	maxTurns := c.MaxTurns // <=0: unlimited
 	defs := tools.Defs(c.Tools)
+	// The provider's count for the latest request, and where in history it
+	// stops: everything after mark is what the next request adds.
+	var measured int64
+	mark := 0
 
 	for turn := 0; ; turn++ {
 		if ctx.Err() != nil {
 			out <- Event{Kind: KindDone}
+			return
+		}
+		// Not before the first request: submit already ran the budget check, and
+		// stopping here would hand back a loop that has done nothing.
+		if turn > 0 && c.overBudget(history, measured, mark) {
+			out <- Event{Kind: KindCompact}
 			return
 		}
 		if maxTurns > 0 && turn == maxTurns {
@@ -166,6 +185,7 @@ func (c Config) run(ctx context.Context, history []ai.Message, out chan<- Event)
 			return
 		}
 		history = append(history, asst)
+		measured, mark = usage.ContextTokens(), len(history)
 		out <- Event{Kind: KindAssistant, Message: asst, Usage: usage, Plan: plan}
 
 		if len(asst.ToolCalls) == 0 {
@@ -187,6 +207,20 @@ func (c Config) run(ctx context.Context, history []ai.Message, out chan<- Event)
 		}
 		history, _ = c.takeSteers(ctx, history, out)
 	}
+}
+
+// overBudget reports whether the next request would exceed Budget. A provider
+// count for the last request is exact for history[:mark] — it covers the whole
+// envelope, so nothing is added to it — and only what came after is estimated.
+// Without one, the whole request is estimated.
+func (c Config) overBudget(history []ai.Message, measured int64, mark int) bool {
+	if c.Budget <= 0 {
+		return false
+	}
+	if measured > 0 && mark <= len(history) {
+		return int(measured)+compact.Estimate(history[mark:]) > c.Budget
+	}
+	return compact.DefaultToolsOverhead+compact.Estimate(history) > c.Budget
 }
 
 // takeSteers appends any waiting steer messages to the request and reports

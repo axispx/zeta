@@ -120,6 +120,8 @@ type codexInputItem struct {
 	// (the API rejects a function_call_output without one).
 	Arguments *string `json:"arguments,omitempty"`
 	Output    *string `json:"output,omitempty"`
+	// EncryptedContent carries a compaction item back to the backend verbatim.
+	EncryptedContent string `json:"encrypted_content,omitempty"`
 }
 
 type codexContent struct {
@@ -132,7 +134,7 @@ type codexContent struct {
 // carries no output cap: the ChatGPT Codex backend does not take one (the Codex
 // CLI sends none), so a caller's limit is enforced on the returned text instead.
 func (c *codexClient) requestBody(model, effort string, msgs []Message, tools []Tool, stream bool) (*codexRequest, error) {
-	instructions, input, err := codexInput(msgs)
+	instructions, input, err := codexInput(ownCompactions(msgs, model))
 	if err != nil {
 		return nil, err
 	}
@@ -200,11 +202,33 @@ func codexInput(msgs []Message) (string, []any, error) {
 				CallID: m.ToolCallID,
 				Output: &output,
 			})
+		case RoleCompaction:
+			if m.Compaction != nil && m.Compaction.Content != "" {
+				input = append(input, codexInputItem{Type: "compaction", EncryptedContent: m.Compaction.Content})
+			}
 		default:
 			return "", nil, fmt.Errorf("unknown message role %q", m.Role)
 		}
 	}
 	return strings.Join(instructions, "\n\n"), input, nil
+}
+
+// ownCompactions drops compaction checkpoints another model made. The backend
+// ties one to its model and rejects it elsewhere; the harness replaces such
+// history from the session log, so this only keeps a stale one off the wire.
+func ownCompactions(msgs []Message, model string) []Message {
+	for i, m := range msgs {
+		if m.Role == RoleCompaction && (m.Compaction == nil || m.Compaction.Model != model) {
+			out := append([]Message(nil), msgs[:i]...)
+			for _, m := range msgs[i:] {
+				if m.Role != RoleCompaction || (m.Compaction != nil && m.Compaction.Model == model) {
+					out = append(out, m)
+				}
+			}
+			return out
+		}
+	}
+	return msgs
 }
 
 func codexUserContent(m Message) []codexContent {
@@ -318,6 +342,45 @@ func (c *codexClient) complete(ctx context.Context, model, effort string, msgs [
 	return acc.text.String(), nil
 }
 
+// compactNative has the backend compact msgs. It is a live-shaped request —
+// the conversation's own instructions, input and tools — with a trailing
+// compaction_trigger item, which is how the Codex CLI asks for it. Sharing the
+// live prefix lets the backend serve the history from its prompt cache. The
+// reply is a single compaction item that replaces the history it covers.
+func (c *codexClient) compactNative(ctx context.Context, model, effort string, msgs []Message, tools []Tool) (Compaction, Usage, error) {
+	req, err := c.requestBody(model, effort, msgs, tools, true)
+	if err != nil {
+		return Compaction{}, Usage{}, err
+	}
+	req.Input = append(req.Input, map[string]string{"type": "compaction_trigger"})
+	// No client timeout: compacting a long history takes longer than a title.
+	resp, err := c.do(ctx, c.streaming, req)
+	if err != nil {
+		return Compaction{}, Usage{}, err
+	}
+	defer resp.Body.Close()
+
+	acc := codexAccumulator{}
+	frames := newSSEFrames(resp.Body)
+	for {
+		payload, ok, err := frames.next()
+		if err != nil {
+			return Compaction{}, Usage{}, fmt.Errorf("codex stream: %w", err)
+		}
+		if !ok {
+			break
+		}
+		acc.consume(payload)
+	}
+	if acc.err != nil {
+		return Compaction{}, Usage{}, acc.err
+	}
+	if acc.compaction == "" {
+		return Compaction{}, Usage{}, errors.New("codex: the backend returned no compaction item")
+	}
+	return Compaction{Content: acc.compaction, Model: model}, acc.usage, nil
+}
+
 // do posts body to the Responses endpoint and returns a successful response.
 // Failures are classified so a 401 still drives the OAuth recovery path. A
 // transient network failure (see transientNetErr) is resent a few times: it
@@ -406,6 +469,8 @@ type codexAccumulator struct {
 	toolCalls []ToolCall
 	usage     Usage
 	err       error
+	// compaction is the first compaction item the response produced.
+	compaction string
 }
 
 // codexEvent is the subset of a Responses stream event zeta reads. Unknown
@@ -425,6 +490,8 @@ type codexOutputItem struct {
 	CallID    string `json:"call_id"`
 	Name      string `json:"name"`
 	Arguments string `json:"arguments"`
+	// EncryptedContent is the body of a compaction item.
+	EncryptedContent string `json:"encrypted_content"`
 }
 
 type codexResponse struct {
@@ -483,6 +550,9 @@ func (a *codexAccumulator) consume(payload []byte) []Event {
 		}
 	case "response.output_item.done":
 		if evt.Item != nil {
+			if evt.Item.Type == "compaction" && a.compaction == "" {
+				a.compaction = evt.Item.EncryptedContent
+			}
 			a.addToolCall(*evt.Item)
 		}
 	case "response.completed":

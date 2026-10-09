@@ -51,6 +51,10 @@ type Record struct {
 	Tool       string     `json:"tool,omitempty"`   // tool name for RoleTool
 	Denied     bool       `json:"denied,omitempty"` // tool call rejected by policy/user
 	Tail       int        `json:"tail,omitempty"`   // RoleCompact: API messages retained after checkpoint
+	// Native is a RoleCompact provider checkpoint (opaque), and NativeModel the
+	// model id that made it and can read it. Text and Tail are unused then.
+	Native      string `json:"native,omitempty"`
+	NativeModel string `json:"native_model,omitempty"`
 	// Usage is the provider's token accounting for this assistant turn. Only
 	// agent records carry it; nil when the provider reported none. Kept per
 	// turn so /usage can total a resumed session without re-billing anything.
@@ -62,21 +66,23 @@ type Record struct {
 
 // event is one JSONL line: session header or a message.
 type event struct {
-	Type       string     `json:"type"`
-	ID         string     `json:"id,omitempty"`
-	Created    string     `json:"created,omitempty"`
-	Role       string     `json:"role,omitempty"`
-	Text       string     `json:"text,omitempty"`
-	TS         string     `json:"ts,omitempty"`
-	Images     []ImageRef `json:"images,omitempty"`
-	ToolCallID string     `json:"tool_call_id,omitempty"`
-	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
-	Label      string     `json:"label,omitempty"`
-	Tool       string     `json:"tool,omitempty"`
-	Denied     bool       `json:"denied,omitempty"`
-	Tail       int        `json:"tail,omitempty"`
-	Usage      *ai.Usage  `json:"usage,omitempty"`
-	Model      string     `json:"model,omitempty"`
+	Type        string     `json:"type"`
+	ID          string     `json:"id,omitempty"`
+	Created     string     `json:"created,omitempty"`
+	Role        string     `json:"role,omitempty"`
+	Text        string     `json:"text,omitempty"`
+	TS          string     `json:"ts,omitempty"`
+	Images      []ImageRef `json:"images,omitempty"`
+	ToolCallID  string     `json:"tool_call_id,omitempty"`
+	ToolCalls   []ToolCall `json:"tool_calls,omitempty"`
+	Label       string     `json:"label,omitempty"`
+	Tool        string     `json:"tool,omitempty"`
+	Denied      bool       `json:"denied,omitempty"`
+	Tail        int        `json:"tail,omitempty"`
+	Usage       *ai.Usage  `json:"usage,omitempty"`
+	Model       string     `json:"model,omitempty"`
+	Native      string     `json:"native,omitempty"`
+	NativeModel string     `json:"native_model,omitempty"`
 }
 
 // Session is an append-only JSONL transcript for one chat.
@@ -138,19 +144,21 @@ func (s *Session) Append(rec Record) error {
 		rec.TS = time.Now().UTC().Format(time.RFC3339Nano)
 	}
 	if err := s.writeEvent(event{
-		Type:       typeMessage,
-		Role:       rec.Role,
-		Text:       rec.Text,
-		TS:         rec.TS,
-		Images:     rec.Images,
-		ToolCallID: rec.ToolCallID,
-		ToolCalls:  rec.ToolCalls,
-		Label:      rec.Label,
-		Tool:       rec.Tool,
-		Denied:     rec.Denied,
-		Tail:       rec.Tail,
-		Usage:      rec.Usage,
-		Model:      rec.Model,
+		Type:        typeMessage,
+		Role:        rec.Role,
+		Text:        rec.Text,
+		TS:          rec.TS,
+		Images:      rec.Images,
+		ToolCallID:  rec.ToolCallID,
+		ToolCalls:   rec.ToolCalls,
+		Label:       rec.Label,
+		Tool:        rec.Tool,
+		Denied:      rec.Denied,
+		Tail:        rec.Tail,
+		Usage:       rec.Usage,
+		Model:       rec.Model,
+		Native:      rec.Native,
+		NativeModel: rec.NativeModel,
 	}); err != nil {
 		return err
 	}
@@ -322,18 +330,20 @@ func load(abs, path string) (*Session, []Record, error) {
 			}
 		case typeMessage:
 			out = append(out, Record{
-				Role:       evt.Role,
-				Text:       evt.Text,
-				TS:         evt.TS,
-				Images:     evt.Images,
-				ToolCallID: evt.ToolCallID,
-				ToolCalls:  evt.ToolCalls,
-				Label:      evt.Label,
-				Tool:       evt.Tool,
-				Denied:     evt.Denied,
-				Tail:       evt.Tail,
-				Usage:      evt.Usage,
-				Model:      evt.Model,
+				Role:        evt.Role,
+				Text:        evt.Text,
+				TS:          evt.TS,
+				Images:      evt.Images,
+				ToolCallID:  evt.ToolCallID,
+				ToolCalls:   evt.ToolCalls,
+				Label:       evt.Label,
+				Tool:        evt.Tool,
+				Denied:      evt.Denied,
+				Tail:        evt.Tail,
+				Usage:       evt.Usage,
+				Model:       evt.Model,
+				Native:      evt.Native,
+				NativeModel: evt.NativeModel,
 			})
 		default:
 			// Pre-1.0: skip deleted event types (e.g. old todos snapshots).

@@ -113,6 +113,34 @@ uncached input for it. Hence the summarizer's own steering lives in a trailing
 user message, not a system prompt: a different system prompt would diverge at
 the first token and forfeit the hit.
 
+Auto-compaction is checked at two points. At submit, before the turn starts,
+`harness.Session.ShouldAutoCompact`. And inside a turn: the loop compares the
+provider's count for its last request, plus what the tool results since added,
+to `compact.Config.Budget` (the window less the reply buffer). When the next
+request would not fit it ends with `KindCompact` at a tool boundary; the TUI
+compacts the history recorded so far and resumes the same turn with
+`resumeTurn` (not `beginTurn`, so the replay gate survives). A compaction that
+frees nothing sets `Session.HoldCompact` for the rest of the turn. A single turn
+bigger than `Keep` is cut inside, at an assistant message (`compact.splitTurn`),
+so the prompt and older rounds go to the summary and the latest round stays raw.
+A head too large for one summarizer request is summarized oldest-first in slices
+that fit (`compact.summarize`), repeating until the history is under budget. The
+slice is a prefix of the head, never its newest part, so each request stays a
+prefix of the live conversation and keeps the cache hit. Only a single message
+larger than the window still fails ("history too large to summarize").
+
+Codex models compact with the backend's own compaction instead of a summary
+(`ai.Client.NativeCompaction`, `compact.RunNative`). The request is the live
+conversation plus a trailing `compaction_trigger` input item, so it shares the
+cached prefix; the reply is one opaque `compaction` item. History then becomes
+the user messages worth keeping plus that item (`compact.NativeHistory`), and
+the log stores the item with the model that made it. The item is unreadable and
+bound to that model, so nothing translates it: when the model changes,
+`Session.ReconcileCompaction` rebuilds history from the log with the item
+skipped, and `compact.RebuildAPIHistory` does the same on `/resume`. Native
+failure falls back to the summarizer. A request already past the window has its
+oldest large tool results elided in the outgoing copy only.
+
 Token accounting for images follows vision billing (tiles, not bytes) via
 `image.Dimensions`. Do not charge an image by its encoded size: a base64
 screenshot is megabytes of text but a few hundred tokens, and an inflated

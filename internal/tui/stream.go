@@ -22,6 +22,10 @@ type turn struct {
 	current       *turnSession
 	nextID        int // last allocated turnSession.id
 	compactCancel context.CancelFunc
+	// carried holds steers the loop had not taken when it handed the turn back
+	// for compaction. They join the resumed turn, or return to the queue when
+	// it is cancelled.
+	carried []queuedPrompt
 }
 
 // streamPaintEvery caps how often live answer/thinking/tool-out redraw the transcript.
@@ -136,8 +140,9 @@ type turnToolMsg struct {
 	denied  bool
 }
 type (
-	turnDoneMsg struct{ id int }
-	turnErrMsg  struct {
+	turnDoneMsg    struct{ id int }
+	turnCompactMsg struct{ id int }
+	turnErrMsg     struct {
 		id  int
 		err error
 	}
@@ -250,6 +255,8 @@ func turnEventMsg(id int, evt harness.Event) tea.Msg {
 		return turnToolMsg{id: id, label: evt.Text, name: evt.Name, message: evt.Message, denied: evt.Denied}
 	case harness.KindSteer:
 		return turnSteerMsg{id: id, message: evt.Message}
+	case harness.KindCompact:
+		return turnCompactMsg{id: id}
 	case harness.KindDone:
 		return turnDoneMsg{id: id}
 	case harness.KindErr:

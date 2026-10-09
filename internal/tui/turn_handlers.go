@@ -59,6 +59,11 @@ func (m *Model) dispatchTurnMsg(msg tea.Msg) (tea.Cmd, bool) {
 			return nil, true
 		}
 		return m.handleReviewDone(msg), true
+	case turnCompactMsg:
+		if !m.turn.live(msg.id) {
+			return nil, true
+		}
+		return m.handleTurnCompact(), true
 	case turnDoneMsg:
 		if !m.turn.live(msg.id) {
 			return nil, true

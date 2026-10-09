@@ -29,6 +29,12 @@ so reconnecting from `/config` refreshes it. Because the backend serves the
 Responses API rather than Chat Completions, this provider uses a transport of its
 own (`internal/ai/codex.go`); the rest of zeta does not change.
 
+Long sessions on Codex models compact with the backend's own compaction rather
+than a written summary, so the model keeps its own understanding of the work.
+The checkpoint is opaque and belongs to the model that made it: switching to a
+different model brings back the earlier turns from the session log instead.
+Other providers keep the summary-based compaction.
+
 `/usage` reports tokens as usual plus the plan quota, when the provider reported it:
 the rolling window, the weekly window, and when the window resets. A plan that
 reports quota only on request is fetched when you run `/usage`.

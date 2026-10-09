@@ -566,3 +566,111 @@ func TestCodexRequestServiceTier(t *testing.T) {
 		}
 	}
 }
+
+// A native compaction is a live-shaped request plus a trailing
+// compaction_trigger item; the reply's compaction item is the checkpoint.
+func TestCodexCompactNative(t *testing.T) {
+	t.Parallel()
+	var body struct {
+		Model        string           `json:"model"`
+		Instructions string           `json:"instructions"`
+		Input        []map[string]any `json:"input"`
+		Tools        []map[string]any `json:"tools"`
+		ToolChoice   string           `json:"tool_choice"`
+		Stream       bool             `json:"stream"`
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		sse(w, `{"type":"response.output_item.done","item":{"type":"message","role":"assistant"}}`)
+		sse(w, `{"type":"response.output_item.done","item":{"type":"compaction","id":"cmp_1","encrypted_content":"ENC-1"}}`)
+		sse(w, `{"type":"response.completed","response":{"usage":{"input_tokens":900,"output_tokens":40,"total_tokens":940}}}`)
+	}))
+	t.Cleanup(srv.Close)
+
+	c := codexClientFor(srv.URL)
+	if !c.NativeCompaction() {
+		t.Fatal("a Codex client must report native compaction")
+	}
+	msgs := []Message{
+		{Role: RoleSystem, Text: "sys"},
+		{Role: RoleUser, Text: "hi"},
+		{Role: RoleAssistant, Text: "hello"},
+	}
+	tools := []Tool{{Name: "read", Description: "read a file"}}
+	got, usage, err := c.CompactNative(context.Background(), msgs, tools)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Content != "ENC-1" || got.Model != "gpt-5.5" {
+		t.Fatalf("compaction = %+v", got)
+	}
+	if usage.TotalTokens != 940 {
+		t.Fatalf("usage = %+v", usage)
+	}
+	if !body.Stream || body.Instructions != "sys" || len(body.Tools) != 1 || body.ToolChoice != "auto" {
+		t.Fatalf("request is not live-shaped: %+v", body)
+	}
+	if n := len(body.Input); n != 3 || body.Input[n-1]["type"] != "compaction_trigger" {
+		t.Fatalf("input = %v, want history then compaction_trigger", body.Input)
+	}
+}
+
+func TestCodexCompactNativeNoItem(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		sse(w, `{"type":"response.completed","response":{}}`)
+	}))
+	t.Cleanup(srv.Close)
+	_, _, err := codexClientFor(srv.URL).CompactNative(context.Background(), []Message{{Role: RoleUser, Text: "hi"}}, nil)
+	if err == nil || !strings.Contains(err.Error(), "no compaction item") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+// A checkpoint goes back verbatim to the model that made it, and to no other:
+// the backend rejects a foreign one.
+func TestCodexInputCompaction(t *testing.T) {
+	t.Parallel()
+	c := newCodexClient(codexTestProvider("http://x"))
+	msgs := []Message{
+		{Role: RoleUser, Text: "keep me"},
+		{Role: RoleCompaction, Compaction: &Compaction{Content: "ENC-A", Model: "gpt-5.5"}},
+		{Role: RoleCompaction, Compaction: &Compaction{Content: "ENC-B", Model: "other-model"}},
+		{Role: RoleUser, Text: "next"},
+	}
+	req, err := c.requestBody("gpt-5.5", "", msgs, nil, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(req.Input)
+	s := string(raw)
+	if !strings.Contains(s, `"type":"compaction","encrypted_content":"ENC-A"`) {
+		t.Fatalf("own compaction missing: %s", s)
+	}
+	if strings.Contains(s, "ENC-B") {
+		t.Fatalf("another model's compaction was sent: %s", s)
+	}
+	if !strings.Contains(s, "keep me") || !strings.Contains(s, "next") {
+		t.Fatalf("user messages lost: %s", s)
+	}
+}
+
+// Chat Completions has no compaction: the client says so, and the transport
+// skips a checkpoint instead of failing on an unknown role.
+func TestChatHasNoNativeCompaction(t *testing.T) {
+	t.Parallel()
+	c := New(config.Provider{BaseURL: "https://api.example.com/v1", APIKey: "k"}, "m")
+	if c.NativeCompaction() {
+		t.Fatal("a Chat Completions client must not report native compaction")
+	}
+	if _, _, err := c.CompactNative(context.Background(), nil, nil); !errors.Is(err, ErrNoNativeCompaction) {
+		t.Fatalf("err = %v", err)
+	}
+	out, err := toAPIMessages([]Message{
+		{Role: RoleUser, Text: "hi"},
+		{Role: RoleCompaction, Compaction: &Compaction{Content: "ENC", Model: "m"}},
+	})
+	if err != nil || len(out) != 1 {
+		t.Fatalf("out=%d err=%v", len(out), err)
+	}
+}

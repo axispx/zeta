@@ -11,7 +11,7 @@ import (
 // Session lifecycle: replaying a session's records into the UI, appending new
 // ones, and the process exit handoff to main.
 
-func loadSession(recs []session.Record) (ui []Message, history []ai.Message) {
+func loadSession(recs []session.Record, nativeModel string) (ui []Message, history []ai.Message) {
 	ui = make([]Message, 0, len(recs))
 	for _, r := range recs {
 		switch r.Role {
@@ -43,7 +43,7 @@ func loadSession(recs []session.Record) (ui []Message, history []ai.Message) {
 			ui = append(ui, Message{Role: RoleError, Text: r.Text})
 		}
 	}
-	return ui, compact.RebuildAPIHistory(recs)
+	return ui, compact.RebuildAPIHistory(recs, nativeModel)
 }
 
 // persist appends one durable record, surfacing a write failure in the transcript.
