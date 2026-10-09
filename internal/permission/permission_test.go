@@ -2,6 +2,7 @@ package permission
 
 import (
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -64,10 +65,28 @@ func TestClassifyNonSideEffectRuns(t *testing.T) {
 	}
 }
 
+// writeFile creates path (and its parents) so an outside read has a real target.
+func writeFile(t *testing.T, path string) string {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// existingOutside is a read of a real file outside any workspace the test uses.
+func existingOutside(t *testing.T) json.RawMessage {
+	b, _ := json.Marshal(map[string]string{"path": writeFile(t, filepath.Join(t.TempDir(), "secret.txt"))})
+	return b
+}
+
 func TestClassifyOutsideReadAsks(t *testing.T) {
 	root := t.TempDir()
 	var none Session
-	args := json.RawMessage(`{"path":"../secret.txt"}`)
+	args := existingOutside(t)
 	if got := Classify(NewRules(policy.Policy{}), &none, root, tools.Read, args); got != policy.Ask {
 		t.Fatalf("outside read should ask, got %v", got)
 	}
@@ -106,7 +125,7 @@ func TestClassifyReadPathDeny(t *testing.T) {
 	if got := Classify(ssh, &none, root, tools.Read, outside); got != policy.Deny {
 		t.Fatalf("outside .ssh deny should match absolute path, got %v", got)
 	}
-	if got := Classify(dot, &none, root, tools.Read, outside); got != policy.Ask {
+	if got := Classify(dot, &none, root, tools.Read, existingOutside(t)); got != policy.Ask {
 		t.Fatalf("unrelated outside read should still ask, got %v", got)
 	}
 }
@@ -416,6 +435,9 @@ func TestDirGrant(t *testing.T) {
 	if !call.Outside || call.Dir != filepath.Join(outer, "one") {
 		t.Fatalf("boundary: outside=%v dir=%q", call.Outside, call.Dir)
 	}
+	for _, f := range []string{"one/a.txt", "one/b.txt", "two/c.txt"} {
+		writeFile(t, filepath.Join(outer, f))
+	}
 	s.GrantDir(call.Dir)
 	if got := Classify(nil, &s, root, tools.Read, a); got != policy.Allow {
 		t.Fatalf("same file, got %v", got)
@@ -459,7 +481,7 @@ func TestNilSession(t *testing.T) {
 	if got := Classify(nil, &none, root, tools.Read, json.RawMessage(`{"path":"a.go"}`)); got != policy.Allow {
 		t.Fatalf("in-workspace read never needs decision, got %v", got)
 	}
-	if got := Classify(nil, &none, root, tools.Read, json.RawMessage(`{"path":"../x.txt"}`)); got != policy.Ask {
+	if got := Classify(nil, &none, root, tools.Read, existingOutside(t)); got != policy.Ask {
 		t.Fatalf("outside read needs decision, got %v", got)
 	}
 	if got := Classify(nil, &none, root, tools.Read, json.RawMessage(`{"path":".env"}`)); got != policy.Ask {
@@ -493,5 +515,27 @@ func TestGrantNeverSkipsEditPrompt(t *testing.T) {
 	}
 	if got := Classify(nil, &s, t.TempDir(), tools.Write, json.RawMessage(`{"path":"a.go"}`)); got != policy.Ask {
 		t.Fatalf("write must still ask, got %v", got)
+	}
+}
+
+func TestClassifyMissingOutsideReadRuns(t *testing.T) {
+	root := t.TempDir()
+	outer := t.TempDir()
+	var none Session
+	missing, _ := json.Marshal(map[string]string{"path": filepath.Join(outer, "nope", "que")})
+	if got := Classify(NewRules(policy.Policy{}), &none, root, tools.Read, missing); got != policy.Allow {
+		t.Fatalf("missing outside read has nothing to approve, got %v", got)
+	}
+	existing, _ := json.Marshal(map[string]string{"path": outer})
+	if got := Classify(NewRules(policy.Policy{}), &none, root, tools.Read, existing); got != policy.Ask {
+		t.Fatalf("existing outside directory should still ask, got %v", got)
+	}
+	deny := NewRules(policy.Policy{Rules: []policy.Rule{{Tool: tools.Read, Action: policy.ActionDeny}}})
+	if got := Classify(deny, &none, root, tools.Read, missing); got != policy.Deny {
+		t.Fatalf("deny must still beat a missing read, got %v", got)
+	}
+	secret, _ := json.Marshal(map[string]string{"path": filepath.Join(outer, "nope", ".env")})
+	if got := Classify(NewRules(policy.Policy{}), &none, root, tools.Read, secret); got != policy.Ask {
+		t.Fatalf("a missing outside dotenv path still asks, got %v", got)
 	}
 }

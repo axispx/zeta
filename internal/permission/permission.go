@@ -3,6 +3,9 @@ package permission
 
 import (
 	"encoding/json"
+	"errors"
+	"io/fs"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -28,6 +31,9 @@ type Call struct {
 	// Dir is the outside-read approval boundary (the file's parent, or the path
 	// itself when it is a directory). Empty when not an outside read.
 	Dir string
+	// Missing reports an outside read whose target does not exist. Nothing is
+	// read, so there is nothing to approve: the read runs and reports the error.
+	Missing bool
 }
 
 // CallFor derives the permission view of a tool call against the live policy.
@@ -66,6 +72,8 @@ func CallFor(plan policy.Policy, root, tool string, args json.RawMessage) Call {
 			// Absolute path so a hand-written deny like **/.ssh/** still matches.
 			c.Match.Path = filepath.ToSlash(abs)
 			c.Dir = tools.ExternalDir(abs)
+			_, err := os.Stat(abs)
+			c.Missing = errors.Is(err, fs.ErrNotExist)
 		} else {
 			c.Match.Path = rel
 			if policy.EnvFile(rel) && rel != "" {
@@ -103,8 +111,8 @@ func Classify(rules *Rules, grants *Session, root, tool string, args json.RawMes
 
 // needsAsk reports whether this call requires a human decision when no
 // policy/session rule decided. bash/edit/write always do; read asks when the
-// target is outside the workspace or is a dotenv secret (.env / .env.*, not
-// .env.example).
+// target is outside the workspace (and exists) or is a dotenv secret (.env /
+// .env.*, not .env.example).
 func needsAsk(call Call) bool {
 	if SideEffect(call.Match.Tool) {
 		return true
@@ -112,7 +120,12 @@ func needsAsk(call Call) bool {
 	if call.Match.Tool != tools.Read {
 		return false
 	}
-	return call.Outside || policy.EnvFile(call.Match.Path)
+	if call.Outside {
+		// A missing dotenv path still asks: the secret rule does not depend on
+		// whether the file is there right now.
+		return policy.EnvFile(call.Match.Path) || !call.Missing
+	}
+	return policy.EnvFile(call.Match.Path)
 }
 
 // SideEffect reports whether a tool always needs a human decision before running

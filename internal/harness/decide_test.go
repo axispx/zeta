@@ -40,7 +40,8 @@ func TestClassify(t *testing.T) {
 	if g := Classify(empty, &grants, root, tools.Read, json.RawMessage(`{"path":"a.go"}`)); g != WaitNone {
 		t.Fatalf("in-workspace read: %v", g)
 	}
-	if g := Classify(empty, &grants, root, tools.Read, json.RawMessage(`{"path":"../x.txt"}`)); g != WaitPermission {
+	outsideFile, _ := json.Marshal(map[string]string{"path": writeFixture(t, filepath.Join(t.TempDir(), "x.txt")), "reason": "test"})
+	if g := Classify(empty, &grants, root, tools.Read, outsideFile); g != WaitPermission {
 		t.Fatalf("outside read: %v", g)
 	}
 	if g := Classify(empty, &grants, root, tools.Read, json.RawMessage(`{"path":".env"}`)); g != WaitPermission {
@@ -62,7 +63,8 @@ func TestClassify(t *testing.T) {
 	if g := Classify(empty, &grants, root, tools.Edit, json.RawMessage(`{"path":"a.go"}`)); g != WaitPermission {
 		t.Fatalf("edit still waits: %v", g)
 	}
-	outside := json.RawMessage(`{"path":"../x.txt"}`)
+	outsidePath := writeFixture(t, filepath.Join(t.TempDir(), "x.txt"))
+	outside, _ := json.Marshal(map[string]string{"path": outsidePath, "reason": "test"})
 	if g := Classify(empty, &grants, root, tools.Read, outside); g != WaitPermission {
 		t.Fatalf("a command grant must not skip an outside read: %v", g)
 	}
@@ -70,7 +72,7 @@ func TestClassify(t *testing.T) {
 	if g := Classify(empty, &grants, root, tools.Read, outside); g != WaitNone {
 		t.Fatalf("directory grant should skip outside read: %v", g)
 	}
-	envOutside, _ := json.Marshal(map[string]string{"path": filepath.Join(permission.CallFor(policy.Policy{}, root, tools.Read, outside).Dir, ".env.local")})
+	envOutside, _ := json.Marshal(map[string]string{"path": filepath.Join(permission.CallFor(policy.Policy{}, root, tools.Read, outside).Dir, ".env.local"), "reason": "test"})
 	if g := Classify(empty, &grants, root, tools.Read, envOutside); g != WaitPermission {
 		t.Fatalf("directory grant must not skip .env.*: %v", g)
 	}
@@ -127,7 +129,7 @@ func TestGateMatchesClassify(t *testing.T) {
 		{tools.Bash, bashArgs("go test")},
 		{tools.Edit, json.RawMessage(`{"path":"a.go"}`)},
 		{tools.Read, json.RawMessage(`{"path":"a.go"}`)},
-		{tools.Read, json.RawMessage(`{"path":"../x.txt"}`)},
+		{tools.Read, json.RawMessage(`{"path":"../x.txt","reason":"test"}`)},
 	}
 	for _, c := range calls {
 		want := Classify(rules, &grants, root, c.name, c.args) != WaitNone
@@ -262,5 +264,40 @@ func TestDecidePermissionPersistFailureStillAllows(t *testing.T) {
 	}
 	if len(rules.Policy().Rules) != 0 {
 		t.Fatalf("failed persist must not install a rule: %+v", rules.Policy())
+	}
+}
+
+// writeFixture creates path so an outside read has a real target to approve.
+func writeFixture(t *testing.T, path string) string {
+	t.Helper()
+	if err := os.WriteFile(path, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestOutsideReadNeedsReason(t *testing.T) {
+	root := t.TempDir()
+	var grants permission.Session
+	empty := permission.NewRules(policy.Policy{})
+	noReason := writeFixture(t, filepath.Join(t.TempDir(), "x.txt"))
+	bare, _ := json.Marshal(map[string]string{"path": noReason})
+	if g := Classify(empty, &grants, root, tools.Read, bare); g != WaitNeedsReason {
+		t.Fatalf("outside read without reason: %v", g)
+	}
+	if r, ok := AutoReply(WaitNeedsReason); !ok || r.Kind != ReplyDeny || r.Reason != NeedsReasonReason {
+		t.Fatalf("auto reply = %+v, %v", r, ok)
+	}
+	withReason, _ := json.Marshal(map[string]string{"path": noReason, "reason": "check the spec"})
+	if g := Classify(empty, &grants, root, tools.Read, withReason); g != WaitPermission {
+		t.Fatalf("outside read with reason should prompt: %v", g)
+	}
+	missing, _ := json.Marshal(map[string]string{"path": filepath.Join(t.TempDir(), "nope")})
+	if g := Classify(empty, &grants, root, tools.Read, missing); g != WaitNone {
+		t.Fatalf("missing outside read has nothing to approve: %v", g)
+	}
+	edit, _ := json.Marshal(map[string]string{"path": noReason})
+	if g := Classify(empty, &grants, root, tools.Edit, edit); g != WaitPermission {
+		t.Fatalf("outside edit does not need a reason: %v", g)
 	}
 }

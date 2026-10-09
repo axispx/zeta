@@ -36,6 +36,9 @@ const (
 	WaitInteractive
 	// WaitAutoDeny rejects without prompting (policy deny).
 	WaitAutoDeny
+	// WaitNeedsReason rejects without prompting: an outside read would ask for
+	// access but gave no reason for it.
+	WaitNeedsReason
 )
 
 // Classify reports whether the harness must decide before a tool runs, and how.
@@ -50,6 +53,10 @@ func Classify(rules *permission.Rules, grants *permission.Session, root, name st
 	case policy.Deny:
 		return WaitAutoDeny
 	case policy.Ask:
+		call := permission.CallFor(rules.Policy(), root, name, args)
+		if name == tools.Read && call.Outside && !call.Missing && tools.ArgReason(args) == "" {
+			return WaitNeedsReason
+		}
 		return WaitPermission
 	default:
 		return WaitNone

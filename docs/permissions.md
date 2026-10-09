@@ -47,6 +47,7 @@ Edit/write/read paths resolve relative to the workspace root, but absolute paths
 - Outside edits/writes need per-call approval.
 - In-workspace reads never prompt, except dotenv secrets (`.env`, `.env.*`; `.env.example` is allowed).
 - An outside read asks to access that file's directory; a session grant covers later reads under it, not every outside path, and does not skip dotenv files.
+- The model must say why it needs an outside path: the `read` call carries a `reason`, shown in the prompt. An outside read without one is refused before any prompt, and the model is told to retry with a reason. A missing path has nothing to approve, so it gets neither.
 - `grep`/`glob` and `bash`'s `workdir` stay inside the workspace.
 
 ## Read-only commands

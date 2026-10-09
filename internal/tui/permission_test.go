@@ -2,6 +2,7 @@ package tui
 
 import (
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -677,9 +678,14 @@ func TestReadOutsideOpensApproval(t *testing.T) {
 		reply:      replies,
 		cancel:     func() {},
 	}
+	outsideFile := filepath.Join(t.TempDir(), "x.txt")
+	if err := os.WriteFile(outsideFile, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outsideArgs, _ := json.Marshal(map[string]string{"path": outsideFile, "reason": "check the spec"})
 	_ = m.handleTurnToolStart(turnToolStartMsg{
-		name: tools.Read, label: "read ../x.txt", path: "../x.txt",
-		args: json.RawMessage(`{"path":"../x.txt"}`),
+		name: tools.Read, label: "read " + outsideFile, path: outsideFile,
+		args: outsideArgs,
 	})
 	if m.panel.perm == nil || m.panel.perm.name != tools.Read || !m.panel.perm.appr.Call.Outside {
 		t.Fatalf("outside read must open prompt: %+v", m.panel.perm)
@@ -710,9 +716,17 @@ func TestReadOutsideSessionGrantSkipsLater(t *testing.T) {
 	replies := make(chan harness.Reply, 1)
 	outer := t.TempDir()
 	root := t.TempDir()
-	oneA, _ := json.Marshal(map[string]string{"path": filepath.Join(outer, "one", "a.txt")})
-	oneB, _ := json.Marshal(map[string]string{"path": filepath.Join(outer, "one", "b.txt")})
-	twoC, _ := json.Marshal(map[string]string{"path": filepath.Join(outer, "two", "c.txt")})
+	for _, f := range []string{"one/a.txt", "one/b.txt", "two/c.txt"} {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(outer, f)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(outer, f), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	oneA, _ := json.Marshal(map[string]string{"path": filepath.Join(outer, "one", "a.txt"), "reason": "test"})
+	oneB, _ := json.Marshal(map[string]string{"path": filepath.Join(outer, "one", "b.txt"), "reason": "test"})
+	twoC, _ := json.Marshal(map[string]string{"path": filepath.Join(outer, "two", "c.txt"), "reason": "test"})
 
 	m := testModel()
 	m.session.WS = workspace.Context{Abs: root}
@@ -752,7 +766,7 @@ func TestReadOutsideSessionGrantSkipsLater(t *testing.T) {
 	}
 
 	for _, name := range []string{".env", ".env.local"} {
-		env, _ := json.Marshal(map[string]string{"path": filepath.Join(outer, "one", name)})
+		env, _ := json.Marshal(map[string]string{"path": filepath.Join(outer, "one", name), "reason": "test"})
 		m.turn.current.activeTool = -1
 		_ = m.handleTurnToolStart(turnToolStartMsg{
 			name: tools.Read, label: "read " + name, path: filepath.Join(outer, "one", name),

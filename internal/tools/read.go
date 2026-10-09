@@ -17,8 +17,9 @@ const Read = "read"
 func (readTool) Name() string { return Read }
 func (readTool) Description() string {
 	return "Read a file or list a directory. " +
-		"Paths are relative to the workspace root; absolute paths and ../ escapes are allowed. " +
-		"Reads outside the workspace require approval for that directory (a session grant covers later reads there). " +
+		"Paths are relative to the workspace root; absolute paths, ~ (the home directory) and ../ escapes are allowed. " +
+		"Reads outside the workspace require approval for that directory (a session grant covers later reads there), " +
+		"and must include a reason saying why you need that path. " +
 		".env / .env.* files also require approval (.env.example does not). " +
 		"For directories, returns immediate children (one per line; trailing / for subdirs). " +
 		"For files, optionally slice by 1-based line offset and limit."
@@ -29,7 +30,11 @@ func (readTool) Parameters() map[string]any {
 		"properties": map[string]any{
 			"path": map[string]any{
 				"type":        "string",
-				"description": "Path relative to the workspace root. Absolute paths and ../ escapes are allowed; reads outside the workspace require approval.",
+				"description": "Path relative to the workspace root. Absolute paths, ~/ (home directory) and ../ escapes are allowed; reads outside the workspace require approval.",
+			},
+			"reason": map[string]any{
+				"type":        "string",
+				"description": "Why you need this path. Required when the path is outside the workspace; shown to the user when asking for access.",
 			},
 			"offset": map[string]any{
 				"type":        "integer",
@@ -57,6 +62,7 @@ func (readTool) Summary(raw json.RawMessage) string {
 
 type readArgs struct {
 	Path   string `json:"path"`
+	Reason string `json:"reason"`
 	Offset int    `json:"offset"`
 	Limit  int    `json:"limit"`
 }

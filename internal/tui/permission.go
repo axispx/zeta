@@ -99,6 +99,8 @@ type permissionPrompt struct {
 	list   optionList
 	// reason is the freeform deny text typed on the last row.
 	reason string
+	// access is why an outside read asks for its path, as the model stated it.
+	access string
 	// typing is true while the freeform row owns key input.
 	typing bool
 }
@@ -170,6 +172,7 @@ func (p *permissionPrompt) setApproval(a harness.Approval) {
 // policy: it decides which part of a chain a remembered rule would cover.
 func (p *permissionPrompt) setArgs(plan policy.Policy, args json.RawMessage, root string) {
 	p.command = tools.ArgCommand(args)
+	p.access = tools.ArgReason(args)
 	p.setApproval(harness.ApprovalFor(plan, root, p.name, args))
 }
 
@@ -377,6 +380,11 @@ func (m *Model) renderPermissionTitle(contentW int, ink styles.OverlayInk) strin
 		return body
 	}
 	body += "\n\n" + padPanel(ink.Gap.Width(inner).Render(payload), panelGutter)
+	if p.access != "" && p.appr.Call.Outside {
+		// The model's stated reason for reading outside the workspace: context for
+		// the decision, dimmed like the review note.
+		body += "\n\n" + padPanel(ink.Hint.Italic(false).Width(inner).Render("Reason: "+p.access), panelGutter)
+	}
 	if p.review != "" {
 		// Set apart from the command by a blank line and dimmed, not italic:
 		// context for the decision, not a second thing to answer.

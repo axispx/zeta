@@ -144,11 +144,18 @@ func (s *Session) CommitTool(m ai.Message, label, name string, denied bool) erro
 // PolicyDenyReason is the reason recorded when a policy rule rejects a call.
 const PolicyDenyReason = "denied by permission policy"
 
+// NeedsReasonReason tells the model how to retry an outside read it asked for
+// without saying why.
+const NeedsReasonReason = `reads outside the workspace need a "reason" saying why you need that path; retry with one`
+
 // AutoReply returns the reply the harness sends for a call it settles without
-// the user, if any. WaitAutoDeny is the only such case today.
+// the user, if any.
 func AutoReply(kind WaitKind) (Reply, bool) {
-	if kind == WaitAutoDeny {
+	switch kind {
+	case WaitAutoDeny:
 		return DenyToolReason(PolicyDenyReason), true
+	case WaitNeedsReason:
+		return DenyToolReason(NeedsReasonReason), true
 	}
 	return Reply{}, false
 }

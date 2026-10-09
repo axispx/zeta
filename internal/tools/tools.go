@@ -30,6 +30,16 @@ func ArgPath(raw json.RawMessage) string {
 	return strings.TrimSpace(a.Path)
 }
 
+// ArgReason returns the "reason" JSON argument, or "". A read outside the
+// workspace must carry one: it is the justification the approval prompt shows.
+func ArgReason(raw json.RawMessage) string {
+	var a struct {
+		Reason string `json:"reason"`
+	}
+	_ = json.Unmarshal(raw, &a)
+	return strings.TrimSpace(a.Reason)
+}
+
 // ArgCommand returns the "command" JSON argument for bash, or "".
 func ArgCommand(raw json.RawMessage) string {
 	var a struct {
@@ -149,6 +159,7 @@ func resolvePath(root, path string) (abs, rel string, outside bool, err error) {
 	if err != nil {
 		return "", "", false, err
 	}
+	path = expandHome(path)
 	if filepath.IsAbs(path) {
 		abs = filepath.Clean(path)
 	} else {
@@ -163,6 +174,20 @@ func resolvePath(root, path string) (abs, rel string, outside bool, err error) {
 		return abs, "", true, nil
 	}
 	return abs, filepath.ToSlash(rel), false, nil
+}
+
+// expandHome replaces a leading "~" or "~/" with the user's home directory, so
+// "~/notes" names the home folder rather than a literal "~" under the workspace.
+// Other forms (e.g. "~user/") and a missing home directory are returned as given.
+func expandHome(path string) string {
+	if path != "~" && !strings.HasPrefix(path, "~/") {
+		return path
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return path
+	}
+	return filepath.Join(home, strings.TrimPrefix(path, "~"))
 }
 
 // resolveConfinedPath is resolvePath plus a workspace-escape rejection. Used by

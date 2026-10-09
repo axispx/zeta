@@ -769,3 +769,21 @@ func TestDisplayTarget(t *testing.T) {
 		}
 	}
 }
+
+func TestResolvePathExpandsHome(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	root := t.TempDir()
+	for _, p := range []string{"~", "~/Developer/que"} {
+		abs, _, outside, err := resolvePath(root, p)
+		if err != nil || !outside {
+			t.Fatalf("%q: outside=%v err=%v", p, outside, err)
+		}
+		if !strings.HasPrefix(abs, home) {
+			t.Fatalf("%q resolved to %q, want under home %q", p, abs, home)
+		}
+	}
+	if _, _, outside, _ := resolvePath(root, "~user/x"); outside {
+		t.Fatal("~user/ must not be treated as home")
+	}
+}
