@@ -173,7 +173,7 @@ func New(cfg config.Config, opts Options) (*Model, error) {
 		m.transcript.messages = []Message{{Role: RoleError, Text: "session: " + err.Error()}}
 		m.session.SeedTodos(nil)
 	} else {
-		m.session.Log = sess
+		m.session.SetLog(sess)
 		m.session.SeedTodos(nil)
 	}
 	if opts.Picker {

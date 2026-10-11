@@ -181,6 +181,46 @@ type nativeCompactor interface {
 	compactNative(ctx context.Context, model, effort string, msgs []Message, tools []Tool) (Compaction, Usage, error)
 }
 
+// cacheKeyed is implemented by transports that route requests to a prompt
+// cache by a caller-supplied key.
+type cacheKeyed interface {
+	setCacheKey(key string)
+	getCacheKey() string
+}
+
+// SetCacheKey names the conversation this client serves, so the provider can
+// send all of its requests to the same prompt cache (prompt_cache_key). Call it
+// before the client is used; transports with no such routing ignore it.
+func (c *Client) SetCacheKey(key string) {
+	if ck, ok := c.api.(cacheKeyed); ok {
+		ck.setCacheKey(strings.TrimSpace(key))
+	}
+}
+
+// turnScoped is implemented by transports that keep routing state for the turn
+// in flight.
+type turnScoped interface {
+	newTurn()
+}
+
+// NewTurn marks a turn boundary. Routing state a provider issued for the turn
+// just ended (Codex's sticky-routing token) must not carry into the next one.
+// Requests within a turn, including a resumed one after compaction, share it.
+func (c *Client) NewTurn() {
+	if t, ok := c.api.(turnScoped); ok {
+		t.newTurn()
+	}
+}
+
+// CacheKey is the key SetCacheKey installed, empty when none or when the
+// transport takes none.
+func (c *Client) CacheKey() string {
+	if ck, ok := c.api.(cacheKeyed); ok {
+		return ck.getCacheKey()
+	}
+	return ""
+}
+
 // Model is the model id this client sends.
 func (c *Client) Model() string { return c.model }
 

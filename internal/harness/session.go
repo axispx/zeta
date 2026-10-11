@@ -206,8 +206,14 @@ func (s *Session) Busy(turnActive bool) bool {
 // recover is busy but still accepts queued input.
 func (s *Session) Exclusive() bool { return s.Compacting }
 
-// BeginTurn resets the per-turn progress facts.
-func (s *Session) BeginTurn() { s.Streamed, s.Effects, s.HoldCompact = false, false, false }
+// BeginTurn resets the per-turn progress facts and the provider's per-turn
+// routing state, which must not outlive the turn it was issued for.
+func (s *Session) BeginTurn() {
+	s.Streamed, s.Effects, s.HoldCompact = false, false, false
+	if s.Client != nil {
+		s.Client.NewTurn()
+	}
+}
 
 // MarkStreamed records visible output from the current turn.
 func (s *Session) MarkStreamed() { s.Streamed = true }

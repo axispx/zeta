@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"testing"
@@ -672,5 +673,198 @@ func TestChatHasNoNativeCompaction(t *testing.T) {
 	})
 	if err != nil || len(out) != 1 {
 		t.Fatalf("out=%d err=%v", len(out), err)
+	}
+}
+
+// The conversation's cache key rides every request body, whatever builds it:
+// streaming turns, summarizer completions and native compaction share
+// requestBody. An unset key is omitted rather than sent empty.
+func TestCodexPromptCacheKey(t *testing.T) {
+	t.Parallel()
+	c := &Client{api: newCodexClient(codexTestProvider("https://chatgpt.com/backend-api/codex")), model: "m"}
+	cc := c.api.(*codexClient)
+	msgs := []Message{{Role: RoleUser, Text: "hi"}}
+
+	raw := func(stream bool) string {
+		req, err := cc.requestBody("m", "", msgs, nil, stream)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, err := json.Marshal(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+
+	if body := raw(true); strings.Contains(body, "prompt_cache_key") {
+		t.Fatalf("no key set, body = %s", body)
+	}
+
+	c.SetCacheKey("  20261007-210927726263000 ")
+	if got := c.CacheKey(); got != "20261007-210927726263000" {
+		t.Fatalf("CacheKey = %q", got)
+	}
+	for _, stream := range []bool{true, false} {
+		if body := raw(stream); !strings.Contains(body, `"prompt_cache_key":"20261007-210927726263000"`) {
+			t.Fatalf("stream=%v body missing key:\n%s", stream, body)
+		}
+	}
+}
+
+// Chat Completions providers take no cache key; setting one is a no-op rather
+// than an unknown body field some gateways reject.
+func TestChatClientIgnoresCacheKey(t *testing.T) {
+	t.Parallel()
+	c := New(config.Provider{BaseURL: "https://api.example.com/v1", APIKey: "k"}, "m")
+	c.SetCacheKey("s1")
+	if got := c.CacheKey(); got != "" {
+		t.Fatalf("CacheKey = %q", got)
+	}
+}
+
+// The harness appends volatile developer blocks (environment, todos) after the
+// history. They must stay behind it as input items: folded into instructions
+// they would head the request, and a todo update would re-bill the transcript.
+func TestCodexTailDeveloperBlocksStayInInput(t *testing.T) {
+	t.Parallel()
+	head := []Message{
+		{Role: RoleSystem, Text: "you are zeta"},
+		{Role: RoleDeveloper, Text: "agent instructions"},
+	}
+	history := []Message{
+		{Role: RoleUser, Text: "fix it"},
+		{Role: RoleAssistant, ToolCalls: []ToolCall{{ID: "c1", Name: "read", Arguments: `{}`}}},
+		{Role: RoleTool, Text: "contents", ToolCallID: "c1"},
+	}
+	build := func(tail ...string) (string, []any) {
+		msgs := append(append([]Message(nil), head...), history...)
+		for _, text := range tail {
+			msgs = append(msgs, Message{Role: RoleDeveloper, Text: text})
+		}
+		instructions, input, err := codexInput(msgs)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return instructions, input
+	}
+
+	instrA, inputA := build("# Environment\n- Date: 2026-10-07", "# Session todos\n- [ ] a")
+	instrB, inputB := build("# Environment\n- Date: 2026-10-08", "# Session todos\n- [~] a")
+
+	if instrA != "you are zeta\n\nagent instructions" || instrA != instrB {
+		t.Fatalf("instructions must hold only the head and not move with the tail: %q vs %q", instrA, instrB)
+	}
+	// Everything up to the tail is byte-identical, which is what the cache needs.
+	n := len(history)
+	if len(inputA) != n+2 || len(inputB) != n+2 {
+		t.Fatalf("input lens = %d, %d; want %d", len(inputA), len(inputB), n+2)
+	}
+	rawA, _ := json.Marshal(inputA[:n])
+	rawB, _ := json.Marshal(inputB[:n])
+	if string(rawA) != string(rawB) {
+		t.Fatalf("history prefix differs:\n%s\n%s", rawA, rawB)
+	}
+	// The tail follows the history, in order, as developer messages.
+	tail, _ := json.Marshal(inputA[n:])
+	want := `[{"type":"message","role":"developer","content":[{"type":"input_text","text":"# Environment\n- Date: 2026-10-07"}]},` +
+		`{"type":"message","role":"developer","content":[{"type":"input_text","text":"# Session todos\n- [ ] a"}]}]`
+	if string(tail) != want {
+		t.Fatalf("tail =\n%s\nwant\n%s", tail, want)
+	}
+}
+
+// The backend pins a client to a replica (and so to that replica's prompt
+// cache) by an infrastructure cookie, the session-id header and, within a turn,
+// the sticky-routing token its first response returned. A client that drops
+// them is re-balanced every request and its history misses.
+func TestCodexRoutingAffinity(t *testing.T) {
+	t.Parallel()
+
+	var (
+		mu   sync.Mutex
+		seen []http.Header
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		seen = append(seen, r.Header.Clone())
+		n := len(seen)
+		mu.Unlock()
+		http.SetCookie(w, &http.Cookie{Name: "__oailb", Value: "lb1"})
+		http.SetCookie(w, &http.Cookie{Name: "sessionid", Value: "secret"})
+		// A different token on every response: the turn must keep the first.
+		w.Header().Set("x-codex-turn-state", fmt.Sprintf("turn-%d", n))
+		w.Header().Set("Content-Type", "text/event-stream")
+		sse(w, `{"type":"response.completed","response":{}}`)
+	}))
+	t.Cleanup(srv.Close)
+
+	c := codexClientFor(srv.URL)
+	cc := c.api.(*codexClient)
+	jar := newRoutingJar() // not the process-wide jar: tests run in parallel
+	cc.http.Jar, cc.streaming.Jar = jar, jar
+	c.SetCacheKey("sess-1")
+
+	run := func() http.Header {
+		t.Helper()
+		for evt := range c.Stream(context.Background(), []Message{{Role: RoleUser, Text: "hi"}}, nil) {
+			if evt.Type == EventErr {
+				t.Fatal(evt.Err)
+			}
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		return seen[len(seen)-1]
+	}
+
+	r1 := run()
+	if r1.Get("x-codex-turn-state") != "" || r1.Get("Cookie") != "" {
+		t.Fatalf("first request of a turn carries no routing state: %v", r1)
+	}
+	if r1.Get("session-id") != "sess-1" {
+		t.Fatalf("session-id = %q", r1.Get("session-id"))
+	}
+
+	r2 := run()
+	if got := r2.Get("x-codex-turn-state"); got != "turn-1" {
+		t.Fatalf("turn state = %q, want the token the turn started with", got)
+	}
+	if cookie := r2.Get("Cookie"); !strings.Contains(cookie, "__oailb=lb1") || strings.Contains(cookie, "sessionid") {
+		t.Fatalf("cookie = %q, want the routing cookie only", cookie)
+	}
+
+	if got := run().Get("x-codex-turn-state"); got != "turn-1" {
+		t.Fatalf("a later response's token replaced the turn's: %q", got)
+	}
+
+	// A new turn starts clean, then keeps its own first token. The cookie is the
+	// edge's pin and is not turn-scoped.
+	c.NewTurn()
+	r4 := run()
+	if r4.Get("x-codex-turn-state") != "" {
+		t.Fatalf("turn state crossed a turn boundary: %q", r4.Get("x-codex-turn-state"))
+	}
+	if !strings.Contains(r4.Get("Cookie"), "__oailb=lb1") {
+		t.Fatalf("routing cookie lost at the turn boundary: %q", r4.Get("Cookie"))
+	}
+	if got := run().Get("x-codex-turn-state"); got != "turn-4" {
+		t.Fatalf("turn state = %q, want turn-4", got)
+	}
+}
+
+// With no session there is nothing to name: no session-id header is sent.
+func TestCodexNoSessionIDWithoutKey(t *testing.T) {
+	t.Parallel()
+	var got http.Header
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Clone()
+		w.Header().Set("Content-Type", "text/event-stream")
+		sse(w, `{"type":"response.completed","response":{}}`)
+	}))
+	t.Cleanup(srv.Close)
+	for range codexClientFor(srv.URL).Stream(context.Background(), []Message{{Role: RoleUser, Text: "hi"}}, nil) {
+	}
+	if v := got.Get("session-id"); v != "" {
+		t.Fatalf("session-id = %q, want none", v)
 	}
 }

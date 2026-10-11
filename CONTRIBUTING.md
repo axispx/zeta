@@ -96,6 +96,18 @@ environment, todos checklist — is appended as a trailing developer block in
 `harness.RequestMsgs`, ordered most stable first. Put new context in that tail, not the
 head; a churn in the head re-reads the whole transcript.
 
+A byte-stable prefix only hits when the request reaches the cache that holds
+it. On the Codex backend that is routed by `prompt_cache_key`, so every Codex
+request carries the session id (`ai.Client.SetCacheKey`, set by
+`harness.Session.ApplyClient`). Change `Session.Log` through `SetLog`, never by
+assignment, or the key keeps naming the conversation the session left.
+
+The Responses API has one `instructions` slot, ahead of the history, so only
+the leading system/developer run goes there (`codexInput`). The trailing
+developer blocks stay in `input`, after the history, as developer messages:
+folded into `instructions` they would head the request and re-bill the whole
+transcript whenever a todo or the branch changed.
+
 That is why AGENTS.md is re-read only at a session boundary — `/clear`,
 `/resume`, and compaction (`workspace.Context.ReloadAgents`) — and why only the
 git branch is re-read per turn. Editing AGENTS.md mid-session, including with

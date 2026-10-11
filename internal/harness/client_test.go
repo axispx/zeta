@@ -8,6 +8,7 @@ import (
 
 	"github.com/axispx/zeta/internal/codex"
 	"github.com/axispx/zeta/internal/config"
+	"github.com/axispx/zeta/internal/session"
 )
 
 func clientCfg(p config.Provider) config.Config {
@@ -196,5 +197,42 @@ func TestPlanQuota(t *testing.T) {
 	codex.UsageURL = srvErr.URL
 	if _, err := PlanQuota(context.Background(), codexCfg(codex.BaseURL)); err == nil {
 		t.Fatal("expected error")
+	}
+}
+
+// The session id keys the provider's prompt cache, so a client built for one
+// conversation must not carry another's id past /clear or /resume.
+func TestSetLogRekeysClient(t *testing.T) {
+	s := Session{Cfg: clientCfg(config.Provider{
+		BaseURL: codex.BaseURL,
+		OAuth:   &config.OAuthCredential{AccessToken: "t", AccountID: "a"},
+		Models:  map[string]config.ModelDef{"grok": {ContextWindow: 128000}},
+	})}
+	s.ApplyClient()
+	if got := s.Client.CacheKey(); got != "" {
+		t.Fatalf("no log yet, key = %q", got)
+	}
+
+	first := &session.Session{ID: "20261007-000000000000001"}
+	s.SetLog(first)
+	if got := s.Client.CacheKey(); got != first.ID {
+		t.Fatalf("key = %q, want %q", got, first.ID)
+	}
+
+	// A token refresh rebuilds the client; the key must survive it.
+	s.ApplyClient()
+	if got := s.Client.CacheKey(); got != first.ID {
+		t.Fatalf("after rebuild key = %q, want %q", got, first.ID)
+	}
+
+	second := &session.Session{ID: "20261007-000000000000002"}
+	s.SetLog(second)
+	if got := s.Client.CacheKey(); got != second.ID {
+		t.Fatalf("key = %q, want %q", got, second.ID)
+	}
+
+	s.SetLog(nil)
+	if got := s.Client.CacheKey(); got != "" {
+		t.Fatalf("log cleared, key = %q", got)
 	}
 }

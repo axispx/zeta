@@ -60,7 +60,15 @@ type codexClient struct {
 	// omits it. It rides every request, summarizer included, so the cached
 	// prefix is served the same way it was written.
 	serviceTier string
-	backoff     time.Duration // first resend delay; tests shrink it
+	// cacheKey is sent as prompt_cache_key. The backend uses it to route a
+	// conversation's requests to the same cache, so without one the history
+	// only hits when a request happens to land where the last one was cached.
+	// Empty omits it.
+	cacheKey string
+	// turn is the sticky-routing token of the turn in flight; see
+	// codex_routing.go.
+	turn    turnState
+	backoff time.Duration // first resend delay; tests shrink it
 }
 
 func newCodexClient(p config.Provider) *codexClient {
@@ -69,14 +77,18 @@ func newCodexClient(p config.Provider) *codexClient {
 		accountID = strings.TrimSpace(p.OAuth.AccountID)
 	}
 	return &codexClient{
-		http:      &http.Client{Timeout: codexRequestTimeout},
-		streaming: &http.Client{},
+		http:      &http.Client{Timeout: codexRequestTimeout, Jar: routingCookies},
+		streaming: &http.Client{Jar: routingCookies},
 		baseURL:   strings.TrimRight(strings.TrimSpace(p.BaseURL), "/"),
 		token:     p.AuthToken(),
 		accountID: accountID,
 		backoff:   codexRetryBackoff,
 	}
 }
+
+func (c *codexClient) setCacheKey(key string) { c.cacheKey = key }
+func (c *codexClient) getCacheKey() string    { return c.cacheKey }
+func (c *codexClient) newTurn()               { c.turn.reset() }
 
 // codexRequest is the Responses API request body. Store is always false: zeta
 // keeps the conversation, not OpenAI.
@@ -89,6 +101,7 @@ type codexRequest struct {
 	ParallelToolCalls bool            `json:"parallel_tool_calls"`
 	Reasoning         *codexReasoning `json:"reasoning,omitempty"`
 	ServiceTier       string          `json:"service_tier,omitempty"`
+	PromptCacheKey    string          `json:"prompt_cache_key,omitempty"`
 	Store             bool            `json:"store"`
 	Stream            bool            `json:"stream"`
 }
@@ -139,13 +152,14 @@ func (c *codexClient) requestBody(model, effort string, msgs []Message, tools []
 		return nil, err
 	}
 	req := &codexRequest{
-		Model:        model,
-		Instructions: instructions,
-		Input:        input,
-		Reasoning:    &codexReasoning{Effort: effort},
-		ServiceTier:  c.serviceTier,
-		Store:        false,
-		Stream:       stream,
+		Model:          model,
+		Instructions:   instructions,
+		Input:          input,
+		Reasoning:      &codexReasoning{Effort: effort},
+		ServiceTier:    c.serviceTier,
+		PromptCacheKey: c.cacheKey,
+		Store:          false,
+		Stream:         stream,
 	}
 	if stream {
 		req.Reasoning.Summary = "auto"
@@ -164,18 +178,38 @@ func (c *codexClient) requestBody(model, effort string, msgs []Message, tools []
 	return req, nil
 }
 
-// codexInput maps zeta messages onto the Responses API input. System and
-// developer messages become the request's instructions: they head the cached
-// prefix, and the API has a single such slot.
+// codexInput maps zeta messages onto the Responses API input.
+//
+// The system and developer messages that open the conversation become the
+// request's instructions: they head the cached prefix, and the API has a single
+// such slot. A system or developer message after the first turn is not part of
+// that prefix — it is the volatile tail the harness appends (environment,
+// todos, a slash-skill playbook). It stays an input item, in place, as a
+// developer message: folded into instructions it would sit ahead of the whole
+// history, and every change to it would re-bill the transcript.
 func codexInput(msgs []Message) (string, []any, error) {
 	var instructions []string
 	input := make([]any, 0, len(msgs))
+	head := true // still in the leading system/developer run
 	for _, m := range msgs {
+		if head && m.Role != RoleSystem && m.Role != RoleDeveloper {
+			head = false
+		}
 		switch m.Role {
 		case RoleSystem, RoleDeveloper:
-			if text := strings.TrimSpace(m.Text); text != "" {
-				instructions = append(instructions, text)
+			text := strings.TrimSpace(m.Text)
+			if text == "" {
+				continue
 			}
+			if head {
+				instructions = append(instructions, text)
+				continue
+			}
+			input = append(input, codexInputItem{
+				Type:    "message",
+				Role:    "developer",
+				Content: []codexContent{{Type: "input_text", Text: text}},
+			})
 		case RoleUser:
 			input = append(input, codexInputItem{Type: "message", Role: "user", Content: codexUserContent(m)})
 		case RoleAssistant:
@@ -409,6 +443,7 @@ func (c *codexClient) do(ctx context.Context, client *http.Client, body *codexRe
 		backoff *= 2
 	}
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		c.turn.capture(resp.Header)
 		return resp, nil
 	}
 	defer resp.Body.Close()
@@ -431,6 +466,14 @@ func (c *codexClient) send(ctx context.Context, client *http.Client, payload []b
 	req.Header.Set("User-Agent", "zeta")
 	if c.accountID != "" {
 		req.Header.Set("chatgpt-account-id", c.accountID)
+	}
+	// Cache affinity: name the conversation and, within a turn, replay the
+	// routing token the turn's first response returned.
+	if c.cacheKey != "" {
+		req.Header.Set("session-id", c.cacheKey)
+	}
+	if state := c.turn.get(); state != "" {
+		req.Header.Set(turnStateHeader, state)
 	}
 	return client.Do(req)
 }

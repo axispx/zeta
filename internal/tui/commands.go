@@ -338,11 +338,11 @@ func (m *Model) updateConfigDialog(msg tea.Msg) (tea.Cmd, bool) {
 func (m *Model) applySession(sess *session.Session, recs []session.Record, err error) {
 	if err != nil {
 		m.transcript.messages = []Message{{Role: RoleError, Text: "session: " + err.Error()}}
-		m.session.Log = nil
+		m.session.SetLog(nil)
 		m.session.History = nil
 		m.session.SeedTodos(nil)
 	} else {
-		m.session.Log = sess
+		m.session.SetLog(sess)
 		m.transcript.messages, m.session.History = loadSession(recs, m.session.NativeModel())
 		m.session.SeedTodos(harness.TodosFromRecords(recs))
 	}

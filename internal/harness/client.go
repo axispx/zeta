@@ -7,6 +7,7 @@ import (
 	"github.com/axispx/zeta/internal/ai"
 	"github.com/axispx/zeta/internal/codex"
 	"github.com/axispx/zeta/internal/config"
+	"github.com/axispx/zeta/internal/session"
 )
 
 // ApplyClient rebuilds the API client from the active provider and model choice.
@@ -22,6 +23,20 @@ func (s *Session) ApplyClient() {
 		return
 	}
 	s.Client = ai.New(p, choice.ModelID)
+	// The session id keys the provider's prompt cache: every request of this
+	// conversation, summarizer included, lands on the cache that holds its
+	// prefix. A session with no log yet sends none.
+	if s.Log != nil {
+		s.Client.SetCacheKey(s.Log.ID)
+	}
+}
+
+// SetLog switches the session's transcript and rebuilds the client, whose
+// prompt cache key is the log's id. Use it instead of assigning Log, so the
+// key never names a conversation the session has left (/clear, /resume).
+func (s *Session) SetLog(l *session.Session) {
+	s.Log = l
+	s.ApplyClient()
 }
 
 // EnsureFreshClient refreshes OAuth tokens if needed, then rebuilds the client.
