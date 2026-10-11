@@ -31,7 +31,8 @@ func ArgPath(raw json.RawMessage) string {
 }
 
 // ArgReason returns the "reason" JSON argument, or "". A read outside the
-// workspace must carry one: it is the justification the approval prompt shows.
+// workspace and every edit or write must carry one: it is the justification the
+// approval prompt shows.
 func ArgReason(raw json.RawMessage) string {
 	var a struct {
 		Reason string `json:"reason"`

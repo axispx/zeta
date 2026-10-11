@@ -42,8 +42,12 @@ func (editTool) Parameters() map[string]any {
 				"type":        "boolean",
 				"description": "Replace every occurrence of old_string (default false)",
 			},
+			"reason": map[string]any{
+				"type":        "string",
+				"description": changeReasonDescription,
+			},
 		},
-		"required": []string{"path", "old_string", "new_string"},
+		"required": []string{"path", "old_string", "new_string", "reason"},
 	}
 }
 

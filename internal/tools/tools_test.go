@@ -787,3 +787,23 @@ func TestResolvePathExpandsHome(t *testing.T) {
 		t.Fatal("~user/ must not be treated as home")
 	}
 }
+
+// Edit and write require a reason in their schema: the harness rejects a call
+// without one, so the model must see it as mandatory.
+func TestEditWriteRequireReason(t *testing.T) {
+	for _, tool := range []Tool{editTool{}, writeTool{}} {
+		params := tool.Parameters()
+		props, _ := params["properties"].(map[string]any)
+		if _, ok := props["reason"]; !ok {
+			t.Fatalf("%s: no reason property", tool.Name())
+		}
+		required, _ := params["required"].([]string)
+		found := false
+		for _, r := range required {
+			found = found || r == "reason"
+		}
+		if !found {
+			t.Fatalf("%s: reason not required: %v", tool.Name(), required)
+		}
+	}
+}

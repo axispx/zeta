@@ -17,6 +17,7 @@ func (writeTool) Description() string {
 	return "Write full contents to a file (create or overwrite). " +
 		"Prefer edit for surgical changes; use write for new files with known contents " +
 		"or intentional full-file replacement (including empty files). " +
+		"Every call must include a reason: one sentence on why the change is needed, shown to the user in the approval prompt. " +
 		"On success, returns a unified diff of the change (empty if unchanged)."
 }
 func (writeTool) Parameters() map[string]any {
@@ -31,8 +32,12 @@ func (writeTool) Parameters() map[string]any {
 				"type":        "string",
 				"description": "Full file contents to write",
 			},
+			"reason": map[string]any{
+				"type":        "string",
+				"description": changeReasonDescription,
+			},
 		},
-		"required": []string{"path", "content"},
+		"required": []string{"path", "content", "reason"},
 	}
 }
 

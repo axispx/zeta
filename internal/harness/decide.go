@@ -36,8 +36,8 @@ const (
 	WaitInteractive
 	// WaitAutoDeny rejects without prompting (policy deny).
 	WaitAutoDeny
-	// WaitNeedsReason rejects without prompting: an outside read would ask for
-	// access but gave no reason for it.
+	// WaitNeedsReason rejects without prompting: an outside read, an edit or a
+	// write gave no reason for itself.
 	WaitNeedsReason
 )
 
@@ -49,10 +49,15 @@ func Classify(rules *permission.Rules, grants *permission.Session, root, name st
 	if tools.Interactive(name) {
 		return WaitInteractive
 	}
-	switch permission.Classify(rules, grants, root, name, args) {
-	case policy.Deny:
+	outcome := permission.Classify(rules, grants, root, name, args)
+	switch {
+	case outcome == policy.Deny:
 		return WaitAutoDeny
-	case policy.Ask:
+	case unexplainedChange(name, args):
+		// Even an allow rule does not excuse it: the reason is what the user
+		// reads in the prompt, so every change carries one.
+		return WaitNeedsReason
+	case outcome == policy.Ask:
 		call := permission.CallFor(rules.Policy(), root, name, args)
 		if name == tools.Read && call.Outside && !call.Missing && tools.ArgReason(args) == "" {
 			return WaitNeedsReason
@@ -61,6 +66,16 @@ func Classify(rules *permission.Rules, grants *permission.Session, root, name st
 	default:
 		return WaitNone
 	}
+}
+
+// unexplainedChange reports an edit or write whose arguments parse but carry no
+// reason. Malformed arguments are left for the tool to reject with its own
+// error rather than a misleading request for a reason.
+func unexplainedChange(name string, args json.RawMessage) bool {
+	if name != tools.Edit && name != tools.Write {
+		return false
+	}
+	return json.Valid(args) && tools.ArgReason(args) == ""
 }
 
 // Gate is the loop-side gate: it waits exactly when the rest of the harness

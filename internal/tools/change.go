@@ -5,6 +5,11 @@ import (
 	"path/filepath"
 )
 
+// changeReasonDescription is the schema text for the reason edit and write must
+// carry. The diff already shows what changed, so the reason is about why.
+const changeReasonDescription = "One sentence on why this change is needed. The user sees it in the approval prompt, " +
+	"so explain the purpose; do not restate what the diff shows."
+
 // fileChange is a planned workspace mutation (shared by edit/write Run and Preview).
 type fileChange struct {
 	abs, rel, before, after string

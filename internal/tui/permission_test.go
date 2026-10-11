@@ -592,7 +592,7 @@ func TestEditOutsideWorkspacePromptFlagsOutside(t *testing.T) {
 	}
 	_ = m.handleTurnToolStart(turnToolStartMsg{
 		name: tools.Edit, label: "edit ../x.txt", path: "../x.txt",
-		args: json.RawMessage(`{"path":"../x.txt"}`),
+		args: json.RawMessage(`{"path":"../x.txt","reason":"test"}`),
 	})
 	if m.panel.perm == nil || !m.panel.perm.appr.Call.Outside {
 		t.Fatalf("outside edit must flag prompt: %+v", m.panel.perm)
@@ -603,7 +603,7 @@ func TestEditOutsideWorkspacePromptFlagsOutside(t *testing.T) {
 
 	_ = m.handleTurnToolStart(turnToolStartMsg{
 		name: tools.Edit, label: "edit a.go", path: "a.go",
-		args: json.RawMessage(`{"path":"a.go"}`),
+		args: json.RawMessage(`{"path":"a.go","reason":"test"}`),
 	})
 	if m.panel.perm == nil || m.panel.perm.appr.Call.Outside {
 		t.Fatalf("in-tree edit must not be flagged: %+v", m.panel.perm)
@@ -789,7 +789,7 @@ func TestReadOutsideSessionGrantSkipsLater(t *testing.T) {
 
 	_ = m.handleTurnToolStart(turnToolStartMsg{
 		name: tools.Edit, label: "edit a.go", path: "a.go",
-		args: json.RawMessage(`{"path":"a.go"}`),
+		args: json.RawMessage(`{"path":"a.go","reason":"test"}`),
 	})
 	if m.panel.perm == nil || m.panel.perm.name != tools.Edit {
 		t.Fatalf("read grant must not skip edit: %+v", m.panel.perm)
@@ -966,5 +966,49 @@ func TestPermissionPayloadCarriesPanelFill(t *testing.T) {
 	}
 	if !strings.Contains(legend, ink.Hint.Render(permFooter)) {
 		t.Errorf("legend must be dim italic hint text: %q", legend)
+	}
+}
+
+// The prompt for an edit quotes the model's stated reason under the path, so the
+// decision is made with the why in view, not only the diff behind the panel.
+func TestEditPromptShowsReason(t *testing.T) {
+	replies := make(chan harness.Reply, 1)
+	m := testModel()
+	m.session.WS = workspace.Context{Abs: t.TempDir()}
+	m.turn.current = &turnSession{activeTool: -1, ch: make(chan harness.Event), reply: replies, cancel: func() {}}
+	_ = m.handleTurnToolStart(turnToolStartMsg{
+		name: tools.Edit, label: "edit a.go", path: "a.go",
+		args: json.RawMessage(`{"path":"a.go","reason":"stop leaking the file handle"}`),
+	})
+	if m.panel.perm == nil {
+		t.Fatal("edit must prompt")
+	}
+	view := m.renderPermission(80)
+	if !strings.Contains(view, "stop leaking the file handle") {
+		t.Fatalf("prompt must show the reason: %s", view)
+	}
+}
+
+// An edit that states no reason never reaches the prompt: the model is told to
+// retry with one, and the row reads as denied.
+func TestWriteWithoutReasonIsRejected(t *testing.T) {
+	replies := make(chan harness.Reply, 1)
+	m := testModel()
+	m.session.WS = workspace.Context{Abs: t.TempDir()}
+	m.turn.current = &turnSession{activeTool: -1, ch: make(chan harness.Event), reply: replies, cancel: func() {}}
+	_ = m.handleTurnToolStart(turnToolStartMsg{
+		name: tools.Write, label: "write a.go", path: "a.go",
+		args: json.RawMessage(`{"path":"a.go","content":"x"}`),
+	})
+	if m.panel.perm != nil {
+		t.Fatalf("no prompt without a reason: %+v", m.panel.perm)
+	}
+	select {
+	case r := <-replies:
+		if r.Kind != harness.ReplyDeny || r.Reason != harness.NeedsReasonReason {
+			t.Fatalf("reply = %+v", r)
+		}
+	default:
+		t.Fatal("the loop is waiting for a reply")
 	}
 }

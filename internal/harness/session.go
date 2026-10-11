@@ -149,9 +149,9 @@ func (s *Session) CommitTool(m ai.Message, label, name string, denied bool) erro
 // PolicyDenyReason is the reason recorded when a policy rule rejects a call.
 const PolicyDenyReason = "denied by permission policy"
 
-// NeedsReasonReason tells the model how to retry an outside read it asked for
-// without saying why.
-const NeedsReasonReason = `reads outside the workspace need a "reason" saying why you need that path; retry with one`
+// NeedsReasonReason tells the model how to retry a call that needs a stated
+// reason (an outside read, an edit or a write) and gave none.
+const NeedsReasonReason = `reads outside the workspace and every edit or write need a "reason" saying why; retry with one`
 
 // AutoReply returns the reply the harness sends for a call it settles without
 // the user, if any.

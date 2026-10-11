@@ -30,7 +30,7 @@ Rows read as answers, and a row that remembers something names the exact rule it
 | Read (outside workspace) | yes · yes, this directory for session · no                     |
 | Read (`.env` / `.env.*`) | yes · yes, remember this file · no                             |
 
-Edits and writes are always yes-or-no — every diff gets a review. The **remember** row appears only when a rule can be remembered — see [Remembered rules](#remembered-rules).
+Edits and writes are always yes-or-no — every diff gets a review. Each one also carries the model's stated **reason**, shown under the path in the prompt. A call without one is refused before any prompt, and the model is told to retry with one, even when an `allow` rule would otherwise run it. The **remember** row appears only when a rule can be remembered — see [Remembered rules](#remembered-rules).
 
 ## Prompt keys
 

@@ -34,7 +34,7 @@ func TestClassify(t *testing.T) {
 	if g := Classify(empty, &grants, root, tools.Bash, bashArgs("go test")); g != WaitPermission {
 		t.Fatalf("bash ungated: %v", g)
 	}
-	if g := Classify(empty, &grants, root, tools.Edit, json.RawMessage(`{"path":"a.go"}`)); g != WaitPermission {
+	if g := Classify(empty, &grants, root, tools.Edit, json.RawMessage(`{"path":"a.go","reason":"fix it"}`)); g != WaitPermission {
 		t.Fatalf("edit: %v", g)
 	}
 	if g := Classify(empty, &grants, root, tools.Read, json.RawMessage(`{"path":"a.go"}`)); g != WaitNone {
@@ -60,7 +60,7 @@ func TestClassify(t *testing.T) {
 		t.Fatalf("a different command must still ask: %v", g)
 	}
 	// edit never session-grantable
-	if g := Classify(empty, &grants, root, tools.Edit, json.RawMessage(`{"path":"a.go"}`)); g != WaitPermission {
+	if g := Classify(empty, &grants, root, tools.Edit, json.RawMessage(`{"path":"a.go","reason":"fix it"}`)); g != WaitPermission {
 		t.Fatalf("edit still waits: %v", g)
 	}
 	outsidePath := writeFixture(t, filepath.Join(t.TempDir(), "x.txt"))
@@ -296,8 +296,44 @@ func TestOutsideReadNeedsReason(t *testing.T) {
 	if g := Classify(empty, &grants, root, tools.Read, missing); g != WaitNone {
 		t.Fatalf("missing outside read has nothing to approve: %v", g)
 	}
-	edit, _ := json.Marshal(map[string]string{"path": noReason})
-	if g := Classify(empty, &grants, root, tools.Edit, edit); g != WaitPermission {
-		t.Fatalf("outside edit does not need a reason: %v", g)
+}
+
+func TestChangeNeedsReason(t *testing.T) {
+	root := t.TempDir()
+	var grants permission.Session
+	empty := permission.NewRules(policy.Policy{})
+
+	for _, name := range []string{tools.Edit, tools.Write} {
+		bare := json.RawMessage(`{"path":"a.go"}`)
+		if g := Classify(empty, &grants, root, name, bare); g != WaitNeedsReason {
+			t.Fatalf("%s without reason: %v", name, g)
+		}
+		blank := json.RawMessage(`{"path":"a.go","reason":"  "}`)
+		if g := Classify(empty, &grants, root, name, blank); g != WaitNeedsReason {
+			t.Fatalf("%s with blank reason: %v", name, g)
+		}
+		stated := json.RawMessage(`{"path":"a.go","reason":"fix the off-by-one"}`)
+		if g := Classify(empty, &grants, root, name, stated); g != WaitPermission {
+			t.Fatalf("%s with reason should prompt: %v", name, g)
+		}
+		// Malformed arguments are the tool's to reject, not a reason request.
+		if g := Classify(empty, &grants, root, name, json.RawMessage(`{`)); g != WaitPermission {
+			t.Fatalf("%s with invalid JSON: %v", name, g)
+		}
+	}
+
+	// An allow rule skips the prompt, not the reason.
+	allow := permission.NewRules(policy.Policy{Rules: []policy.Rule{{Tool: tools.Edit, Action: policy.ActionAllow}}})
+	if g := Classify(allow, &grants, root, tools.Edit, json.RawMessage(`{"path":"a.go"}`)); g != WaitNeedsReason {
+		t.Fatalf("allowed edit without reason: %v", g)
+	}
+	if g := Classify(allow, &grants, root, tools.Edit, json.RawMessage(`{"path":"a.go","reason":"x"}`)); g != WaitNone {
+		t.Fatalf("allowed edit with reason: %v", g)
+	}
+
+	// A deny rule answers first, with the policy reason.
+	deny := permission.NewRules(policy.Policy{Rules: []policy.Rule{{Tool: tools.Edit, Action: policy.ActionDeny}}})
+	if g := Classify(deny, &grants, root, tools.Edit, json.RawMessage(`{"path":"a.go"}`)); g != WaitAutoDeny {
+		t.Fatalf("denied edit without reason: %v", g)
 	}
 }

@@ -362,7 +362,7 @@ func TestStrayLetterIsInert(t *testing.T) {
 	m.session.WS = workspace.Context{Abs: root}
 	m.turn.current = &turnSession{activeTool: -1, ch: make(chan harness.Event), reply: replies, cancel: func() {}}
 
-	_ = m.handleTurnToolStart(turnToolStartMsg{name: tools.Edit, label: "edit a.go", path: "a.go", args: json.RawMessage(`{"path":"a.go"}`)})
+	_ = m.handleTurnToolStart(turnToolStartMsg{name: tools.Edit, label: "edit a.go", path: "a.go", args: json.RawMessage(`{"path":"a.go","reason":"x"}`)})
 	// Letters are not shortcuts: swallowed, no decision, no rule. Typing a
 	// message over an open prompt must never answer it.
 	for _, key := range []string{"a", "d", "p", "s", "x"} {
