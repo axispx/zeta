@@ -41,6 +41,8 @@ reports quota only on request is fetched when you run `/usage`.
 
 For the xAI device-code flow (`xai`), the panel shows a URL and a code to type.
 
+On every launch zeta refreshes the model lists of your configured providers in the background (models.dev, and the Codex catalog for a ChatGPT sign-in, refreshing its token first if it has expired). New models arrive disabled, context windows and reasoning levels update, and your on/off choices stay. A model that disappears upstream is dropped, except the one you are using. Failures are silent. Custom endpoints are never touched.
+
 Per-model `reasoning_effort` is set from `/model` with Tab, which cycles that model's supported levels (from models.dev; e.g. `low`/`medium`/`high`/`xhigh`/`max`, or a model's shorter list). Models with no catalog effort data fall back to `low`/`medium`/`high`.
 
 Example shape (prefer the UI over hand-editing):

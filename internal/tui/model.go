@@ -191,7 +191,7 @@ func (m *Model) applyPanels(termBg color.Color, dark bool) {
 
 // Init implements tea.Model.
 func (m *Model) Init() tea.Cmd {
-	return tea.Batch(textarea.Blink, tea.RequestBackgroundColor, checkUpdateCmd())
+	return tea.Batch(textarea.Blink, tea.RequestBackgroundColor, checkUpdateCmd(), refreshModelsCmd(m.session.Cfg.Clone()))
 }
 
 // Update implements tea.Model.
@@ -271,6 +271,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case streamPaintMsg:
+	case modelsRefreshedMsg:
+		m.handleModelsRefreshed(msg)
+		return m, nil
+
 		m.handleStreamPaint(msg)
 		return m, nil
 
