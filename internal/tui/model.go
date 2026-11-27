@@ -144,11 +144,11 @@ func New(cfg config.Config, opts Options) (*Model, error) {
 	vp := newTranscriptViewport()
 
 	ws := workspace.Load()
+	opts.Rules.Root = ws.Abs
 	m := &Model{
 		transcript: transcript{viewport: vp, mainCache: &mainViewCache{}},
 		composer:   composer{textarea: ta},
 		session: harness.Session{
-	opts.Rules.Root = ws.Abs
 			WS:     ws,
 			Cfg:    cfg,
 			Grants: &permission.Session{},
@@ -272,11 +272,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case streamPaintMsg:
-	case modelsRefreshedMsg:
-		m.handleModelsRefreshed(msg)
+		m.handleStreamPaint(msg)
 		return m, nil
 
-		m.handleStreamPaint(msg)
+	case modelsRefreshedMsg:
+		m.handleModelsRefreshed(msg)
 		return m, nil
 
 	default:

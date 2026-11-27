@@ -255,7 +255,7 @@ func TestProtectedText(t *testing.T) {
 		"cat \"$(cat ../x)\"",
 		"echo hi > ~/notes.txt",
 		"cp a ~other/b; echo $(date)",
-		"x=$(cat /Users/someone/file)",
+		"x=$(cat /usr/someone/file)",
 		"echo hi > /etc/motd",
 		"for f in /var/log/*; do cat $f; done",
 	}
