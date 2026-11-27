@@ -22,24 +22,37 @@ func (s *Session) Reviewer() *classifier.Reviewer {
 }
 
 // ReviewRequest reports what to ask the reviewer about a gated tool call, or
-// false when the call must go straight to the user. Only a shell command whose
-// parts can be named is reviewed, because the reviewer is asked about the parts
-// no rule covers; a command it cannot split (file redirect, substitution,
-// subshell) and any part that names a dotenv secret or a path outside the
-// workspace keep their prompt, since those are the cases a command's text alone
-// does not settle.
+// false when the call must go straight to the user. Only a shell command is
+// reviewed, and the reviewer is asked about the parts no rule covers. A command
+// that cannot be split (file redirect, here-doc, substitution, subshell) is
+// asked about whole: its text is all there is to judge, and the reviewer still
+// has to be sure. Anything that names a dotenv secret or a path outside the
+// workspace keeps its prompt, since the command's text does not settle whether
+// that read is wanted.
 func (s *Session) ReviewRequest(name string, args json.RawMessage) (classifier.Request, bool) {
 	if name != tools.Bash {
 		return classifier.Request{}, false
 	}
 	command := tools.ArgCommand(args)
-	pending, ok := s.Rules.Policy().Pending(tools.Bash, command)
-	if !ok || len(pending) == 0 {
+	if strings.TrimSpace(command) == "" {
 		return classifier.Request{}, false
 	}
-	for _, part := range pending {
-		if policy.ProtectedPath(part) {
+	pol := s.Rules.Policy()
+	pending, ok := pol.Pending(tools.Bash, command)
+	switch {
+	case !ok:
+		// Nothing splits it, so the whole command is the one thing to judge.
+		if policy.ProtectedText(command, s.WS.Abs) {
 			return classifier.Request{}, false
+		}
+		pending = []string{strings.TrimSpace(command)}
+	case len(pending) == 0:
+		return classifier.Request{}, false
+	default:
+		for _, part := range pending {
+			if policy.ProtectedPath(part, s.WS.Abs) {
+				return classifier.Request{}, false
+			}
 		}
 	}
 	return classifier.Request{

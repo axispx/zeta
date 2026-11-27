@@ -539,3 +539,57 @@ func TestClassifyMissingOutsideReadRuns(t *testing.T) {
 		t.Fatalf("a missing outside dotenv path still asks, got %v", got)
 	}
 }
+
+// Scratch space (the temp directory, the Go module cache) reads like the
+// workspace; a dotenv file there and every other outside path still asks.
+func TestClassifyScratchReadsRun(t *testing.T) {
+	scratch := t.TempDir()
+	defer policy.SetScratchRoots(scratch)()
+	root := t.TempDir()
+	var none Session
+	read := func(p string) json.RawMessage {
+		b, _ := json.Marshal(map[string]string{"path": p, "reason": "test"})
+		return b
+	}
+	log := filepath.Join(scratch, "test.log")
+	if err := os.WriteFile(log, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := Classify(NewRules(policy.Policy{}), &none, root, tools.Read, read(log)); got != policy.Allow {
+		t.Errorf("scratch read = %v, want Allow", got)
+	}
+	secret := filepath.Join(scratch, ".env")
+	if err := os.WriteFile(secret, []byte("K=v"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := Classify(NewRules(policy.Policy{}), &none, root, tools.Read, read(secret)); got != policy.Ask {
+		t.Errorf("scratch dotenv = %v, want Ask", got)
+	}
+	outside := t.TempDir() // a different temp directory, not scratch
+	other := filepath.Join(outside, "x.txt")
+	if err := os.WriteFile(other, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := Classify(NewRules(policy.Policy{}), &none, root, tools.Read, read(other)); got != policy.Ask {
+		t.Errorf("non-scratch outside read = %v, want Ask", got)
+	}
+	// A deny rule still wins over the exemption.
+	deny := NewRules(policy.Policy{Rules: []policy.Rule{{Tool: tools.Read, Action: policy.ActionDeny}}})
+	if got := Classify(deny, &none, root, tools.Read, read(log)); got != policy.Deny {
+		t.Errorf("denied scratch read = %v, want Deny", got)
+	}
+}
+
+// A policy reloaded from disk has no root; replacing the live rules with it must
+// not forget which workspace they judge paths against.
+func TestReplaceKeepsRoot(t *testing.T) {
+	rules := NewRules(policy.Policy{Root: "/work"})
+	rules.Replace(policy.Policy{Rules: []policy.Rule{{Tool: tools.Bash, CommandPrefix: "go test", Action: policy.ActionAllow}}})
+	if got := rules.Policy().Root; got != "/work" {
+		t.Fatalf("root after Replace = %q, want /work", got)
+	}
+	rules.Replace(policy.Policy{Root: "/other"})
+	if got := rules.Policy().Root; got != "/other" {
+		t.Fatalf("an explicit root should replace the old one, got %q", got)
+	}
+}

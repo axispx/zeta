@@ -46,19 +46,23 @@ Edit/write/read paths resolve relative to the workspace root, but absolute paths
 
 - Outside edits/writes need per-call approval.
 - In-workspace reads never prompt, except dotenv secrets (`.env`, `.env.*`; `.env.example` is allowed).
+- **Scratch space** reads like the workspace: the temp directories (`/tmp`, `/var/tmp`) and the Go module cache (`$GOMODCACHE`, else `$GOPATH/pkg/mod`, else `~/go/pkg/mod`). A dotenv file there still asks.
 - An outside read asks to access that file's directory; a session grant covers later reads under it, not every outside path, and does not skip dotenv files.
 - The model must say why it needs an outside path: the `read` call carries a `reason`, shown in the prompt. An outside read without one is refused before any prompt, and the model is told to retry with a reason. A missing path has nothing to approve, so it gets neither.
 - `grep`/`glob` and `bash`'s `workdir` stay inside the workspace.
 
 ## Read-only commands
 
-A command that only reads and reports runs without a prompt: there is nothing to approve. `ls`, `cat`, `head`, `tail`, `wc`, `grep`, `find`, `sed -n`, `base64`, and the read-only forms of `git` (`status`, `log`, `diff`, `show`, `branch`) are recognised, including their flags — `head -30 go.mod` and `ls -la` never ask.
+A command that only reads and reports runs without a prompt: there is nothing to approve. `ls`, `cat`, `head`, `tail`, `wc`, `grep`, `find`, `sed -n`, `sort`, `diff`, `jq`, `base64`, `command -v`, and the read-only forms of `git` and `go` are recognised, including their flags — `head -30 go.mod` and `ls -la` never ask.
 
-The recognition is per flag, not per program. `find -exec`, `rg --pre`, `sed -i`, `base64 -o`, `git log --output`, and `git -c` all run another command or write a file, so those still ask.
+- `git`: `status`, `log`, `diff`, `show`, `blame`, `grep`, `describe`, `rev-parse`, `rev-list`, `merge-base`, `shortlog`, `cat-file`, `ls-files`, `ls-tree`, `for-each-ref`, and the listing forms of `branch` (`--show-current`, `-a`, …), `tag` (`--list`) and `remote` (`-v`, `get-url`).
+- `go`: `version`, `doc`, `list`, and `env` (read-only).
+
+The recognition is per flag, not per program. `find -exec`, `rg --pre`, `sed -i`, `sort -o`, `base64 -o`, `git log --output`, `git grep -O`, `git tag v1`, `git remote add`, `go env -w`, `go list -toolexec`, and `git -c` all run another command or write a file, so those still ask.
 
 Two things keep the shortcut honest, because zeta runs shell commands unsandboxed:
 
-- **A path outside the workspace still asks.** `cat /etc/passwd`, `head -5 ../notes`, `ls /tmp`. Read-only or not, the prompt is where you see it.
+- **A path outside the workspace still asks.** `cat /etc/passwd`, `head -5 ../notes`, `ls /var/log`. Read-only or not, the prompt is where you see it. A path that resolves inside the workspace is inside however it is written (`~/Developer/app/x` in the app's own workspace), and scratch space (`/tmp`, the Go module cache) counts as inside too. `cd` with no argument leaves the workspace and asks. A `..` is judged from the workspace root, since `cd` is not followed: stricter than the shell, never looser.
 - **A dotenv secret still asks.** `cat .env`, `head -30 .env.local`, `grep -r x secrets.env`.
 
 An allow rule can still cover these: approving `cat .env` writes a rule for exactly that command. Deciding a path is safe is yours to make explicitly, not the fallback's.
@@ -75,7 +79,7 @@ So a `go test` rule never approves `go test && rm -rf /`, in either direction: t
 
 A redirect that names no file is dropped before the command is judged: `2>&1`, `>&2`, `2>&-`, and anything aimed at `/dev/null` (`2>/dev/null`, `&>/dev/null`, `</dev/null`). So `cat go.mod 2>/dev/null | head -20` is `cat go.mod` and `head -20`, and runs with no prompt.
 
-Anything else cannot be split: a redirect to a real file (`>`, `>>`, `<`), here-docs, command substitution (`$(…)`, backticks), subshells, and unbalanced quotes. The whole call is matched as one string and prompts as one unit. That is deliberately conservative — a redirect to a file is where a command can name a path the prompt never showed, so `go test ./... > out.txt` prompts on the full string rather than on `go test`.
+Anything else cannot be split: a redirect to a real file (`>`, `>>`, `<`), here-docs, command substitution (`$(…)`, backticks), subshells, and unbalanced quotes. The whole call is matched as one string and, when no rule decides it, goes to [auto review](#auto-review) as one unit, or prompts as one unit when review is off or unsure. A redirect to a file is where a command can name a path the prompt never showed, so `go test ./... > out.txt` is never matched against the `go test` rule.
 
 Nesting is only ever used to deny. A `deny` rule also fires on a command hidden inside one of those unsplittable forms — `echo "$(git clean -f)"`, `(cd /tmp && git clean -f)`, a `for` body — but an `allow` rule never looks inside them, so `echo $(go test)` still asks.
 
@@ -89,7 +93,7 @@ The model may propose a **prefix** instead — `["git", "pull"]` for a `git pull
 
 ## Wrappers
 
-Before a command is judged, a fixed set of wrappers that only run the rest of the command is removed: `timeout`, `time`, `nice`, `nohup`, `stdbuf`, and the builtins `command`, `builtin`, `noglob`. A rule for `go test` therefore covers `timeout 60 go test ./...`, a deny for `rm` still stops `nohup rm x`, and a remembered rule is written for the command that runs, not the wrapper. A wrapper with options zeta does not recognise (`timeout --weird 5 …`, `command -v`) is left as written and asks. `env`, `sudo`, `npx`, `docker exec`, `watch` and `find -exec` are not on the list and keep asking.
+Before a command is judged, a fixed set of wrappers that only run the rest of the command is removed: `timeout`, `time`, `nice`, `nohup`, `stdbuf`, and the builtins `command`, `builtin`, `noglob`. A rule for `go test` therefore covers `timeout 60 go test ./...`, a deny for `rm` still stops `nohup rm x`, and a remembered rule is written for the command that runs, not the wrapper. A wrapper with options zeta does not recognise (`timeout --weird 5 …`, `command -p …`) is left as written and asks. `env`, `sudo`, `npx`, `docker exec`, `watch` and `find -exec` are not on the list and keep asking.
 
 ## Auto review
 
@@ -102,7 +106,7 @@ A command is classified by what the worst thing in it clearly does:
 | Label              | Meaning                                                                 |
 | ------------------ | ----------------------------------------------------------------------- |
 | `read_only`        | only reads or prints                                                    |
-| `local_reversible` | writes inside the project in a way git or a rebuild undoes: builds, tests, formatting, caches, ordinary project scripts, deleting build output |
+| `local_reversible` | writes inside the project in a way git or a rebuild undoes: builds, tests, formatting, caches, ordinary project scripts, deleting build output, and inline scripts (`python3 - <<'PY'`, `node -e`) that read and rewrite project files like an editor would |
 | `network_fetch`    | uses the network only to download or look up, sending nothing out: `curl` GET, `git fetch` / `pull` / `clone`, installing the project's dependencies |
 | `risky`            | could do serious or hard-to-undo harm, or leak data: deleting or rewriting work (`rm -rf` of source, `git reset --hard`, force push), changing remote state (`git push`, publish, deploy, `POST`), sending files or secrets out (`curl -d @file`, `nc`), running code the text does not show (`curl \| sh`), `sudo`, system-wide installs |
 
@@ -110,7 +114,9 @@ The network is not risky in itself: what matters is what goes out and what runs 
 
 `read_only`, `local_reversible` and `network_fetch` are approved by default (`allow` in the config narrows or widens that). When a command is not approved, the prompt shows the classifier's one-line reason where the backend gives one. Only the sub-commands no rule covers are put to the classifier, so `go test ./... && make build` asks about `make build` alone.
 
-These never reach the classifier and always prompt, whatever it would say: a command it cannot split (file redirect, here-doc, `$(…)`, subshell), a dotenv secret, and a path outside the workspace.
+A command it cannot split (file redirect, here-doc, `$(…)`, subshell) is classified as a whole: its text is all there is to judge, so the backend must be sure. A script fed in on stdin is inline code, judged by what it does: one that reads and rewrites project files counts as `local_reversible`, like an editor; one that deletes trees, shells out, edits `.git`, sends files out or touches paths outside the project is `risky`.
+
+These never reach the classifier and always prompt, whatever it would say: a dotenv secret and a path outside the workspace. For a command it cannot split there is no argument list, so every word of the text is checked: any mention of a dotenv file, or any path-looking word outside the workspace and scratch space (`open('/etc/passwd')`, `> ~/.zshrc`, `$HOME/…`), keeps the prompt. Words that only start with a slash and name no real top-level directory (`</script>`, `x/3600`) are ignored.
 
 Two backends, chosen in `/config` (or by `backend` in the config):
 

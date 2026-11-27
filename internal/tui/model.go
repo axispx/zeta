@@ -148,6 +148,7 @@ func New(cfg config.Config, opts Options) (*Model, error) {
 		transcript: transcript{viewport: vp, mainCache: &mainViewCache{}},
 		composer:   composer{textarea: ta},
 		session: harness.Session{
+	opts.Rules.Root = ws.Abs
 			WS:     ws,
 			Cfg:    cfg,
 			Grants: &permission.Session{},

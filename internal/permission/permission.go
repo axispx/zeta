@@ -111,7 +111,7 @@ func Classify(rules *Rules, grants *Session, root, tool string, args json.RawMes
 
 // needsAsk reports whether this call requires a human decision when no
 // policy/session rule decided. bash/edit/write always do; read asks when the
-// target is outside the workspace (and exists) or is a dotenv secret (.env /
+// target is outside the workspace and scratch space (and exists) or is a dotenv secret (.env /
 // .env.*, not .env.example).
 func needsAsk(call Call) bool {
 	if SideEffect(call.Match.Tool) {
@@ -122,8 +122,9 @@ func needsAsk(call Call) bool {
 	}
 	if call.Outside {
 		// A missing dotenv path still asks: the secret rule does not depend on
-		// whether the file is there right now.
-		return policy.EnvFile(call.Match.Path) || !call.Missing
+		// whether the file is there right now. Scratch space (the temp directory,
+		// the Go module cache) is read freely, like the workspace.
+		return policy.EnvFile(call.Match.Path) || (!call.Missing && !policy.ScratchPath(call.Match.Path))
 	}
 	return policy.EnvFile(call.Match.Path)
 }
@@ -206,6 +207,9 @@ func (r *Rules) Replace(p policy.Policy) {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if p.Root == "" {
+		p.Root = r.pol.Root // a policy reloaded from disk carries no root
+	}
 	r.pol = p
 }
 

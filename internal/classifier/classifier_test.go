@@ -255,3 +255,23 @@ func TestNewPicksBackend(t *testing.T) {
 		t.Errorf("allow = %v", r.Allow)
 	}
 }
+
+// Inline scripts that rewrite project files are ordinary development; both
+// backends are told so, and told where that stops. Without the sentence Jev
+// splits such a script between labels and falls under its threshold.
+func TestInlineScriptsAreDescribed(t *testing.T) {
+	var desc string
+	for _, e := range labels {
+		if e.Label == LocalReversible {
+			desc = e.Desc
+		}
+	}
+	for _, want := range []string{"inline script", "rewrites source", "touches .git internals", "outside the project"} {
+		if !strings.Contains(desc, want) {
+			t.Errorf("local_reversible description lacks %q", want)
+		}
+	}
+	if p := modelSystemPrompt(); !strings.Contains(p, "shutil.rmtree") || !strings.Contains(p, "edits .git internals") {
+		t.Error("model prompt should say where inline scripts turn risky")
+	}
+}

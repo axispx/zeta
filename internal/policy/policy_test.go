@@ -409,10 +409,11 @@ func TestEvaluateWrappers(t *testing.T) {
 		// read-only shortcut sees through them too
 		{"timeout 5 ls", Allow},
 		{"timeout 5 cat .env", Ask},
+		{"command -v go", Allow},
 		// unrecognised forms are judged as written
 		{"timeout go test", Ask},
 		{"timeout --weird 5 go test", Ask},
-		{"command -v go", Ask},
+		{"command -p go test", Ask},
 		{"nice -x go test", Ask},
 		{"env go test", Ask},
 		{"sudo go test", Ask},
@@ -547,7 +548,7 @@ func TestProtectedPath(t *testing.T) {
 		"cat src/a.go":     false,
 		"":                 false,
 	} {
-		if got := ProtectedPath(command); got != want {
+		if got := ProtectedPath(command, "/work"); got != want {
 			t.Errorf("ProtectedPath(%q) = %v, want %v", command, got, want)
 		}
 	}

@@ -282,7 +282,7 @@ func (p Policy) partOutcome(tool, part string) Outcome {
 	if out := p.evaluateOne(Match{Tool: tool, Command: part}); out != Ask {
 		return out
 	}
-	if SafeCommand(part) {
+	if SafeCommand(part, p.Root) {
 		return Allow
 	}
 	return Ask
@@ -420,6 +420,9 @@ func bannedPrefix(prefix []string) bool {
 // Policy is the persisted ordered rule list.
 type Policy struct {
 	Rules []Rule `json:"rules"`
+	// Root is the workspace root, which path checks resolve against. It is
+	// runtime context, never saved with the rules.
+	Root string `json:"-"`
 }
 
 // Match is the policy input for one tool call. Command is empty when unknown.
